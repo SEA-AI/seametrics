@@ -1,8 +1,6 @@
-
-
 <div align="center">
   <p>
-    <a align="center" href="https://ultralytics.com/yolov5" target="_blank">
+    <a align="center" href="https://sea.ai" target="_blank">
       <img width="100%" src="https://scontent.fmga3-2.fna.fbcdn.net/v/t39.30808-6/358438521_1218468902885446_5959423104206105332_n.jpg?_nc_cat=102&ccb=1-7&_nc_sid=e3f864&_nc_ohc=sOQ6OMi2oaMAX_9DXGO&_nc_ht=scontent.fmga3-2.fna&oh=00_AfCI6o2sGAVx9RkV3JXeu5ku-PMFuf-uHaIAS0SBQrQpjw&oe=64F0E901"></a>
   </p>
 <br>
