@@ -142,12 +142,9 @@ def get_values(view: fo.DatasetView,
     values = []
 
     if view.media_type == 'video':
-        sequence_names = view.distinct("sequence")
-        for sequence_name in sequence_names:
-            sequence_view = view.match(F("sequence") == sequence_name)
-            values.extend(sequence_view.values(f"frames[].{field_name}"))
+        values = view.values(f"frames[].{field_name}")
     elif view.media_type == 'image':
-        values.extend(view.values(field_name))
+        values = view.values(field_name)
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
@@ -162,11 +159,16 @@ def compute_metrics(view: fo.DatasetView,
     """Computes metrics for a given dataset view."""
 
     print("Collecting bboxes, labels and scores...")
-    gt_bboxes_per_frame = get_values(f"{gt_field}.detections.bounding_box")
-    gt_labels_per_frame = get_values(f"{gt_field}.detections.label")
-    dt_bboxes_per_frame = get_values(f"{pred_field}.detections.bounding_box")
-    dt_labels_per_frame = get_values(f"{pred_field}.detections.label")
-    dt_scores_per_frame = get_values(f"{pred_field}.detections.confidence")
+    gt_bboxes_per_frame = get_values(view,
+                                     f"{gt_field}.detections.bounding_box")
+    gt_labels_per_frame = get_values(view,
+                                     f"{gt_field}.detections.label")
+    dt_bboxes_per_frame = get_values(view,
+                                     f"{pred_field}.detections.bounding_box")
+    dt_labels_per_frame = get_values(view,
+                                     f"{pred_field}.detections.label")
+    dt_scores_per_frame = get_values(view,
+                                     f"{pred_field}.detections.confidence")
 
     print("Converting to metric format...")
     target, preds = prepare_data_for_det_metrics(
