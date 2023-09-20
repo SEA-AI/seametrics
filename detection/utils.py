@@ -122,10 +122,38 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
     target, preds = _to_np_format(
         gt_bboxes_per_frame, gt_labels_per_frame,
         dt_bboxes_per_frame, dt_labels_per_frame, dt_scores_per_frame)
+
     if _TORCHMETRICS_AVAILABLE:
         target, preds = _to_tm_format(target, preds)
 
     return target, preds
+
+
+def get_relevant_fields(view: fo.DatasetView,
+                        fields: list,  # fiftyone field names
+                        ):
+    """
+    Returns a view with only the relevant fields to prevent memory issues.
+
+    Parameters
+    ----------
+    view: fo.DatasetView
+        Dataset view
+    fields: list
+        List of fiftyone field names. You can use dot notation (embedded.field.name).
+
+    Returns
+    -------
+    fo.DatasetView
+        Dataset view with only the relevant fields.
+    """
+    if view.media_type == 'video':
+        return view.select_fields([f"frames.{f}" if view.has_frame_field(f) else f
+                                   for f in fields])
+    elif view.media_type == 'image':
+        return view.select_fields(fields)
+    else:
+        raise ValueError(f"Unsupported media type: {view.media_type}")
 
 
 def get_values(view: fo.DatasetView,
@@ -138,17 +166,19 @@ def get_values(view: fo.DatasetView,
         Dataset view
     field_name: str
         Fiftyone field name. You can use dot notation (embedded.field.name).
+
+    Returns
+    -------
+    list
+        List of values.
     """
-    values = []
 
     if view.media_type == 'video':
-        values = view.values(f"frames[].{field_name}")
+        return view.values(f"frames[].{field_name}")
     elif view.media_type == 'image':
-        values = view.values(field_name)
+        return view.values(field_name)
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
-
-    return values
 
 
 def compute_metrics(view: fo.DatasetView,
@@ -157,6 +187,8 @@ def compute_metrics(view: fo.DatasetView,
                     metric_fn: callable,  # torchmetrics metric
                     metric_kwargs: dict):  # kwargs for metric_fn
     """Computes metrics for a given dataset view."""
+
+    view = get_relevant_fields(view, [gt_field, pred_field])
 
     print("Collecting bboxes, labels and scores...")
     gt_bboxes_per_frame = get_values(view,
@@ -264,6 +296,8 @@ def compute_and_save_sequence_metrics(
     csv_name += ".csv"
     csv_path = os.path.join(csv_dirpath, csv_name)
     print(f"Saving metrics to {csv_path}")
+
+    view = get_relevant_fields(view, [gt_field, pred_field, 'sequence'])
 
     sequence_results = {}
     sequence_names = view.distinct("sequence")
