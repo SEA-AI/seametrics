@@ -122,10 +122,63 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
     target, preds = _to_np_format(
         gt_bboxes_per_frame, gt_labels_per_frame,
         dt_bboxes_per_frame, dt_labels_per_frame, dt_scores_per_frame)
+
     if _TORCHMETRICS_AVAILABLE:
         target, preds = _to_tm_format(target, preds)
 
     return target, preds
+
+
+def get_relevant_fields(view: fo.DatasetView,
+                        fields: list,  # fiftyone field names
+                        ):
+    """
+    Returns a view with only the relevant fields to prevent memory issues.
+
+    Parameters
+    ----------
+    view: fo.DatasetView
+        Dataset view
+    fields: list
+        List of fiftyone field names. You can use dot notation (embedded.field.name).
+
+    Returns
+    -------
+    fo.DatasetView
+        Dataset view with only the relevant fields.
+    """
+    if view.media_type == 'video':
+        return view.select_fields([f"frames.{f}" if view.has_frame_field(f) else f
+                                   for f in fields])
+    elif view.media_type == 'image':
+        return view.select_fields(fields)
+    else:
+        raise ValueError(f"Unsupported media type: {view.media_type}")
+
+
+def get_values(view: fo.DatasetView,
+               field_name: str,  # fiftyone field name
+               ):
+    """
+    Parameters
+    ----------
+    view: fo.DatasetView
+        Dataset view
+    field_name: str
+        Fiftyone field name. You can use dot notation (embedded.field.name).
+
+    Returns
+    -------
+    list
+        List of values.
+    """
+
+    if view.media_type == 'video':
+        return view.values(f"frames[].{field_name}")
+    elif view.media_type == 'image':
+        return view.values(field_name)
+    else:
+        raise ValueError(f"Unsupported media type: {view.media_type}")
 
 
 def compute_metrics(view: fo.DatasetView,
@@ -135,31 +188,19 @@ def compute_metrics(view: fo.DatasetView,
                     metric_kwargs: dict):  # kwargs for metric_fn
     """Computes metrics for a given dataset view."""
 
+    view = get_relevant_fields(view, [gt_field, pred_field])
+
     print("Collecting bboxes, labels and scores...")
-    if view.media_type == 'video':
-        gt_bboxes_per_frame = view.values(
-            f"frames[].{gt_field}.detections.bounding_box")
-        gt_labels_per_frame = view.values(
-            f"frames[].{gt_field}.detections.label")
-        dt_bboxes_per_frame = view.values(
-            f"frames[].{pred_field}.detections.bounding_box")
-        dt_labels_per_frame = view.values(
-            f"frames[].{pred_field}.detections.label")
-        dt_scores_per_frame = view.values(
-            f"frames[].{pred_field}.detections.confidence")
-    elif view.media_type == 'image':
-        gt_bboxes_per_frame = view.values(
-            f"{gt_field}.detections.bounding_box")
-        gt_labels_per_frame = view.values(
-            f"{gt_field}.detections.label")
-        dt_bboxes_per_frame = view.values(
-            f"{pred_field}.detections.bounding_box")
-        dt_labels_per_frame = view.values(
-            f"{pred_field}.detections.label")
-        dt_scores_per_frame = view.values(
-            f"{pred_field}.detections.confidence")
-    else:
-        raise ValueError(f"Unsupported media type: {view.media_type}")
+    gt_bboxes_per_frame = get_values(view,
+                                     f"{gt_field}.detections.bounding_box")
+    gt_labels_per_frame = get_values(view,
+                                     f"{gt_field}.detections.label")
+    dt_bboxes_per_frame = get_values(view,
+                                     f"{pred_field}.detections.bounding_box")
+    dt_labels_per_frame = get_values(view,
+                                     f"{pred_field}.detections.label")
+    dt_scores_per_frame = get_values(view,
+                                     f"{pred_field}.detections.confidence")
 
     print("Converting to metric format...")
     target, preds = prepare_data_for_det_metrics(
@@ -256,6 +297,8 @@ def compute_and_save_sequence_metrics(
     csv_path = os.path.join(csv_dirpath, csv_name)
     print(f"Saving metrics to {csv_path}")
 
+    view = get_relevant_fields(view, [gt_field, pred_field, 'sequence'])
+
     sequence_results = {}
     sequence_names = view.distinct("sequence")
     for sequence_name in tqdm(sequence_names):
@@ -281,8 +324,8 @@ def compute_and_save_sequence_metrics(
     df.to_csv(csv_path, index=False)
 
 
-def get_confidence_metric_vals(cocoeval: np.ndarray, 
-                               T: int, R:int, K:int, A:int, M:int):
+def get_confidence_metric_vals(cocoeval: np.ndarray,
+                               T: int, R: int, K: int, A: int, M: int):
     """Get confidence values for plotting:
     - recall vs confidence
     - precision vs confidence
