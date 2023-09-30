@@ -146,6 +146,22 @@ class MetricAP():
         """
         self.mAP = np.mean(list(self.AP.values()))
         return self.mAP
+    
+    def calc_precision_recall(self):
+        """calculate the precision and recall for each label
+
+        Returns:
+            dict: presicion and recall for each label
+        """
+        eps = 1e-8
+        precision = {}
+        recall = {}
+        labels = list(self.all_detections_sorted.keys())
+        for label in labels:
+            TP_len = len([elem for elem in self.all_detections_sorted[label] if elem[6] == 1 ])
+            precision[label] = TP_len / (self.detection_count[label]+ eps)
+            recall[label] = TP_len / (self.annotation_count[label] + eps)
+        return precision, recall
         
 
     @staticmethod
