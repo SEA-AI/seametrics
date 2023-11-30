@@ -116,7 +116,7 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
         f" ({len(gt_bboxes_per_frame)} vs {len(dt_bboxes_per_frame)})"
 
     if all([item is None for sublist in dt_scores_per_frame for item in sublist]):
-        print("All scores are None, setting them to 1.0")
+        # print("All scores are None, setting them to 1.0")
         dt_scores_per_frame = [[1.0] * len(x) for x in dt_scores_per_frame]
 
     target, preds = _to_np_format(
@@ -179,6 +179,68 @@ def get_values(view: fo.DatasetView,
         return view.values(field_name)
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
+
+
+def smart_compute_metrics(view: fo.DatasetView,
+                          metric_fn: callable,   # torchmetrics metric
+                          metric_kwargs: dict,   # kwargs for metric_fn
+                          gt_field: str,         # fiftyone field name
+                          pred_field: str,       # fiftyone field name
+                          conf_thr: float = 0):  # confidence threshold
+    """If the dataset is a video dataset, it updates the metric for each
+    sequence and compute is called only once in the end. If the dataset is an
+    image dataset, it computes the metric in a single pass."""
+
+    # init metric
+    metric = metric_fn(**metric_kwargs)
+    print("Collecting bboxes, labels and scores...")
+
+    if view.media_type == 'video':
+        sequence_names = set(view.values("sequence"))
+        for sequence_name in tqdm(sequence_names):
+            target, preds = get_target_and_preds(
+                (
+                    view
+                    .match(F("sequence") == sequence_name)
+                ),
+                gt_field,
+                pred_field
+            )
+            metric.update(preds, target)
+
+    elif view.media_type == 'image':
+        target, preds = get_target_and_preds(view, gt_field, pred_field)
+        metric.update(preds, target)
+
+    else:
+        raise ValueError(f"Unsupported media type: {view.media_type}")
+
+    print("Computing metrics...")
+    return metric.compute()
+
+
+def get_target_and_preds(view: fo.DatasetView,
+                         gt_field: str,  # fiftyone field name
+                         pred_field: str,  # fiftyone field name
+                         ):
+    view = get_relevant_fields(view, [gt_field, pred_field])
+
+    gt_bboxes_per_frame = get_values(view,
+                                     f"{gt_field}.detections.bounding_box")
+    gt_labels_per_frame = get_values(view,
+                                     f"{gt_field}.detections.label")
+    dt_bboxes_per_frame = get_values(view,
+                                     f"{pred_field}.detections.bounding_box")
+    dt_labels_per_frame = get_values(view,
+                                     f"{pred_field}.detections.label")
+    dt_scores_per_frame = get_values(view,
+                                     f"{pred_field}.detections.confidence")
+
+    target, preds = prepare_data_for_det_metrics(
+        gt_bboxes_per_frame, gt_labels_per_frame,
+        dt_bboxes_per_frame, dt_labels_per_frame, dt_scores_per_frame)
+
+    return target, preds
 
 
 def compute_metrics(view: fo.DatasetView,
