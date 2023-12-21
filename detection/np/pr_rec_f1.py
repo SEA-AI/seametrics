@@ -201,7 +201,6 @@ class PrecisionRecallF1Support:
         debug: bool = False,
         **kwargs: Any,
     ) -> None:
-        super().__init__(**kwargs)
 
         allowed_box_formats = ("xyxy", "xywh", "cxcywh")
         if box_format not in allowed_box_formats:
