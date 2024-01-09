@@ -1,7 +1,7 @@
 <div align="center">
   <p>
     <a align="center" href="https://sea.ai" target="_blank">
-      <img width="100%" src="https://github.com/SEA-AI/metrics/assets/35779409/506f82a7-6a02-4ae3-ba0b-a73f0fcbd737"></a>
+      <img width="100%" src="https://github.com/SEA-AI/metrics/assets/35779409/27ea0f8a-0a2b-4db1-9f0a-45003848f7d0"></a>
   </p>
 <br>
 </div>
