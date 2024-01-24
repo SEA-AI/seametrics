@@ -1,9 +1,8 @@
 <div align="center">
   <p>
     <a align="center" href="https://sea.ai" target="_blank">
-      <img width="100%" src="https://yt3.googleusercontent.com/qYGJb4QsdxqLAdxbX0_JJBh-taweBphBBDqeZJkMdd4bWAEEzN6baxVwki4a-nFnEhVbQjiW=w1060-fcrop64=1,00005a57ffffa5a8-k-c0xffffffff-no-nd-rj"></a>
+      <img width="100%" src="https://github.com/SEA-AI/metrics/assets/35779409/e685e826-fff5-4ee2-9764-60ff71e047a2"></a>
   </p>
-<br>
 </div>
 
 # <div align="center">metrics</div>
