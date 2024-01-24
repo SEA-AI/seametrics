@@ -8,7 +8,7 @@ class TrackingMetrics:
         self.metrics = ['num_frames', 'mota', 'motp', 'idf1', 'idp', 'idr', 'mostly_tracked',
                         'partially_tracked', 'mostly_lost', 'num_switches', 'num_false_positives',
                         'num_misses', 'num_fragmentations', 'precision', 'recall', 'num_unique_objects']
-
+        self.failed_sequences = {}
         for key, value in kwargs.items():
             setattr(self, key, value)
         
@@ -36,6 +36,15 @@ class TrackingMetrics:
             summary = mh.compute(self.accumulators[sequence], metrics=self.metrics)
 
         return summary.to_dict()
-    
+    def log_failed_sequence(self, sequence_name: str, gt: list, pred: list) -> None:
+        if len(gt) == 0 and len(pred) == 0:
+            self.failed_sequences[sequence_name] = "No ground truth and no predictions"
+        elif len(gt) == 0:
+            self.failed_sequences[sequence_name] = "No ground truth"
+        elif len(pred) == 0:
+            self.failed_sequences[sequence_name] = "No predictions"
+        else:
+            self.failed_sequences[sequence_name] = "Missing IDs from GT or Pred"
+
     def metrics_help(self): 
         print(mm.metrics.create().list_metrics_markdown())

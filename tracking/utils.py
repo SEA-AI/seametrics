@@ -42,7 +42,9 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
                     in_fmt="xywh",
                     out_fmt="xyxy"
                     )
-                    target.append([idx+1, t_id, denormalized_box[0], denormalized_box[1], denormalized_box[2], denormalized_box[3], 1, -1, -1, -1])
+                    #eliminate annotations with no track index (eg: sun_reflections)
+                    if t_id is not None:
+                        target.append([idx+1, t_id, denormalized_box[0], denormalized_box[1], denormalized_box[2], denormalized_box[3], 1, -1, -1, -1])
 
         for idx, (bbox, track_id, score) in enumerate(zip(dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame)):
             if bbox is not None:
@@ -293,11 +295,10 @@ def compute_metrics_by_sequence(
         )
     for sequence in sequence_results.keys():
         try:
-            
             metric.update(sequence_results[sequence][0], sequence_results[sequence][1], sequence)
-        except:
-            print(f"Sequence {sequence} failed")
-        
+        except Exception as e:
+            metric.log_failed_sequence(sequence, sequence_results[sequence][0], sequence_results[sequence][1])
+
     return metric
 
 def compute_sizes(view: fo.DatasetView,
