@@ -56,7 +56,7 @@ if _PYCOCOTOOLS_AVAILABLE:
     import pycocotools.mask as mask_utils
     from pycocotools.coco import COCO
     # from pycocotools.cocoeval import COCOeval
-    from ..cocoeval import COCOeval  # use our own version of COCOeval
+    from metrics.detection.cocoeval import COCOeval  # use our own version of COCOeval
 else:
     COCO, COCOeval = None, None
     mask_utils = None

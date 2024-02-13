@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sea.metrics"
-version = "0.0.2"
+version = "0.0.8"
 authors = [
   { name="Kevin Serrano" },
   { name="Vasco Rodrigues" },
@@ -32,5 +32,7 @@ Homepage = "https://github.com/SEA-AI/metrics"
 Issues = "https://github.com/SEA-AI/metrics/issues"
 
 # Tools settings
-[tool.setuptools]
-packages = { find = { where = ["metrics"], include = ["sea.metrics"] } }
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["."] by default)
+# include = ["metrics*"]  # package names should match these glob patterns (["*"] by default)
+exclude = ["notebooks*"]  # exclude packages matching these glob patterns (empty by default)
