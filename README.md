@@ -7,7 +7,7 @@
 
 # <div align="center">seametrics</div>
 
-Library of custom metrics used to measure performance of our A.I. pipelines.
+Library built by SEA.AI to help measure and improve the performance of AI projects.
 
 ## <div align="center">Documentation</div>
 
@@ -15,8 +15,21 @@ Library of custom metrics used to measure performance of our A.I. pipelines.
 <summary>Install</summary>
 
 ```bash
-pip install git+https://github.com/SEA-AI/seametrics@main
+pip install git+https://github.com/SEA-AI/seametrics
 ```
+
+If you want to test a specific branch
+```bash
+pip install git+https://github.com/SEA-AI/seametrics@branch-names
+```
+
+If you want to install additional dependencies.
+```bash
+pip install "seametrics[fiftyone] @ git+https://github.com/SEA-AI/seametrics"
+```
+
+> For more information about the optional dependencies have a look at the `[project.optional-dependencies]` section of the `pyproject.toml`.
+
 </details>
 
 <details>
