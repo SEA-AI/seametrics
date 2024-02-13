@@ -12,32 +12,63 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NOTE: This metric is based on torchmetrics.detection.mean_ap and
+# NOTE: This metric was copied from torchmetrics.detection.mean_ap and
 # then modified to support the evaluation of precision, recall, f1 and support
 # for object detection. It can also be used to evaluate the mean average precision
-# but some modifications are needed. Additionally, numpy is used instead of torch
+# but some modifications are needed.
 
 import contextlib
 import io
 import json
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from typing_extensions import Literal
-import numpy as np
-from metrics.detection.utils import _fix_empty_arrays, _input_validator, box_convert
 
-try:
+import numpy as np
+import torch
+from torch import Tensor
+from torch import distributed as dist
+from typing_extensions import Literal
+
+from torchmetrics.detection.helpers import _fix_empty_tensors, _input_validator
+from torchmetrics.metric import Metric
+from torchmetrics.utilities.imports import (
+    _MATPLOTLIB_AVAILABLE,
+    _PYCOCOTOOLS_AVAILABLE,
+    _TORCHVISION_GREATER_EQUAL_0_8,
+)
+
+if not _MATPLOTLIB_AVAILABLE:
+    __doctest_skip__ = ["MeanAveragePrecision.plot"]
+
+
+if _TORCHVISION_GREATER_EQUAL_0_8:
+    from torchvision.ops import box_convert
+else:
+    box_convert = None
+    __doctest_skip__ = [
+        "MeanAveragePrecision.plot",
+        "MeanAveragePrecision",
+        "MeanAveragePrecision.tm_to_coco",
+        "MeanAveragePrecision.coco_to_tm",
+    ]
+
+
+if _PYCOCOTOOLS_AVAILABLE:
     import pycocotools.mask as mask_utils
     from pycocotools.coco import COCO
     # from pycocotools.cocoeval import COCOeval
-    from ..cocoeval import COCOeval  # use our own version of COCOeval
-except ImportError:
-    raise ModuleNotFoundError(
-        "`MAP` metric requires that `pycocotools` installed."
-        " Please install with `pip install pycocotools`"
-    )
+    from seametrics.detection.cocoeval import COCOeval  # use our own version of COCOeval
+else:
+    COCO, COCOeval = None, None
+    mask_utils = None
+    __doctest_skip__ = [
+        "MeanAveragePrecision.plot",
+        "MeanAveragePrecision",
+        "MeanAveragePrecision.tm_to_coco",
+        "MeanAveragePrecision.coco_to_tm",
+    ]
 
 
-class PrecisionRecallF1Support:
+class PrecisionRecallF1Support(Metric):
     r"""Compute the Precision, Recall, F1 and Support scores for object detection.
 
     - Precision = :math:`\frac{TP}{TP + FP}`
@@ -49,29 +80,29 @@ class PrecisionRecallF1Support:
 
     - ``preds`` (:class:`~List`): A list consisting of dictionaries each containing the key-values
       (each dictionary corresponds to a single image). Parameters that should be provided per dict:
-        - boxes: (:class:`~np.ndarray`) of shape ``(num_boxes, 4)`` containing ``num_boxes`` 
+        - boxes: (:class:`~torch.FloatTensor`) of shape ``(num_boxes, 4)`` containing ``num_boxes`` 
         detection boxes of the format specified in the constructor. By default, this method expects 
         ``(xmin, ymin, xmax, ymax)`` in absolute image coordinates.
-        - scores: :class:`~np.ndarray` of shape ``(num_boxes)`` containing detection scores 
+        - scores: :class:`~torch.FloatTensor` of shape ``(num_boxes)`` containing detection scores 
         for the boxes.
-        - labels: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0-indexed detection 
+        - labels: :class:`~torch.IntTensor` of shape ``(num_boxes)`` containing 0-indexed detection 
         classes for the boxes.
         - masks: :class:`~torch.bool` of shape ``(num_boxes, image_height, image_width)`` containing 
         boolean masks. Only required when `iou_type="segm"`.
 
     - ``target`` (:class:`~List`) A list consisting of dictionaries each containing the key-values
       (each dictionary corresponds to a single image). Parameters that should be provided per dict:
-        - boxes: :class:`~np.ndarray` of shape ``(num_boxes, 4)`` containing ``num_boxes`` 
+        - boxes: :class:`~torch.FloatTensor` of shape ``(num_boxes, 4)`` containing ``num_boxes`` 
         ground truth boxes of the format specified in the constructor. By default, this method 
         expects ``(xmin, ymin, xmax, ymax)`` in absolute image coordinates.
-        - labels: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0-indexed ground 
+        - labels: :class:`~torch.IntTensor` of shape ``(num_boxes)`` containing 0-indexed ground 
         truth classes for the boxes.
         - masks: :class:`~torch.bool` of shape ``(num_boxes, image_height, image_width)`` 
         containing boolean masks. Only required when `iou_type="segm"`.
-        - iscrowd: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0/1 values 
+        - iscrowd: :class:`~torch.IntTensor` of shape ``(num_boxes)`` containing 0/1 values 
         indicating whether the bounding box/masks indicate a crowd of objects. Value is optional, 
         and if not provided it will automatically be set to 0.
-        - area: :class:`~np.ndarray` of shape ``(num_boxes)`` containing the area of the 
+        - area: :class:`~torch.FloatTensor` of shape ``(num_boxes)`` containing the area of the 
         object. Value if optional, and if not provided will be automatically calculated based 
         on the bounding box/masks provided. Only affects when 'area_ranges' is provided.
 
@@ -127,6 +158,10 @@ class PrecisionRecallF1Support:
         kwargs: Additional keyword arguments, see :ref:`Metric kwargs` for more info.
 
     Raises:
+        ModuleNotFoundError:
+            If ``pycocotools`` is not installed
+        ModuleNotFoundError:
+            If ``torchvision`` is not installed or version installed is lower than 0.8.0
         ValueError:
             If ``box_format`` is not one of ``"xyxy"``, ``"xywh"`` or ``"cxcywh"``
         ValueError:
@@ -143,19 +178,19 @@ class PrecisionRecallF1Support:
             If ``area_ranges_labels`` is not None or a list of strings
 
     Example:
-        >>> import numpy as np
-        >>> from metrics.detection import MeanAveragePrecision
+        >>> from torch import tensor
+        >>> from torchmetrics.detection import MeanAveragePrecision
         >>> preds = [
         ...   dict(
-        ...     boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
-        ...     scores=np.array([0.536]),
-        ...     labels=np.array([0]),
+        ...     boxes=tensor([[258.0, 41.0, 606.0, 285.0]]),
+        ...     scores=tensor([0.536]),
+        ...     labels=tensor([0]),
         ...   )
         ... ]
         >>> target = [
         ...   dict(
-        ...     boxes=np.array([[214.0, 41.0, 562.0, 285.0]]),
-        ...     labels=np.array([0]),
+        ...     boxes=tensor([[214.0, 41.0, 562.0, 285.0]]),
+        ...     labels=tensor([0]),
         ...   )
         ... ]
         >>> metric = PrecisionRecallF1Support()
@@ -180,13 +215,13 @@ class PrecisionRecallF1Support:
     plot_lower_bound: float = 0.0
     plot_upper_bound: float = 1.0
 
-    detections: List[np.ndarray]
-    detection_scores: List[np.ndarray]
-    detection_labels: List[np.ndarray]
-    groundtruths: List[np.ndarray]
-    groundtruth_labels: List[np.ndarray]
-    groundtruth_crowds: List[np.ndarray]
-    groundtruth_area: List[np.ndarray]
+    detections: List[Tensor]
+    detection_scores: List[Tensor]
+    detection_labels: List[Tensor]
+    groundtruths: List[Tensor]
+    groundtruth_labels: List[Tensor]
+    groundtruth_crowds: List[Tensor]
+    groundtruth_area: List[Tensor]
 
     def __init__(
         self,
@@ -201,6 +236,18 @@ class PrecisionRecallF1Support:
         debug: bool = False,
         **kwargs: Any,
     ) -> None:
+        super().__init__(**kwargs)
+
+        if not _PYCOCOTOOLS_AVAILABLE:
+            raise ModuleNotFoundError(
+                "`MAP` metric requires that `pycocotools` installed."
+                " Please install with `pip install pycocotools` or `pip install torchmetrics[detection]`"
+            )
+        if not _TORCHVISION_GREATER_EQUAL_0_8:
+            raise ModuleNotFoundError(
+                "`MeanAveragePrecision` metric requires that `torchvision` version 0.8.0 or newer is installed."
+                " Please install with `pip install torchvision>=0.8` or `pip install torchmetrics[detection]`."
+            )
 
         allowed_box_formats = ("xyxy", "xywh", "cxcywh")
         if box_format not in allowed_box_formats:
@@ -218,14 +265,14 @@ class PrecisionRecallF1Support:
             raise ValueError(
                 f"Expected argument `iou_thresholds` to either be `None` or a list of floats but got {iou_thresholds}"
             )
-        self.iou_thresholds = iou_thresholds or np.linspace(
+        self.iou_thresholds = iou_thresholds or torch.linspace(
             0.5, 0.95, round((0.95 - 0.5) / 0.05) + 1).tolist()
 
         if rec_thresholds is not None and not isinstance(rec_thresholds, list):
             raise ValueError(
                 f"Expected argument `rec_thresholds` to either be `None` or a list of floats but got {rec_thresholds}"
             )
-        self.rec_thresholds = rec_thresholds or np.linspace(
+        self.rec_thresholds = rec_thresholds or torch.linspace(
             0.0, 1.00, round(1.00 / 0.01) + 1).tolist()
 
         if max_detection_thresholds is not None and not isinstance(max_detection_thresholds, list):
@@ -233,8 +280,8 @@ class PrecisionRecallF1Support:
                 f"Expected argument `max_detection_thresholds` to either be `None` or a list of ints"
                 f" but got {max_detection_thresholds}"
             )
-        max_det_thr = np.sort(np.array(
-            max_detection_thresholds or [100], dtype=np.uint))
+        max_det_thr, _ = torch.sort(torch.tensor(
+            max_detection_thresholds or [100], dtype=torch.int))
         self.max_detection_thresholds = max_det_thr.tolist()
 
         # check area ranges
@@ -248,8 +295,7 @@ class PrecisionRecallF1Support:
                     raise ValueError(
                         f"Expected argument `area_ranges` to be a list of lists of length 2 but got {area_ranges}"
                     )
-        self.area_ranges = area_ranges if area_ranges is not None else [
-            [0**2, 1e5**2]]
+        self.area_ranges = area_ranges if area_ranges is not None else [[0**2, 1e5**2]]
 
         if area_ranges_labels is not None:
             if area_ranges is None:
@@ -266,8 +312,7 @@ class PrecisionRecallF1Support:
                     f"Expected argument `area_ranges_labels` to be a list of length {len(area_ranges)}"
                     f" but got {area_ranges_labels}"
                 )
-        self.area_ranges_labels = area_ranges_labels if area_ranges_labels is not None else [
-            "all"]
+        self.area_ranges_labels = area_ranges_labels if area_ranges_labels is not None else ["all"]
 
         # if not isinstance(class_metrics, bool):
         #     raise ValueError(
@@ -275,38 +320,29 @@ class PrecisionRecallF1Support:
         # self.class_metrics = class_metrics
 
         if not isinstance(class_agnostic, bool):
-            raise ValueError(
-                "Expected argument `class_agnostic` to be a boolean")
+            raise ValueError("Expected argument `class_agnostic` to be a boolean")
         self.class_agnostic = class_agnostic
 
         if not isinstance(debug, bool):
             raise ValueError("Expected argument `debug` to be a boolean")
         self.debug = debug
 
-        self.detections = []
-        self.detection_scores = []
-        self.detection_labels = []
-        self.groundtruths = []
-        self.groundtruth_labels = []
-        self.groundtruth_crowds = []
-        self.groundtruth_area = []
+        self.add_state("detections", default=[], dist_reduce_fx=None)
+        self.add_state("detection_scores", default=[], dist_reduce_fx=None)
+        self.add_state("detection_labels", default=[], dist_reduce_fx=None)
+        self.add_state("groundtruths", default=[], dist_reduce_fx=None)
+        self.add_state("groundtruth_labels", default=[], dist_reduce_fx=None)
+        self.add_state("groundtruth_crowds", default=[], dist_reduce_fx=None)
+        self.add_state("groundtruth_area", default=[], dist_reduce_fx=None)
 
-        # self.add_state("detections", default=[], dist_reduce_fx=None)
-        # self.add_state("detection_scores", default=[], dist_reduce_fx=None)
-        # self.add_state("detection_labels", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruths", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruth_labels", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruth_crowds", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruth_area", default=[], dist_reduce_fx=None)
-
-    def update(self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]) -> None:
+    def update(self, preds: List[Dict[str, Tensor]], target: List[Dict[str, Tensor]]) -> None:
         """Update metric state.
 
         Raises:
             ValueError:
-                If ``preds`` is not of type (:class:`~List[Dict[str, np.ndarray]]`)
+                If ``preds`` is not of type (:class:`~List[Dict[str, Tensor]]`)
             ValueError:
-                If ``target`` is not of type ``List[Dict[str, np.ndarray]]``
+                If ``target`` is not of type ``List[Dict[str, Tensor]]``
             ValueError:
                 If ``preds`` and ``target`` are not of the same length
             ValueError:
@@ -334,9 +370,9 @@ class PrecisionRecallF1Support:
             self.groundtruths.append(groundtruths)
             self.groundtruth_labels.append(item["labels"])
             self.groundtruth_crowds.append(
-                item.get("iscrowd", np.zeros_like(item["labels"])))
+                item.get("iscrowd", torch.zeros_like(item["labels"])))
             self.groundtruth_area.append(
-                item.get("area", np.zeros_like(item["labels"])))
+                item.get("area", torch.zeros_like(item["labels"])))
 
     def compute(self) -> dict:
         """Computes the metric."""
@@ -353,7 +389,7 @@ class PrecisionRecallF1Support:
             coco_preds.createIndex()
 
             coco_eval = COCOeval(coco_target, coco_preds,
-                                 iouType=self.iou_type)
+                                    iouType=self.iou_type)
             coco_eval.params.iouThrs = np.array(
                 self.iou_thresholds, dtype=np.float64)
             coco_eval.params.recThrs = np.array(
@@ -365,19 +401,21 @@ class PrecisionRecallF1Support:
 
             coco_eval.evaluate()
             coco_eval.accumulate()
-
+        
         if self.debug:
             print(f.getvalue())
 
         metrics = coco_eval.summarize()
         return metrics
+    
+    
 
     @staticmethod
-    def coco_to_np(
+    def coco_to_tm(
         coco_preds: str,
         coco_target: str,
         iou_type: Literal["bbox", "segm"] = "bbox",
-    ) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
+    ) -> Tuple[List[Dict[str, Tensor]], List[Dict[str, Tensor]]]:
         """Utility function for converting .json coco format files to the input format of this metric.
 
         The function accepts a file for the predictions and a file for the target in coco format and converts them to
@@ -449,29 +487,29 @@ class PrecisionRecallF1Support:
             name = "boxes" if iou_type == "bbox" else "masks"
             batched_preds.append(
                 {
-                    name: np.array(
-                        np.array(preds[key]["boxes"]), dtype=np.float32)
+                    name: torch.tensor(
+                        np.array(preds[key]["boxes"]), dtype=torch.float32)
                     if iou_type == "bbox"
-                    else np.array(np.array(preds[key]["masks"]), dtype=np.uint8),
-                    "scores": np.array(preds[key]["scores"], dtype=np.float32),
-                    "labels": np.array(preds[key]["labels"], dtype=np.int32),
+                    else torch.tensor(np.array(preds[key]["masks"]), dtype=torch.uint8),
+                    "scores": torch.tensor(preds[key]["scores"], dtype=torch.float32),
+                    "labels": torch.tensor(preds[key]["labels"], dtype=torch.int32),
                 }
             )
             batched_target.append(
                 {
-                    name: np.array(
-                        target[key]["boxes"], dtype=np.float32)
+                    name: torch.tensor(
+                        target[key]["boxes"], dtype=torch.float32)
                     if iou_type == "bbox"
-                    else np.array(np.array(target[key]["masks"]), dtype=np.uint8),
-                    "labels": np.array(target[key]["labels"], dtype=np.int32),
-                    "iscrowd": np.array(target[key]["iscrowd"], dtype=np.int32),
-                    "area": np.array(target[key]["area"], dtype=np.float32),
+                    else torch.tensor(np.array(target[key]["masks"]), dtype=torch.uint8),
+                    "labels": torch.tensor(target[key]["labels"], dtype=torch.int32),
+                    "iscrowd": torch.tensor(target[key]["iscrowd"], dtype=torch.int32),
+                    "area": torch.tensor(target[key]["area"], dtype=torch.float32),
                 }
             )
 
         return batched_preds, batched_target
 
-    def np_to_coco(self, name: str = "np_map_input") -> None:
+    def tm_to_coco(self, name: str = "tm_map_input") -> None:
         """Utility function for converting the input for this metric to coco format and saving it to a json file.
 
         This function should be used after calling `.update(...)` or `.forward(...)` on all data that should be written
@@ -480,26 +518,26 @@ class PrecisionRecallF1Support:
 
         Args:
             name: Name of the output file, which will be appended with "_preds.json" and "_target.json"
-        
+
         Example:
-            >>> import numpy as np
-            >>> from metrics.detection import MeanAveragePrecision
+            >>> from torch import tensor
+            >>> from torchmetrics.detection import MeanAveragePrecision
             >>> preds = [
             ...   dict(
-            ...     boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
-            ...     scores=np.array([0.536]),
-            ...     labels=np.array([0]),
+            ...     boxes=tensor([[258.0, 41.0, 606.0, 285.0]]),
+            ...     scores=tensor([0.536]),
+            ...     labels=tensor([0]),
             ...   )
             ... ]
             >>> target = [
             ...   dict(
-            ...     boxes=np.array([[214.0, 41.0, 562.0, 285.0]]),
-            ...     labels=np.array([0]),
+            ...     boxes=tensor([[214.0, 41.0, 562.0, 285.0]]),
+            ...     labels=tensor([0]),
             ...   )
             ... ]
-            >>> metric = PrecisionRecallF1Support()
+            >>> metric = MeanAveragePrecision()
             >>> metric.update(preds, target)
-            >>> metric.np_to_coco("np_map_input")  # doctest: +SKIP
+            >>> metric.tm_to_coco("tm_map_input")  # doctest: +SKIP
 
         """
         target_dataset = self._get_coco_format(
@@ -516,7 +554,7 @@ class PrecisionRecallF1Support:
         with open(f"{name}_target.json", "w") as f:
             f.write(target_json)
 
-    def _get_safe_item_values(self, item: Dict[str, Any]) -> Union[np.ndarray, Tuple]:
+    def _get_safe_item_values(self, item: Dict[str, Any]) -> Union[Tensor, Tuple]:
         """Convert and return the boxes or masks from the item depending on the iou_type.
 
         Args:
@@ -527,14 +565,14 @@ class PrecisionRecallF1Support:
 
         """
         if self.iou_type == "bbox":
-            boxes = _fix_empty_arrays(item["boxes"])
-            if boxes.size > 0:
+            boxes = _fix_empty_tensors(item["boxes"])
+            if boxes.numel() > 0:
                 boxes = box_convert(
                     boxes, in_fmt=self.box_format, out_fmt="xywh")
             return boxes
         if self.iou_type == "segm":
             masks = []
-            for i in item["masks"]:
+            for i in item["masks"].cpu().numpy():
                 rle = mask_utils.encode(np.asfortranarray(i))
                 masks.append((tuple(rle["size"]), rle["counts"]))
             return tuple(masks)
@@ -542,18 +580,17 @@ class PrecisionRecallF1Support:
 
     def _get_classes(self) -> List:
         """Return a list of unique classes found in ground truth and detection data."""
-        all_labels = np.concatenate(
-            self.detection_labels + self.groundtruth_labels)
-        unique_classes = np.unique(all_labels)
-        return unique_classes.tolist()
+        if len(self.detection_labels) > 0 or len(self.groundtruth_labels) > 0:
+            return torch.cat(self.detection_labels + self.groundtruth_labels).unique().cpu().tolist()
+        return []
 
     def _get_coco_format(
         self,
-        boxes: List[np.ndarray],
-        labels: List[np.ndarray],
-        scores: Optional[List[np.ndarray]] = None,
-        crowds: Optional[List[np.ndarray]] = None,
-        area: Optional[List[np.ndarray]] = None,
+        boxes: List[torch.Tensor],
+        labels: List[torch.Tensor],
+        scores: Optional[List[torch.Tensor]] = None,
+        crowds: Optional[List[torch.Tensor]] = None,
+        area: Optional[List[torch.Tensor]] = None,
     ) -> Dict:
         """Transforms and returns all cached targets or predictions in COCO format.
 
@@ -568,8 +605,8 @@ class PrecisionRecallF1Support:
                 continue
 
             if self.iou_type == "bbox":
-                image_boxes = image_boxes.tolist()
-            image_labels = image_labels.tolist()
+                image_boxes = image_boxes.cpu().tolist()
+            image_labels = image_labels.cpu().tolist()
 
             images.append({"id": image_id})
             if self.iou_type == "segm":
@@ -590,8 +627,8 @@ class PrecisionRecallF1Support:
                 stat = image_box if self.iou_type == "bbox" else {
                     "size": image_box[0], "counts": image_box[1]}
 
-                if area is not None and area[image_id][k].tolist() > 0:
-                    area_stat = area[image_id][k].tolist()
+                if area is not None and area[image_id][k].cpu().tolist() > 0:
+                    area_stat = area[image_id][k].cpu().tolist()
                 else:
                     area_stat = image_box[2] * \
                         image_box[3] if self.iou_type == "bbox" else mask_utils.area(
@@ -603,11 +640,11 @@ class PrecisionRecallF1Support:
                     "bbox" if self.iou_type == "bbox" else "segmentation": stat,
                     "area": area_stat,
                     "category_id": image_label,
-                    "iscrowd": crowds[image_id][k].tolist() if crowds is not None else 0,
+                    "iscrowd": crowds[image_id][k].cpu().tolist() if crowds is not None else 0,
                 }
 
                 if scores is not None:
-                    score = scores[image_id][k].tolist()
+                    score = scores[image_id][k].cpu().tolist()
                     if not isinstance(score, float):
                         raise ValueError(
                             f"Invalid input score of sample {image_id}, element {k}"
@@ -619,3 +656,53 @@ class PrecisionRecallF1Support:
 
         classes = [{"id": i, "name": str(i)} for i in self._get_classes()]
         return {"images": images, "annotations": annotations, "categories": classes}
+
+    # --------------------
+    # specialized syncronization and apply functions for this metric
+    # --------------------
+
+    # type: ignore[override]
+
+    def _apply(self, fn: Callable) -> torch.nn.Module:
+        """Custom apply function.
+
+        Excludes the detections and groundtruths from the casting when the iou_type is set to `segm` as the state is
+        no longer a tensor but a tuple.
+        """
+        return super()._apply(fn, exclude_state=("detections", "groundtruths") if self.iou_type == "segm" else "")
+
+    def _sync_dist(self, dist_sync_fn: Optional[Callable] = None, process_group: Optional[Any] = None) -> None:
+        """Custom sync function.
+
+        For the iou_type `segm` the detections and groundtruths are no longer tensors but tuples. Therefore, we need
+        to gather the list of tuples and then convert it back to a list of tuples.
+
+        """
+        super()._sync_dist(dist_sync_fn=dist_sync_fn, process_group=process_group)
+
+        if self.iou_type == "segm":
+            self.detections = self._gather_tuple_list(
+                self.detections, process_group)
+            self.groundtruths = self._gather_tuple_list(
+                self.groundtruths, process_group)
+
+    @staticmethod
+    def _gather_tuple_list(list_to_gather: List[Tuple], process_group: Optional[Any] = None) -> List[Any]:
+        """Gather a list of tuples over multiple devices.
+
+        Args:
+            list_to_gather: input list of tuples that should be gathered across devices
+            process_group: process group to gather the list of tuples
+
+        Returns:
+            list of tuples gathered across devices
+
+        """
+        world_size = dist.get_world_size(group=process_group)
+        dist.barrier(group=process_group)
+
+        list_gathered = [None for _ in range(world_size)]
+        dist.all_gather_object(
+            list_gathered, list_to_gather, group=process_group)
+
+        return [list_gathered[rank][idx] for idx in range(len(list_gathered[0])) for rank in range(world_size)]
