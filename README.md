@@ -1,7 +1,7 @@
 <div align="center">
   <p>
     <a align="center" href="https://sea.ai" target="_blank">
-      <img width="100%" src="https://github.com/SEA-AI/metrics/assets/35779409/e685e826-fff5-4ee2-9764-60ff71e047a2"></a>
+      <img width="100%" src="https://github.com/SEA-AI/seametrics/assets/35779409/e685e826-fff5-4ee2-9764-60ff71e047a2"></a>
   </p>
 </div>
 
@@ -15,7 +15,7 @@ Library of custom metrics used to measure performance of our A.I. pipelines.
 <summary>Install</summary>
 
 ```bash
-pip install git+https://github.com/SEA-AI/metrics@main
+pip install git+https://github.com/SEA-AI/seametrics@main
 ```
 </details>
 
