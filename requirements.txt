@@ -1,12 +1,7 @@
-numpy==1.24.3
-pandas==2.0.2
-pycocotools==2.0.6
-tqdm==4.65.0
-typing_extensions==4.7.1
-motmetrics==1.4.0
-# torch==2.0.1 # optional
-# torchmetrics==1.1.0 # optional
-# torchvision==0.15.2 # optional
-# fiftyone==0.21.6
-# fiftyone_brain==0.13.1
-# fiftyone_db==0.4.0
+numpy>=1.22.2
+pandas>=1.1.4
+pycocotools>=2.0.0
+tqdm>=4.64.0
+typing_extensions>=4.7.0
+motmetrics>=1.4.0
+fiftyone>=0.23.4
