@@ -7,7 +7,7 @@ import pandas as pd
 import fiftyone as fo
 from fiftyone import ViewField as F
 
-from .imports import _TORCHMETRICS_AVAILABLE
+from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
 if _TORCHMETRICS_AVAILABLE:
     from torch import tensor
 

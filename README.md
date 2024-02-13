@@ -5,31 +5,23 @@
   </p>
 </div>
 
-# <div align="center">metrics</div>
+# <div align="center">seametrics</div>
 
-Library for calculating metrics. 
-The idea is to use this library as submodule in other projects.
-
-```bash
-git submodule add git@github.com:BSB-Group/metrics.git
-```
+Library of custom metrics used to measure performance of our A.I. pipelines.
 
 ## <div align="center">Documentation</div>
 
 <details open>
 <summary>Install</summary>
 
-Clone repo and install [requirements.txt](https://github.com/BSB-Group/metrics/blob/main/requirements.txt)
-
 ```bash
-git clone git@github.com:BSB-Group/metrics.git  # clone
-pip install -r requirements.txt  # install
+pip install git+https://github.com/SEA-AI/metrics@main
 ```
 </details>
 
 <details>
-<summary>Tutorials</summary>
+<summary>Hugging Face</summary>
 
-Coming soon... but have a look at the jupyter notebooks in the `notebooks` folder.
+Have a look at our [Hugging Face organisation](https://huggingface.co/SEA-AI) to browse through the available metrics.
 
 </details>

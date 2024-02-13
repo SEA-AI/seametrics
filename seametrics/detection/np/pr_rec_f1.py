@@ -23,7 +23,7 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from typing_extensions import Literal
 import numpy as np
-from ..utils import _fix_empty_arrays, _input_validator, box_convert
+from seametrics.detection.utils import _fix_empty_arrays, _input_validator, box_convert
 
 try:
     import pycocotools.mask as mask_utils
