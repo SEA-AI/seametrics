@@ -6,6 +6,7 @@ from tqdm import tqdm
 def fo_to_payload(dataset: str, 
                 gt_field: str, 
                 models: typing.List[str], 
+                tracking_mode: bool = False,
                 sequence_list: typing.List[str] = [],
                 img_size: typing.Tuple[int, int] = (640, 512),
                 excluded_classes: typing.List[str] = None,
@@ -30,6 +31,7 @@ def fo_to_payload(dataset: str,
     """
     if debug:
         print(f"Processing dataset {dataset} with ground-truth field {gt_field} and models {models}.")
+        print(f"Tracking mode: {tracking_mode}")
         print(f"Sequence list: {sequence_list}")
         print(f"Image size: {img_size}")
         print(f"Excluded classes: {excluded_classes}")
@@ -63,11 +65,22 @@ def fo_to_payload(dataset: str,
                         .filter_labels(f"frames.{gt_field}", ~F("label").is_in(excluded_classes), only_matches=False)
         except:
             raise ValueError(f"Sequence {sequence} not found in dataset {dataset}.")
-                   
+
+        try:           
+            if tracking_mode:
+                mux = sequence_view.values(f"frames[].mux")
+                mux = [item if item else [] for item in mux]
+        except:
+            print(f'Memory error on sequence {sequence}.')
+            continue          
+
         output['sequences'][sequence] = {}
         for field in fields:
-            output['sequences'][sequence][field] = sequence_view.values(f"frames[].{field}.detections")
+            predictions = sequence_view.values(f"frames[].{field}.detections")
+            if tracking_mode:
+                output['sequences'][sequence][field] = [prediction for mux_item,prediction in zip(mux, predictions) if len(mux_item) != 0]
+            else:
+                output['sequences'][sequence][field] = predictions
             #replace None with empty list
             output['sequences'][sequence][field] = [[] if x == None else x for x in output['sequences'][sequence][field]]
-        
     return output
