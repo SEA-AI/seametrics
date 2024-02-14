@@ -1,11 +1,12 @@
 import fiftyone as fo
 from fiftyone import ViewField as F
 import typing
+from tqdm import tqdm
 
 def fo_to_payload(dataset: str, 
                 gt_field: str, 
                 models: typing.List[str], 
-                sequence_list: typing.List[str],
+                sequence_list: typing.List[str] = [],
                 img_size: typing.Tuple[int, int] = (640, 512),
                 excluded_classes: typing.List[str] = None,
                 debug: bool = False
@@ -17,7 +18,7 @@ def fo_to_payload(dataset: str,
         dataset: Name of the dataset containing detections.
         gt_field: Name of the ground-truth field in the dataset.
         models: List of model names used for detection.
-        sequence_list: List of sequence names to include.
+        sequence_list: Optional list of sequence names to include. If no sequence list is provided, it will use all sequences on the dataset
         img_size: Desired image size as a tuple (width, height).
         excluded_classes: Optional list of class names to exclude.
 
@@ -50,9 +51,12 @@ def fo_to_payload(dataset: str,
         'sequences': {},
         'sequence_list': sequence_list
     }
-
+    if len(sequence_list) == 0:
+        sequence_list = loaded_dataset.distinct("sequence")
+        if debug:
+            print(f"Using all sequences in dataset: {sequence_list}")
     # Process each sequence in the sequence_list
-    for sequence in sequence_list:
+    for sequence in tqdm(sequence_list):
         try:
             sequence_view = loaded_dataset.select_group_slices(["thermal_wide"]) \
                         .match(F("sequence") == sequence) \
