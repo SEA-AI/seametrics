@@ -32,14 +32,13 @@ def fo_to_payload(dataset: str,
             'dataset': dataset name (as defined in input parameters)
             'models': list of model names (as defined in input parameters)
             'gt_field_name': ground truth field (as defined in input parameters)
-            'sequences' : a dict containing a key for each sequence. element for i-th sequence is:
+            'sequences' : a dict containing a key for each sequence. value for i-th sequence is:
                             'sequence_i' : {
                                 'resolution': (height, width),
                                 'model_0': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n],
                                 ...,
                                 'model_l': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n]
-                            },
-            'sequence_list': list of sequences (as defined in input parameters)
+                            }
         }
 
         with list_detections_frame_i being a list of detections in format of fo.Detection.
