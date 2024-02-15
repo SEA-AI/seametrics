@@ -57,6 +57,9 @@ def fo_to_payload(dataset: str,
         sequence_list = loaded_dataset.distinct("sequence")
         if debug:
             print(f"Using all sequences in dataset: {sequence_list}")
+
+    # TODO: enable slice selection for sailing (RGB or thermal slices)
+    # TODO: "frames.{gt_field}" & "frames[].{field}.detections" implie video dataset -> change to "{gt_field}" for image datasets
     # Process each sequence in the sequence_list
     for sequence in tqdm(sequence_list):
         try:
