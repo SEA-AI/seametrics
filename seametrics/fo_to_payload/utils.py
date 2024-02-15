@@ -85,6 +85,8 @@ def fo_to_payload(dataset: str,
         view=loaded_dataset,
         data_type=data_type
     )
+    if debug:
+        print(f"Using slice: {relevant_slices}")
     degrouped_dataset = loaded_dataset.select_group_slices(relevant_slices)
     gt_field_fo = get_field_name(degrouped_dataset, gt_field, is_gt=True)
     # Process each sequence in the sequence_list
@@ -154,9 +156,9 @@ def get_datatype_slices(view: fo.DatasetView,
     if data_type == "thermal":
         if "thermal_wide" in existing_slices:
             chosen_slices.append("thermal_wide")
-        elif "thermal_right" in existing_slices:
+        if "thermal_right" in existing_slices:
             chosen_slices.append("thermal_right")
-        elif "thermal_left" in existing_slices:
+        if "thermal_left" in existing_slices:
             chosen_slices.append("thermal_left")
     elif data_type == "rgb":
         if "rgb" in existing_slices:
