@@ -38,7 +38,8 @@ def fo_to_payload(dataset: str,
                                 'model_0': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n],
                                 ...,
                                 'model_l': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n]
-                            }
+                            },
+            'sequence_list': list of sequences (as defined in input parameters)
         }
 
         with list_detections_frame_i being a list of detections in format of fo.Detection.
