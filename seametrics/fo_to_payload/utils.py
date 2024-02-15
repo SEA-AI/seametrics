@@ -167,6 +167,9 @@ def get_datatype_slices(view: fo.DatasetView,
             raise ValueError("RGB data currently cannot be evaluated in video data.")
     else:
         raise ValueError(f"Found no matching data slice for datatype: {data_type}.")
+    
+    if len(chosen_slices) == 0:
+        raise ValueError(f"This dataset has no slice corresponding to datatype: {data_type}")
 
     return chosen_slices
     
