@@ -29,6 +29,7 @@ def fo_to_payload(dataset: str,
     Raises:
         ValueError: If invalid input arguments are provided.
     """
+    # TODO: include automatic check: don't use tracking with sailing data as not supported
     if debug:
         print(f"Processing dataset {dataset} with ground-truth field {gt_field} and models {models}.")
         print(f"Tracking mode: {tracking_mode}")
