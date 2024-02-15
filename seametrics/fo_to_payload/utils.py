@@ -47,15 +47,14 @@ def fo_to_payload(dataset: str,
     Raises:
         ValueError: If invalid input arguments are provided.
     """
-    # TODO: handle different image sizes in sailing data
+    if excluded_classes == None:
+        excluded_classes = ['ALGAE','BRIDGE','HARBOUR','WATERTRACK','SHORELINE','SUN_REFLECTION','UNSUPERVISED','WATER','TRASH','OBJECT_REFLECTION','HORIZON']
+    
     if debug:
         print(f"Processing dataset {dataset} with ground-truth field {gt_field} and models {models}.")
         print(f"Tracking mode: {tracking_mode}")
         print(f"Sequence list: {sequence_list}")
         print(f"Excluded classes: {excluded_classes}")
-
-    if excluded_classes == None:
-        excluded_classes = ['ALGAE','BRIDGE','HARBOUR','WATERTRACK','SHORELINE','SUN_REFLECTION','UNSUPERVISED','WATER','TRASH','OBJECT_REFLECTION','HORIZON']
 
     if dataset not in fo.list_datasets():
         raise ValueError(f"Dataset {dataset} not found in FiftyOne.")
@@ -72,8 +71,8 @@ def fo_to_payload(dataset: str,
         'models': models,
         'gt_field_name': gt_field,
         'sequences': {},
-        'sequence_list': sequence_list
     }
+
     if len(sequence_list) == 0:
         sequence_list = loaded_dataset.distinct("sequence")
         if debug:
@@ -115,6 +114,7 @@ def fo_to_payload(dataset: str,
                 output['sequences'][sequence][field] = predictions
             #replace None with empty list
             output['sequences'][sequence][field] = [[] if x == None else x for x in output['sequences'][sequence][field]]
+    output['sequence_list'] = list(output['sequences'].keys())
     return output
 
 def get_resolution(view: fo.DatasetView) -> typing.Tuple[int, int]:
