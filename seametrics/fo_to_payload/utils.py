@@ -37,7 +37,8 @@ def fo_to_payload(dataset: str,
                                 'resolution': (height, width),
                                 'model_0': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n],
                                 ...,
-                                'model_l': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n]
+                                'model_l': [list_detections_frame_0, list_detections_frame_1, ..., list_detections_frame_n],
+                                'gt_field_name': [list_gts_frame_0, list_gts_frame_1, ..., list_gts_frame_n]
                             },
             'sequence_list': list of sequences (as defined in input parameters)
         }
