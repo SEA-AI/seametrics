@@ -107,7 +107,12 @@ def fo_to_payload(dataset: str,
             continue          
 
         output['sequences'][sequence] = {}
-        output['sequences'][sequence]["resolution"] = get_resolution(sequence_view)
+        try:
+            output['sequences'][sequence]["resolution"] = get_resolution(sequence_view)
+        except: 
+            print(f'Memory error on sequence {sequence}.')
+            continue    
+        
         for field in fields:
             pred_field_fo = get_field_name(degrouped_dataset, field, is_gt=False)
             predictions = sequence_view.values(f"{pred_field_fo}.detections") # length: number of images/frames in sequence
