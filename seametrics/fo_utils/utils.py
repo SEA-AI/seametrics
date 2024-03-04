@@ -10,7 +10,8 @@ def fo_to_payload(dataset: str,
                   sequence_list: typing.List[str] = [],
                   data_type: typing.Literal["rgb", "thermal"] = "thermal",
                   excluded_classes: typing.List[str] = None,
-                  debug: bool = False) -> typing.Dict:
+                  debug: bool = False,
+                  is_horizon = False) -> typing.Dict:
     """
     Processes a dataset containing detections in frames and returns a formatted payload.
 
@@ -51,6 +52,9 @@ def fo_to_payload(dataset: str,
     if excluded_classes == None:
         excluded_classes = ['ALGAE','BRIDGE','HARBOUR','WATERTRACK','SHORELINE','SUN_REFLECTION','UNSUPERVISED','WATER','TRASH','OBJECT_REFLECTION','HORIZON']
     
+    if is_horizon:
+        excluded_classes = []
+
     if debug:
         print(f"Processing dataset {dataset} with ground-truth field {gt_field} and models {models}.")
         print(f"Tracking mode: {tracking_mode}")
@@ -115,7 +119,10 @@ def fo_to_payload(dataset: str,
         
         for field in fields:
             pred_field_fo = get_field_name(degrouped_dataset, field, is_gt=False)
-            predictions = sequence_view.values(f"{pred_field_fo}.detections") # length: number of images/frames in sequence
+            if is_horizon:
+                predictions = sequence_view.values(f"{pred_field_fo}.polylines") 
+            else:
+                predictions = sequence_view.values(f"{pred_field_fo}.detections") # length: number of images/frames in sequence
             if tracking_mode:
                 output['sequences'][sequence][field] = [prediction for mux_item,prediction in zip(mux, predictions) if len(mux_item) != 0]
             else:
@@ -124,6 +131,7 @@ def fo_to_payload(dataset: str,
             output['sequences'][sequence][field] = [[] if x == None else x for x in output['sequences'][sequence][field]]
     output['sequence_list'] = list(output['sequences'].keys())
     return output
+
 
 def get_resolution(view: fo.DatasetView) -> typing.Tuple[int, int]:
     """Get resolution from fiftyone view.
