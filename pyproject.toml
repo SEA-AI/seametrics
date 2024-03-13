@@ -21,12 +21,18 @@ dependencies = [
   "pycocotools>=2.0.0",
   "tqdm>=4.64.0",
   "typing_extensions>=4.7.0",
-  "motmetrics>=1.4.0"
+  "motmetrics>=1.4.0",
 ]
 
 [project.optional-dependencies]
-fiftyone = [
-  "fiftyone>=0.23.4"
+fiftyone = ["fiftyone>=0.23.4"]
+test = [
+  "pytest>=7",
+  "pytest-cov>=4",
+  "pytest-mock>=3",
+  # "pytest-xdist>=2.4.0",
+  # "pytest-asyncio>=0.15.1",
+  # "pytest-asyncio-network-simulator"
 ]
 
 [project.urls]
@@ -40,3 +46,17 @@ where = ["."] # list of folders that contain the packages (["."] by default)
 exclude = [
   "notebooks*",
 ] # exclude packages matching these glob patterns (empty by default)
+
+# Pytest settings
+[tool.pytest.ini_options]
+minversion = 6.0
+#addopts = "--import-mode=importlib"
+addopts = "-q --cov -s"
+testpaths = ["tests"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+# Coverage settings
+[coverage.report]
+include = ["seametrics/*"]

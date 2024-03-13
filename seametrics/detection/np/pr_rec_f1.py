@@ -23,11 +23,16 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from typing_extensions import Literal
 import numpy as np
-from seametrics.detection.utils import _fix_empty_arrays, _input_validator, box_convert
+from seametrics.detection.np.utils import (
+    _fix_empty_arrays,
+    _input_validator,
+    box_convert,
+)
 
 try:
     import pycocotools.mask as mask_utils
     from pycocotools.coco import COCO
+
     # from pycocotools.cocoeval import COCOeval
     from ..cocoeval import COCOeval  # use our own version of COCOeval
 except ImportError:
@@ -49,30 +54,30 @@ class PrecisionRecallF1Support:
 
     - ``preds`` (:class:`~List`): A list consisting of dictionaries each containing the key-values
       (each dictionary corresponds to a single image). Parameters that should be provided per dict:
-        - boxes: (:class:`~np.ndarray`) of shape ``(num_boxes, 4)`` containing ``num_boxes`` 
-        detection boxes of the format specified in the constructor. By default, this method expects 
+        - boxes: (:class:`~np.ndarray`) of shape ``(num_boxes, 4)`` containing ``num_boxes``
+        detection boxes of the format specified in the constructor. By default, this method expects
         ``(xmin, ymin, xmax, ymax)`` in absolute image coordinates.
-        - scores: :class:`~np.ndarray` of shape ``(num_boxes)`` containing detection scores 
+        - scores: :class:`~np.ndarray` of shape ``(num_boxes)`` containing detection scores
         for the boxes.
-        - labels: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0-indexed detection 
+        - labels: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0-indexed detection
         classes for the boxes.
-        - masks: :class:`~torch.bool` of shape ``(num_boxes, image_height, image_width)`` containing 
+        - masks: :class:`~torch.bool` of shape ``(num_boxes, image_height, image_width)`` containing
         boolean masks. Only required when `iou_type="segm"`.
 
     - ``target`` (:class:`~List`) A list consisting of dictionaries each containing the key-values
       (each dictionary corresponds to a single image). Parameters that should be provided per dict:
-        - boxes: :class:`~np.ndarray` of shape ``(num_boxes, 4)`` containing ``num_boxes`` 
-        ground truth boxes of the format specified in the constructor. By default, this method 
+        - boxes: :class:`~np.ndarray` of shape ``(num_boxes, 4)`` containing ``num_boxes``
+        ground truth boxes of the format specified in the constructor. By default, this method
         expects ``(xmin, ymin, xmax, ymax)`` in absolute image coordinates.
-        - labels: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0-indexed ground 
+        - labels: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0-indexed ground
         truth classes for the boxes.
-        - masks: :class:`~torch.bool` of shape ``(num_boxes, image_height, image_width)`` 
+        - masks: :class:`~torch.bool` of shape ``(num_boxes, image_height, image_width)``
         containing boolean masks. Only required when `iou_type="segm"`.
-        - iscrowd: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0/1 values 
-        indicating whether the bounding box/masks indicate a crowd of objects. Value is optional, 
+        - iscrowd: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0/1 values
+        indicating whether the bounding box/masks indicate a crowd of objects. Value is optional,
         and if not provided it will automatically be set to 0.
-        - area: :class:`~np.ndarray` of shape ``(num_boxes)`` containing the area of the 
-        object. Value if optional, and if not provided will be automatically calculated based 
+        - area: :class:`~np.ndarray` of shape ``(num_boxes)`` containing the area of the
+        object. Value if optional, and if not provided will be automatically calculated based
         on the bounding box/masks provided. Only affects when 'area_ranges' is provided.
 
     As output of ``forward`` and ``compute`` the metric returns the following output:
@@ -174,6 +179,7 @@ class PrecisionRecallF1Support:
          'f1': 1.0,
          'support': 1}}}
     """
+
     is_differentiable: bool = False
     higher_is_better: Optional[bool] = True
     full_state_update: bool = True
@@ -205,36 +211,44 @@ class PrecisionRecallF1Support:
         allowed_box_formats = ("xyxy", "xywh", "cxcywh")
         if box_format not in allowed_box_formats:
             raise ValueError(
-                f"Expected argument `box_format` to be one of {allowed_box_formats} but got {box_format}")
+                f"Expected argument `box_format` to be one of {allowed_box_formats} but got {box_format}"
+            )
         self.box_format = box_format
 
         allowed_iou_types = ("segm", "bbox")
         if iou_type not in allowed_iou_types:
             raise ValueError(
-                f"Expected argument `iou_type` to be one of {allowed_iou_types} but got {iou_type}")
+                f"Expected argument `iou_type` to be one of {allowed_iou_types} but got {iou_type}"
+            )
         self.iou_type = iou_type
 
         if iou_thresholds is not None and not isinstance(iou_thresholds, list):
             raise ValueError(
                 f"Expected argument `iou_thresholds` to either be `None` or a list of floats but got {iou_thresholds}"
             )
-        self.iou_thresholds = iou_thresholds or np.linspace(
-            0.5, 0.95, round((0.95 - 0.5) / 0.05) + 1).tolist()
+        self.iou_thresholds = (
+            iou_thresholds
+            or np.linspace(0.5, 0.95, round((0.95 - 0.5) / 0.05) + 1).tolist()
+        )
 
         if rec_thresholds is not None and not isinstance(rec_thresholds, list):
             raise ValueError(
                 f"Expected argument `rec_thresholds` to either be `None` or a list of floats but got {rec_thresholds}"
             )
-        self.rec_thresholds = rec_thresholds or np.linspace(
-            0.0, 1.00, round(1.00 / 0.01) + 1).tolist()
+        self.rec_thresholds = (
+            rec_thresholds or np.linspace(0.0, 1.00, round(1.00 / 0.01) + 1).tolist()
+        )
 
-        if max_detection_thresholds is not None and not isinstance(max_detection_thresholds, list):
+        if max_detection_thresholds is not None and not isinstance(
+            max_detection_thresholds, list
+        ):
             raise ValueError(
                 f"Expected argument `max_detection_thresholds` to either be `None` or a list of ints"
                 f" but got {max_detection_thresholds}"
             )
-        max_det_thr = np.sort(np.array(
-            max_detection_thresholds or [100], dtype=np.uint))
+        max_det_thr = np.sort(
+            np.array(max_detection_thresholds or [100], dtype=np.uint)
+        )
         self.max_detection_thresholds = max_det_thr.tolist()
 
         # check area ranges
@@ -248,8 +262,7 @@ class PrecisionRecallF1Support:
                     raise ValueError(
                         f"Expected argument `area_ranges` to be a list of lists of length 2 but got {area_ranges}"
                     )
-        self.area_ranges = area_ranges if area_ranges is not None else [
-            [0**2, 1e5**2]]
+        self.area_ranges = area_ranges if area_ranges is not None else [[0**2, 1e5**2]]
 
         if area_ranges_labels is not None:
             if area_ranges is None:
@@ -266,8 +279,9 @@ class PrecisionRecallF1Support:
                     f"Expected argument `area_ranges_labels` to be a list of length {len(area_ranges)}"
                     f" but got {area_ranges_labels}"
                 )
-        self.area_ranges_labels = area_ranges_labels if area_ranges_labels is not None else [
-            "all"]
+        self.area_ranges_labels = (
+            area_ranges_labels if area_ranges_labels is not None else ["all"]
+        )
 
         # if not isinstance(class_metrics, bool):
         #     raise ValueError(
@@ -275,8 +289,7 @@ class PrecisionRecallF1Support:
         # self.class_metrics = class_metrics
 
         if not isinstance(class_agnostic, bool):
-            raise ValueError(
-                "Expected argument `class_agnostic` to be a boolean")
+            raise ValueError("Expected argument `class_agnostic` to be a boolean")
         self.class_agnostic = class_agnostic
 
         if not isinstance(debug, bool):
@@ -299,7 +312,9 @@ class PrecisionRecallF1Support:
         # self.add_state("groundtruth_crowds", default=[], dist_reduce_fx=None)
         # self.add_state("groundtruth_area", default=[], dist_reduce_fx=None)
 
-    def update(self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]) -> None:
+    def update(
+        self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]
+    ) -> None:
         """Update metric state.
 
         Raises:
@@ -334,30 +349,33 @@ class PrecisionRecallF1Support:
             self.groundtruths.append(groundtruths)
             self.groundtruth_labels.append(item["labels"])
             self.groundtruth_crowds.append(
-                item.get("iscrowd", np.zeros_like(item["labels"])))
+                item.get("iscrowd", np.zeros_like(item["labels"]))
+            )
             self.groundtruth_area.append(
-                item.get("area", np.zeros_like(item["labels"])))
+                item.get("area", np.zeros_like(item["labels"]))
+            )
 
     def compute(self) -> dict:
         """Computes the metric."""
         coco_target, coco_preds = COCO(), COCO()
 
         coco_target.dataset = self._get_coco_format(
-            self.groundtruths, self.groundtruth_labels, crowds=self.groundtruth_crowds, area=self.groundtruth_area
+            self.groundtruths,
+            self.groundtruth_labels,
+            crowds=self.groundtruth_crowds,
+            area=self.groundtruth_area,
         )
         coco_preds.dataset = self._get_coco_format(
-            self.detections, self.detection_labels, scores=self.detection_scores)
+            self.detections, self.detection_labels, scores=self.detection_scores
+        )
 
         with contextlib.redirect_stdout(io.StringIO()) as f:
             coco_target.createIndex()
             coco_preds.createIndex()
 
-            coco_eval = COCOeval(coco_target, coco_preds,
-                                 iouType=self.iou_type)
-            coco_eval.params.iouThrs = np.array(
-                self.iou_thresholds, dtype=np.float64)
-            coco_eval.params.recThrs = np.array(
-                self.rec_thresholds, dtype=np.float64)
+            coco_eval = COCOeval(coco_target, coco_preds, iouType=self.iou_type)
+            coco_eval.params.iouThrs = np.array(self.iou_thresholds, dtype=np.float64)
+            coco_eval.params.recThrs = np.array(self.rec_thresholds, dtype=np.float64)
             coco_eval.params.maxDets = self.max_detection_thresholds
             coco_eval.params.areaRng = self.area_ranges
             coco_eval.params.areaRngLbl = self.area_ranges_labels
@@ -432,7 +450,10 @@ class PrecisionRecallF1Support:
         for p in dt_dataset:
             if p["image_id"] not in preds:
                 preds[p["image_id"]] = {
-                    "boxes" if iou_type == "bbox" else "masks": [], "scores": [], "labels": []}
+                    "boxes" if iou_type == "bbox" else "masks": [],
+                    "scores": [],
+                    "labels": [],
+                }
             if iou_type == "bbox":
                 preds[p["image_id"]]["boxes"].append(p["bbox"])
             else:
@@ -441,28 +462,33 @@ class PrecisionRecallF1Support:
             preds[p["image_id"]]["labels"].append(p["category_id"])
         for k in target:  # add empty predictions for images without predictions
             if k not in preds:
-                preds[k] = {"boxes" if iou_type ==
-                            "bbox" else "masks": [], "scores": [], "labels": []}
+                preds[k] = {
+                    "boxes" if iou_type == "bbox" else "masks": [],
+                    "scores": [],
+                    "labels": [],
+                }
 
         batched_preds, batched_target = [], []
         for key in target:
             name = "boxes" if iou_type == "bbox" else "masks"
             batched_preds.append(
                 {
-                    name: np.array(
-                        np.array(preds[key]["boxes"]), dtype=np.float32)
-                    if iou_type == "bbox"
-                    else np.array(np.array(preds[key]["masks"]), dtype=np.uint8),
+                    name: (
+                        np.array(np.array(preds[key]["boxes"]), dtype=np.float32)
+                        if iou_type == "bbox"
+                        else np.array(np.array(preds[key]["masks"]), dtype=np.uint8)
+                    ),
                     "scores": np.array(preds[key]["scores"], dtype=np.float32),
                     "labels": np.array(preds[key]["labels"], dtype=np.int32),
                 }
             )
             batched_target.append(
                 {
-                    name: np.array(
-                        target[key]["boxes"], dtype=np.float32)
-                    if iou_type == "bbox"
-                    else np.array(np.array(target[key]["masks"]), dtype=np.uint8),
+                    name: (
+                        np.array(target[key]["boxes"], dtype=np.float32)
+                        if iou_type == "bbox"
+                        else np.array(np.array(target[key]["masks"]), dtype=np.uint8)
+                    ),
                     "labels": np.array(target[key]["labels"], dtype=np.int32),
                     "iscrowd": np.array(target[key]["iscrowd"], dtype=np.int32),
                     "area": np.array(target[key]["area"], dtype=np.float32),
@@ -480,7 +506,7 @@ class PrecisionRecallF1Support:
 
         Args:
             name: Name of the output file, which will be appended with "_preds.json" and "_target.json"
-        
+
         Example:
             >>> import numpy as np
             >>> from metrics.detection import MeanAveragePrecision
@@ -503,9 +529,11 @@ class PrecisionRecallF1Support:
 
         """
         target_dataset = self._get_coco_format(
-            self.groundtruths, self.groundtruth_labels)
+            self.groundtruths, self.groundtruth_labels
+        )
         preds_dataset = self._get_coco_format(
-            self.detections, self.detection_labels, self.detection_scores)
+            self.detections, self.detection_labels, self.detection_scores
+        )
 
         preds_json = json.dumps(preds_dataset["annotations"], indent=4)
         target_json = json.dumps(target_dataset, indent=4)
@@ -529,8 +557,7 @@ class PrecisionRecallF1Support:
         if self.iou_type == "bbox":
             boxes = _fix_empty_arrays(item["boxes"])
             if boxes.size > 0:
-                boxes = box_convert(
-                    boxes, in_fmt=self.box_format, out_fmt="xywh")
+                boxes = box_convert(boxes, in_fmt=self.box_format, out_fmt="xywh")
             return boxes
         if self.iou_type == "segm":
             masks = []
@@ -542,8 +569,7 @@ class PrecisionRecallF1Support:
 
     def _get_classes(self) -> List:
         """Return a list of unique classes found in ground truth and detection data."""
-        all_labels = np.concatenate(
-            self.detection_labels + self.groundtruth_labels)
+        all_labels = np.concatenate(self.detection_labels + self.groundtruth_labels)
         unique_classes = np.unique(all_labels)
         return unique_classes.tolist()
 
@@ -573,9 +599,14 @@ class PrecisionRecallF1Support:
 
             images.append({"id": image_id})
             if self.iou_type == "segm":
-                images[-1]["height"], images[-1]["width"] = image_boxes[0][0][0], image_boxes[0][0][1]
+                images[-1]["height"], images[-1]["width"] = (
+                    image_boxes[0][0][0],
+                    image_boxes[0][0][1],
+                )
 
-            for k, (image_box, image_label) in enumerate(zip(image_boxes, image_labels)):
+            for k, (image_box, image_label) in enumerate(
+                zip(image_boxes, image_labels)
+            ):
                 if self.iou_type == "bbox" and len(image_box) != 4:
                     raise ValueError(
                         f"Invalid input box of sample {image_id}, element {k} (expected 4 values, got {len(image_box)})"
@@ -587,15 +618,20 @@ class PrecisionRecallF1Support:
                         f" (expected value of type integer, got type {type(image_label)})"
                     )
 
-                stat = image_box if self.iou_type == "bbox" else {
-                    "size": image_box[0], "counts": image_box[1]}
+                stat = (
+                    image_box
+                    if self.iou_type == "bbox"
+                    else {"size": image_box[0], "counts": image_box[1]}
+                )
 
                 if area is not None and area[image_id][k].tolist() > 0:
                     area_stat = area[image_id][k].tolist()
                 else:
-                    area_stat = image_box[2] * \
-                        image_box[3] if self.iou_type == "bbox" else mask_utils.area(
-                            stat)
+                    area_stat = (
+                        image_box[2] * image_box[3]
+                        if self.iou_type == "bbox"
+                        else mask_utils.area(stat)
+                    )
 
                 annotation = {
                     "id": annotation_id,
@@ -603,7 +639,9 @@ class PrecisionRecallF1Support:
                     "bbox" if self.iou_type == "bbox" else "segmentation": stat,
                     "area": area_stat,
                     "category_id": image_label,
-                    "iscrowd": crowds[image_id][k].tolist() if crowds is not None else 0,
+                    "iscrowd": (
+                        crowds[image_id][k].tolist() if crowds is not None else 0
+                    ),
                 }
 
                 if scores is not None:
