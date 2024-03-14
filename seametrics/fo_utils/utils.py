@@ -3,6 +3,11 @@ from fiftyone import ViewField as F
 import typing
 from tqdm import tqdm
 
+import numpy as np
+import warnings
+from typing import List, Tuple, Dict, Literal
+
+
 def fo_to_payload(dataset: str, 
                   gt_field: str, 
                   models: typing.List[str], 
@@ -201,3 +206,77 @@ def get_field_name(view: fo.DatasetView,
         return field_name
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
+                     
+    
+def _fo_dets_to_metrics_dict(fo_dets: list,
+                                w: int,
+                                h: int,
+                                include_scores: bool = False,
+                                include_areas: bool = False,
+                                gt_data: bool = False) -> List[Dict[str, np.ndarray]]:
+    """Convert list of fiftyone detections to format that is
+        required by PrecisionRecallF1Support() function of seametrics library
+
+    Args:
+        fo_dets (list): list containing fiftyone detections (or empty if frame without any detections)
+            note: bounding boxes in fo-detections are in format xywhn
+        w (int): width in pixel of image
+        h (int): height in pixel of image
+        gt_data (Bool) if the input data is a ground truth data
+        include_areas (Bool) Whether we want to include the area field in the output or not / note: this works only if the input ground truth data include the area already
+
+    Returns:
+        List[Dict[str, np.ndarray]]: list holding single dict with items:
+            "boxes": denormalized bounding boxes of whole frame in numpy array (shape: n_bboxes, 4)
+            "scores": confidence scores in numpy array (shape: n_bboxes)
+            "labels": labels in numpy array (shape: n_bboxes)
+            "area": area values in numpy array (shape: n_bboxes)
+    """
+        
+    detections = []
+    scores = []
+    labels = [] #TODO: map to numbers
+    areas = []
+
+    if include_areas ==False:
+        areas = None
+
+    if len(fo_dets) == 0:
+        return [
+            dict(
+                boxes=np.array([]),
+                scores=np.array([]),
+                labels=np.array([])
+            )
+        ]
+
+    for det in fo_dets:
+        bbox = det["bounding_box"]
+
+        detections.append(
+            [bbox[0]*w, bbox[1]*h, bbox[2]*w, bbox[3]*h]
+        )
+        scores.append(det["confidence"] if det["confidence"] is not None else 1.0) # None for gt
+        labels.append(1)
+
+        #print(det.field_names)
+        if include_areas and 'area' not in det.field_names:                
+            warnings.warn("The flag include_areas is True but the area doesn't exist! Please double check your data.")
+
+        if areas!=None and gt_data:
+            areas.append(det["area"] if 'area' in det.field_names else -1)
+        
+
+    if include_scores: 
+        
+        if areas!=None and gt_data:
+            return [dict( boxes=np.array(detections), scores=np.array(scores), labels=np.array(labels), area=np.array(areas))]
+
+        else:
+            return [ dict( boxes=np.array(detections), scores=np.array(scores), labels=np.array(labels)) ]
+    else:
+        if areas!=None and gt_data:
+            return [ dict( boxes=np.array(detections), labels=np.array(labels), area=np.array(areas))]
+
+        else:
+            return [ dict( boxes=np.array(detections), labels=np.array(labels)) ]    
