@@ -183,7 +183,8 @@ def get_datatype_slices(view: fo.DatasetView,
         raise ValueError(f"This dataset has no slice corresponding to datatype: {data_type}")
 
     return chosen_slices
-    
+
+ 
 def get_field_name(view: fo.DatasetView,
                    field_name: str,
                    is_gt: bool = False) -> str:
@@ -206,8 +207,44 @@ def get_field_name(view: fo.DatasetView,
         return field_name
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
-                     
-    
+
+                           
+def _add_batch(metric, data, model=None):
+    predictions, references = [], []
+
+    if model is None:
+        model = data["models"][0]
+
+    for sequence in data["sequence_list"]:
+        seq_data = data["sequences"][sequence]
+        gt_normalized = seq_data[data["gt_field_name"]] # shape: (n_frames, m_gts)
+        pred_normalized = seq_data[model] # shape: (n_frames, l_preds)
+        img_res = seq_data["resolution"] # (h, w)
+        for gt_frame, pred_frame in zip(gt_normalized, pred_normalized): # iterate over all frame
+            processed_pred = _fo_dets_to_metrics_dict(
+                fo_dets=pred_frame, 
+                w=img_res[1], 
+                h=img_res[0], 
+                include_scores=True
+            )
+            processed_gt = _fo_dets_to_metrics_dict(
+                fo_dets=gt_frame, 
+                w=img_res[1],
+                h=img_res[0], 
+                include_scores=False,
+                include_areas=True,
+                gt_data=True
+            )
+            predictions.append(processed_pred[0]["boxes"].tolist())
+            references.append(processed_gt[0]["boxes"].tolist())
+
+                # where the magic happens: update metric with data from current frame
+            
+            metric.coco_metric.update(processed_pred, processed_gt)
+ 
+    return metric, predictions,references            
+
+        
 def _fo_dets_to_metrics_dict(fo_dets: list,
                                 w: int,
                                 h: int,
