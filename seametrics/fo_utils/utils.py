@@ -313,7 +313,7 @@ def _fo_dets_to_metrics_dict(
         # print(det.field_names)
         if is_ground_truth and "area" not in det.field_names:
             warnings.warn(
-                "The flag gt_data is True but the area doesn't exist! Please double check your data."
+                "The flag is_ground_truth is True but the area doesn't exist! Please double check your data."
             )
 
         if areas != None and is_ground_truth:
