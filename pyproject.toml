@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seametrics"
-version = "1.0.0"
+version = "1.0.1"
 authors = [{ name = "Kevin Serrano" }, { name = "Vasco Rodrigues" }]
 description = "Custom metrics for evaluating performance of A.I. pipelines at SEA.AI"
 readme = "README.md"
