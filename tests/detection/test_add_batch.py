@@ -124,10 +124,7 @@ def fake_payload_empty(gt_bboxes, pred_bboxes, from_nFoV: bool = False):
         "sequence_list": ["Sentry_2023_05_France_FB_WL_2023_05_16_15_23_57"],
     }
 
-
     return payload
-
-
 
 
 def main_code_part(gt_bbox, pred_bbox, nFoV: bool = False):
@@ -140,6 +137,7 @@ def main_code_part_empty(gt_bbox, pred_bbox, nFoV: bool = False):
     gt_bbox1, pred_bbox1 = normalize_bbox([gt_bbox], [pred_bbox])
     payload = fake_payload_empty(gt_bbox1, pred_bbox1, nFoV)
     return payload
+
 
 def extract_payload(payload):
 
@@ -178,7 +176,6 @@ def test_det_metrics_add_batch():
     bounding_box_gt = payload["sequences"][
         "Sentry_2023_05_France_FB_WL_2023_05_16_15_23_57"
     ]["annotations_sf"][0][0]["bounding_box"]
-    
 
     assert module is module_output
     assert len(predictions[0][0]) == 4
@@ -194,13 +191,11 @@ def test_det_metrics_add_batch():
     assert int(references[0][0][2]) == int(bounding_box_gt[2] * img_res[1])
     assert int(references[0][0][3]) == int(bounding_box_gt[3] * img_res[0])
 
-
     assert module is not None
     assert module_output is not None
 
     assert predictions == [[[125.0, 80.0, 375.0, 240.0]]]
     assert references == [[[125.0, 80.0, 375.0, 240.0]]]
-
 
     payload = main_code_part_empty(gt_bbox, pred_bbox)
     img_res = (512, 640)
@@ -215,7 +210,6 @@ def test_det_metrics_add_batch():
         "Sentry_2023_05_France_FB_WL_2023_05_16_15_23_57"
     ]["annotations_sf"]
 
-
     assert references == [[]]
     assert predictions == [[]]
 
@@ -224,15 +218,12 @@ def test_det_metrics_add_batch():
 
     assert bounding_box_pred == [[]]
     assert bounding_box_gt == [[]]
-    
-    
+
     assert len(predictions[0]) == 0
     assert len(references[0]) == 0
-
 
     assert module is not None
     assert module_output is not None
 
     assert predictions == [[]]
-    assert references == [[]]    
-    
+    assert references == [[]]
