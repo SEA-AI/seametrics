@@ -251,15 +251,13 @@ def _add_batch(metric, data, model=None):
             gt_normalized, pred_normalized
         ):  # iterate over all frame
             processed_pred = _fo_dets_to_metrics_dict(
-                fo_dets=pred_frame, w=img_res[1], h=img_res[0], include_scores=True
+                fo_dets=pred_frame, w=img_res[1], h=img_res[0]
             )
             processed_gt = _fo_dets_to_metrics_dict(
                 fo_dets=gt_frame,
                 w=img_res[1],
                 h=img_res[0],
-                include_scores=False,
-                include_areas=True,
-                gt_data=True,
+                is_ground_truth=True,
             )
             predictions.append(processed_pred[0]["boxes"].tolist())
             references.append(processed_gt[0]["boxes"].tolist())
@@ -272,12 +270,7 @@ def _add_batch(metric, data, model=None):
 
 
 def _fo_dets_to_metrics_dict(
-    fo_dets: list,
-    w: int,
-    h: int,
-    include_scores: bool = False,
-    include_areas: bool = False,
-    gt_data: bool = False,
+    fo_dets: list, w: int, h: int, is_ground_truth: bool = False
 ) -> List[Dict[str, np.ndarray]]:
     """Convert list of fiftyone detections to format that is
         required by PrecisionRecallF1Support() function of seametrics library
@@ -287,8 +280,7 @@ def _fo_dets_to_metrics_dict(
             note: bounding boxes in fo-detections are in format xywhn
         w (int): width in pixel of image
         h (int): height in pixel of image
-        gt_data (Bool) if the input data is a ground truth data
-        include_areas (Bool) Whether we want to include the area field in the output or not / note: this works only if the input ground truth data include the area already
+        is_ground_truth (Bool) if the input data is a ground truth data
 
     Returns:
         List[Dict[str, np.ndarray]]: list holding single dict with items:
@@ -303,7 +295,7 @@ def _fo_dets_to_metrics_dict(
     labels = []  # TODO: map to numbers
     areas = []
 
-    if include_areas == False:
+    if is_ground_truth == False:
         areas = None
 
     if len(fo_dets) == 0:
@@ -318,43 +310,21 @@ def _fo_dets_to_metrics_dict(
         )  # None for gt
         labels.append(1)
 
-        if include_areas and "area" not in det.field_names:
+        # print(det.field_names)
+        if is_ground_truth and "area" not in det.field_names:
             warnings.warn(
-                "The flag include_areas is True but the area doesn't exist! Please double check your data."
+                "The flag gt_data is True but the area doesn't exist! Please double check your data."
             )
 
-        if areas != None and gt_data:
+        if areas != None and is_ground_truth:
             areas.append(det["area"] if "area" in det.field_names else -1)
 
-    if include_scores:
-
-        if areas != None and gt_data:
-            return [
-                dict(
-                    boxes=np.array(detections),
-                    scores=np.array(scores),
-                    labels=np.array(labels),
-                    area=np.array(areas),
-                )
-            ]
-
-        else:
-            return [
-                dict(
-                    boxes=np.array(detections),
-                    scores=np.array(scores),
-                    labels=np.array(labels),
-                )
-            ]
+    metrics_dict = {
+        "boxes": np.array(detections),
+        "labels": np.array(labels),
+    }
+    if is_ground_truth:
+        metrics_dict["area"] = np.array(areas)
     else:
-        if areas != None and gt_data:
-            return [
-                dict(
-                    boxes=np.array(detections),
-                    labels=np.array(labels),
-                    area=np.array(areas),
-                )
-            ]
-
-        else:
-            return [dict(boxes=np.array(detections), labels=np.array(labels))]
+        metrics_dict["scores"] = np.array(scores)
+    return [metrics_dict]
