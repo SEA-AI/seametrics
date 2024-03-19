@@ -60,3 +60,33 @@ filterwarnings = ["ignore::DeprecationWarning"]
 # Coverage settings
 [tool.coverage.report]
 include = ["seametrics/*"]
+
+# Flake8 settings
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203, W503"
+exclude = [
+  "notebooks*",
+  "tests*",
+  "docs*",
+  "build*",
+  "dist*",
+  "seametrics.egg-info*",
+  "seametrics/__init__.py"
+]
+
+# Pylint settings
+[tool.pylint."MESSAGES CONTROL"]
+max-line-length = 88
+disable = """
+  logging-fstring-interpolation,
+"""
+exclude = [
+  "notebooks*",
+  "tests*",
+  "docs*",
+  "build*",
+  "dist*",
+  "seametrics.egg-info*",
+  "seametrics/__init__.py"
+]
