@@ -1,137 +1,14 @@
 import logging
 from typing import List, Dict, Literal
-from dataclasses import dataclass
 from tqdm import tqdm
 import fiftyone as fo
 from fiftyone import ViewField as F
 
+from seametrics.payload import Payload, Resolution, Sequence
 from seametrics.constants import EXCLUDED_CLASSES
 
 # Set up logging
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Resolution:
-    """
-    Represents the resolution of a sequence.
-    """
-
-    height: int
-    width: int
-
-
-class Sequence:
-    """
-    Class to store sequence data.
-    Allows for dynamic attributes to be added to the object.
-    """
-
-    def __init__(self, resolution: Resolution, **kwargs):
-        """
-        Initializes a Sequence object.
-
-        Args:
-            resolution (Resolution): The resolution of the sequence.
-            **kwargs: Additional attributes to be added to the object.
-        """
-        self.resolution = resolution
-        self.__dict__.update(kwargs)
-
-    def __getattr__(self, attr):
-        """
-        Fallback for undefined attributes.
-
-        Args:
-            attr (str): The name of the attribute.
-
-        Returns:
-            Any: The value of the attribute.
-
-        Raises:
-            AttributeError: If the attribute is not found.
-        """
-        try:
-            return self.__dict__[attr]
-        except KeyError as e:
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{attr}'"
-            ) from e
-
-    def __setattr__(self, key, value):
-        """
-        Sets the value of an attribute.
-
-        Args:
-            key (str): The name of the attribute.
-            value (Any): The value to be set.
-        """
-        self.__dict__[key] = value
-
-    def __getitem__(self, key):
-        """
-        Retrieves the value of an attribute.
-
-        Args:
-            key (str): The name of the attribute.
-
-        Returns:
-            Any: The value of the attribute.
-        """
-        return self.__getattr__(key)
-
-    def __setitem__(self, key, value):
-        """
-        Sets the value of an attribute.
-
-        Args:
-            key (str): The name of the attribute.
-            value (Any): The value to be set.
-        """
-        self.__setattr__(key, value)
-
-    def __repr__(self):
-        """
-        Returns a string representation of the Sequence object.
-
-        Returns:
-            str: The string representation of the object.
-        """
-        attrs = [f"{k}: {type(v).__name__}" for k, v in self.__dict__.items()]
-        joined_attrs = ", ".join(attrs)
-        return f"{self.__class__.__name__}({joined_attrs})"
-
-    @property
-    def field_names(self) -> List[str]:
-        """
-        Returns a list of field names, excluding the resolution attribute.
-
-        Returns:
-            List[str]: The list of field names.
-        """
-        return list(self.__dict__.keys() - {"resolution"})
-
-
-@dataclass
-class Payload:
-    """
-    Represents a payload containing dataset and model information.
-    """
-
-    dataset: str
-    models: List[str]
-    gt_field_name: str
-    sequences: Dict[str, Sequence]  # key is sequence name
-
-    @property
-    def sequences_list(self):
-        """
-        Returns a list of sequence names in the payload.
-
-        Returns:
-            List[str]: The list of sequence names.
-        """
-        return list(self.sequences.keys())
 
 
 class PayloadProcessor:
@@ -165,6 +42,7 @@ class PayloadProcessor:
             excluded_classes (List[str], optional): The list of excluded classes.
                 Defaults to None.
         """
+        self.dataset_name = dataset_name
         self.gt_field = gt_field
         self.models = models
         self.tracking_mode = tracking_mode
@@ -172,16 +50,31 @@ class PayloadProcessor:
         self.data_type = data_type
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
         self.validate_input_parameters(dataset_name)
-        self.dataset: fo.Dataset = fo.load_dataset(dataset_name)
+        self.dataset: fo.Dataset = None
+        self.payload: Payload = None
+        self.compute_payload()
+        logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
+
+    def compute_payload(self) -> Payload:
+        """
+        Recomputes the payload after updating any of the input parameters.
+
+        Returns:
+            Payload: The updated payload.
+        """
+        self.validate_input_parameters(self.dataset_name)
+        self.dataset = fo.load_dataset(self.dataset_name)
         if not self.sequence_list:
             self.sequence_list = self.dataset.distinct("sequence")
+        logger.debug(f"{self.dataset}")
+
         self.payload = Payload(
-            dataset=dataset_name,
-            models=models,
-            gt_field_name=gt_field,
+            dataset=self.dataset.name,
+            models=self.models,
+            gt_field_name=self.gt_field,
             sequences=self.process_dataset(),
         )
-        logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
+        return self.payload
 
     def validate_input_parameters(self, dataset_name: str):
         """
@@ -267,19 +160,20 @@ class PayloadProcessor:
         return Resolution(height=height, width=width)
 
     @staticmethod
-    def get_field_name(view: fo.DatasetView, field_name: str) -> str:
+    def get_field_name(view: fo.DatasetView, field_name: str, unwinding: bool = False) -> str:
         """
         Retrieves the field name based on the media type of the view.
 
         Args:
             view (fo.DatasetView): The FiftyOne dataset view.
             field_name (str): The field name.
+            unwinding (bool, optional): Whether to unwind the field. Defaults to False.
 
         Returns:
             str: The field name.
         """
         if view.media_type == "video":
-            return f"frames[].{field_name}"
+            return f"frames[].{field_name}" if unwinding else f"frames.{field_name}"
         if view.media_type == "image":
             return field_name
         raise ValueError(f"Unsupported media type: {view.media_type}")
@@ -298,15 +192,17 @@ class PayloadProcessor:
             Sequence: The sequence data.
         """
         sequence_view = self.dataset.match(F("sequence") == sequence).filter_labels(
-            self.gt_field, ~F("label").is_in(self.excluded_classes), only_matches=False
+            self.get_field_name(self.dataset, self.gt_field),
+            ~F("label").is_in(self.excluded_classes),
+            only_matches=False,
         )
 
         detections = {}
         for field_name in self.models + [self.gt_field]:
-            view_field_name = self.get_field_name(sequence_view, field_name)
+            field = self.get_field_name(sequence_view, field_name, unwinding=True)
             detections[field_name] = [
                 d if d is not None else []
-                for d in sequence_view.values(f"{view_field_name}.detections")
+                for d in sequence_view.values(f"{field}.detections")
             ]
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 

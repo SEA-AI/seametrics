@@ -1,5 +1,6 @@
 import pytest
-from seametrics.payload import Sequence, Resolution, PayloadProcessor
+from seametrics.payload import Sequence, Resolution
+from seametrics.payload.processor import PayloadProcessor
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ def test_payload_processor_get_resolution():
         def first(self):
             """use for first().metadata.frame_height and first().metadata.frame_width"""
             return self
-        
+
         @property
         def metadata(self):
             return self
@@ -71,6 +72,17 @@ def test_payload_processor_get_field_name():
             self.media_type = media_type
 
     view = MockDatasetView(media_type="video")
-    field_name = PayloadProcessor.get_field_name(view, "detections")
 
+    field_name = PayloadProcessor.get_field_name(view, "detections")
+    assert field_name == "frames.detections"
+
+    field_name = PayloadProcessor.get_field_name(view, "detections", unwinding=True)
     assert field_name == "frames[].detections"
+
+    view = MockDatasetView(media_type="image")
+    
+    field_name = PayloadProcessor.get_field_name(view, "detections")
+    assert field_name == "detections"
+
+    field_name = PayloadProcessor.get_field_name(view, "detections", unwinding=True)
+    assert field_name == "detections"
