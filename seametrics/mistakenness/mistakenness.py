@@ -108,15 +108,22 @@ def add_mistakenness_loc_metric(dataset, label_field="ground_truth_det"):
     dataset.save()
 
 # Function to compute mistakenness metric for a dataset
-def compute_mistakenness(dataset_name):
+def compute_mistakenness(dataset_name, brain_key="mistakenness", pred_field="yolo_prediction", label_field="ground_truth_det_yolo"):
     dataset = fo.load_dataset(dataset_name)
-
     # Add this field to prevent cast issued when calculating mistakenness (otherwise the mistakeness score will possibly be casted to integers)
-    dataset.add_sample_field("mistakenness", fo.FloatField)
+    dataset.add_sample_field(brain_key, fo.FloatField)
 
-    # Compute mistakenness metric
-    fob.compute_mistakenness(dataset, pred_field="yolo_prediction", label_field="ground_truth_det_yolo")
+    """
+        To customize the default settings for mistakenness computation, update the values in the mistakenness.py file located in the fiftyone.brain module:
+        (fiftyone/brain/internal/core/mistakenness.py lines 34-35)
+
+        _MISSED_CONFIDENCE_THRESHOLD = 0.5  # Threshold for detection confidence to be considered as missed
+        _DETECTION_IOU = 0.1  # Threshold for Intersection over Union (IoU) to consider a detection as a match
+    """
+
+    fob.compute_mistakenness(dataset, pred_field=pred_field, label_field=label_field)
     add_mistakenness_loc_metric(dataset, label_field="ground_truth_det_yolo")
+
 
 # Main function
 if __name__ == "__main__":
@@ -131,3 +138,7 @@ if __name__ == "__main__":
     # Add YOLOv5 predictions to the dataset
     print("Inference using YOLOv5...")
     add_yolov5_predictions(dataset_name=dataset_name, sample_field="yolo_prediction")
+
+    # Add yolo predictions to the dataset
+    print("Computing mistakenness...")
+    compute_mistakenness(dataset_name=dataset_name)
