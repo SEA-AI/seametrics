@@ -9,7 +9,8 @@ import fiftyone as fo
 import fiftyone.brain as fob
 import yolov5
 import cv2
-import yaml 
+import yaml
+from tqdm import tqdm
 
 # Function to load class map from YAML file
 def load_class_map(class_map_file_path):
@@ -94,7 +95,7 @@ def add_mistakenness_loc_metric(dataset, label_field="ground_truth_det"):
     dataset.add_sample_field("mistakenness_loc", fo.FloatField)
 
     # Loop through samples
-    for sample in dataset:
+    for sample in tqdm(dataset):
         detections = sample[label_field]
 
         # Extract the mistakenness_loc values from detections
