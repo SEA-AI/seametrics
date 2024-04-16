@@ -168,7 +168,7 @@ def compute_mistakenness(
     (fiftyone/brain/internal/core/mistakenness.py lines 34-35)
 
     _MISSED_CONFIDENCE_THRESHOLD = 0.5  # Threshold for detection confidence to be considered as missed
-    _DETECTION_IOU = 0.1  # Threshold for Intersection over Union (IoU) to consider a detection as a match
+    _DETECTION_IOU = 0.01  # Threshold for Intersection over Union (IoU) to consider a detection as a match
     """
 
     # Add this fields to prevent cast issued when calculating mistakenness (otherwise the mistakeness score will possibly be casted to integers)
