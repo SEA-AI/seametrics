@@ -17,7 +17,6 @@ DATASET_NAME = "TRAIN_PANOPTIC_DATASET"
 MODEL_PATH =  "/mnt/hdd/maryam/models/model_panoptik_27k_saved_100epochs/last_model"
 MODEL_NAME = "maskformer-27k-100epochs"
 FIELD_TO_SAVE = "softmin_errors"
-NUM_SAMPLES = 10
 
 
 ADE_MEAN = np.array([123.675, 116.280, 103.530]) / 255
@@ -33,8 +32,10 @@ dataset = fo.load_dataset(DATASET_NAME)
 # dataset_view = dataset.match(F("filepath")=="/mnt/fiftyoneDB/Database/Image_Data/Thermal_Images_8Bit/Trip_46_Seq_7/1355061_l.jpg") #change this to be smaller than the entire dataset if you want to do a quick test
 # dataset_view = dataset.select_group_slices()
 # dataset_view = dataset.select_group_slices().take(NUM_SAMPLES)
-dataset_view = dataset.take(NUM_SAMPLES)
+dataset_view = dataset
+num_samples = len(dataset_view)
 
+print(f"Calculating softmin score on {num_samples} samples")
 
 model = MaskFormerForInstanceSegmentation.from_pretrained(MODEL_PATH).to(DEVICE)
 processor = MaskFormerImageProcessor.from_pretrained(MODEL_PATH, use_tensors=True)
@@ -42,6 +43,7 @@ processor = MaskFormerImageProcessor.from_pretrained(MODEL_PATH, use_tensors=Tru
 label_to_id = model.config.label2id
 model_labels =  model.config.id2label
 class_names = [v for k,v in model_labels.items()]
+
 
 def transform_mask_to_image_size(image_size, bbox, mask, index):
     height, width = image_size
@@ -55,10 +57,27 @@ def transform_mask_to_image_size(image_size, bbox, mask, index):
     abs_bottom = min(abs_top + int(bbox_height * height), height)
     abs_right = min(abs_left + int(bbox_width * width), width)
     
+    # Calculate the actual height and width of the mask area
+    actual_height = abs_bottom - abs_top
+    actual_width = abs_right - abs_left
+
+    # Resize the mask if its dimensions do not match the bounding box slice dimensions
+    if (mask.shape[0] != actual_height) or (mask.shape[1] != actual_width):
+        # If resizing is needed, consider using interpolation methods appropriate for mask data
+        resized_mask = np.zeros((actual_height, actual_width), dtype=mask.dtype)
+        scale_y = actual_height / mask.shape[0]
+        scale_x = actual_width / mask.shape[1]
+        for i in range(actual_height):
+            for j in range(actual_width):
+                orig_y = int(i / scale_y)
+                orig_x = int(j / scale_x)
+                resized_mask[i, j] = mask[orig_y, orig_x]
+        mask = resized_mask
     # Place mask in image mask
     image_size_mask[abs_top:abs_bottom, abs_left:abs_right] = mask * index
 
     return image_size_mask
+
 
 def create_image_mask(annotations, image_size):
     """
@@ -153,7 +172,7 @@ for sample in tqdm(dataset_view):
 
     # ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], image.size)
     image_size = (image.size[1], image.size[0])
-
+    
     ground_truth_label = np.expand_dims(create_image_mask(sample['ground_truth_det.detections'], image_size), axis=0)
 
     issues = find_label_issues(ground_truth_label, pred_probs_np, downsample = 4, n_jobs=None, batch_size=1)
@@ -174,7 +193,7 @@ for sample in tqdm(dataset_view):
     sample.save()
 
 time1 = time.time()
-print(f"It took {str(time1-time0)} for {NUM_SAMPLES}")
+print(f"It took {str(time1-time0)} for {num_samples}")
 
 avg_softmin_score = np.mean(all_softmin_scores)
 
