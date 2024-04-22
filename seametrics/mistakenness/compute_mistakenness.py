@@ -190,7 +190,7 @@ def compute_mistakenness(
     # Compute mistakenness for region classification
     fob.compute_mistakenness(
         dataset,
-        pred_fiels="region_prediction",
+        pred_field="region_prediction",
         label_field="region_ground_truth",
         mistakenness_field=mistakenness_field_region_classification,
     )
