@@ -91,8 +91,7 @@ def create_image_mask(annotations, image_size):
     - image_mask: NumPy array representing the image mask with object indexes.
     """
     height, width = image_size
-    image_mask = np.zeros((height, width), dtype=np.uint8)
-    
+    image_mask = np.zeros((height, width), dtype=np.uint8)   
     for annotation in annotations:
         bbox = annotation['bounding_box']
         mask = annotation['mask']
@@ -104,8 +103,7 @@ def create_image_mask(annotations, image_size):
 
 def normalize_mask(mask, obj_id):
     # Find pixels belonging to the current object
-    y_indices, x_indices = np.where(mask == obj_id)
-        
+    y_indices, x_indices = np.where(mask == obj_id) 
     # Calculate the bounding box
     x_min, x_max = x_indices.min(), x_indices.max()
     y_min, y_max = y_indices.min(), y_indices.max()
@@ -153,7 +151,6 @@ for sample in tqdm(dataset_view):
     with torch.no_grad():
         outputs = model(pixel_values.to(DEVICE))
 
-
     class_queries_logits = outputs.class_queries_logits  # [batch_size, num_queries, num_classes+1]
     masks_queries_logits = outputs.masks_queries_logits  # [batch_size, num_queries, height, width]
 
@@ -170,7 +167,6 @@ for sample in tqdm(dataset_view):
         )
     pred_probs_np = resized_probs.cpu().numpy()
 
-    # ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], image.size)
     image_size = (image.size[1], image.size[0])
     
     ground_truth_label = np.expand_dims(create_image_mask(sample['ground_truth_det.detections'], image_size), axis=0)
