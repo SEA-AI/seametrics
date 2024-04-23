@@ -44,6 +44,7 @@ class PanopticQuality():
             targets = torch.from_numpy(targets)    
 
         self.metric.update(preds, targets)
+        print("Added data ...")
 
     def compute(self) -> torch.Tensor:
         """
@@ -52,8 +53,10 @@ class PanopticQuality():
         Returns:
             torch.Tensor: The computed metric result.
         """
+        print("Start computing ...")
         res = self.metric.compute()
         self.metric.reset()
+        print("Finished!")
         return res
     
     def update_and_compute(self,
