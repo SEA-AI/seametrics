@@ -20,7 +20,7 @@ class PanopticQuality():
         """
         self.things = things
         self.stuffs = stuffs
-        self.metric = PQ(things=things, stuffs=stuffs)
+        self.metric = PQ(things=things, stuffs=stuffs, allow_unknown_preds_category=True)
 
     def update(self,
                preds: torch.Tensor,
