@@ -1,23 +1,15 @@
+
+import numpy as np
+import fiftyone as fo
 import torch
 from tqdm import tqdm
+from PIL import Image
 from transformers import MaskFormerForInstanceSegmentation, MaskFormerImageProcessor
-import cv2
-import numpy as np
-import torch.nn.functional as NNF
-from fiftyone import ViewField as F
-import fiftyone as fo
 from cleanlab.segmentation.rank import get_label_quality_scores, issues_from_scores 
 from cleanlab.segmentation.filter import find_label_issues 
-import time
-from PIL import Image
+import cv2
 import albumentations as A
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-DATASET_NAME = "TRAIN_PANOPTIC_DATASET"
-MODEL_PATH =  "/mnt/hdd/maryam/models/model_panoptik_27k_saved_100epochs/last_model"
-MODEL_NAME = "maskformer-27k-100epochs"
-FIELD_TO_SAVE = "softmin_errors"
-
+import torch.nn.functional as NNF
 
 ADE_MEAN = np.array([123.675, 116.280, 103.530]) / 255
 ADE_STD = np.array([58.395, 57.120, 57.375]) / 255
@@ -26,24 +18,6 @@ image_transform = A.Compose([
     A.Resize(width=512, height=512),
     A.Normalize(mean=ADE_MEAN, std=ADE_STD),
 ])
-
-dataset = fo.load_dataset(DATASET_NAME) 
-
-# dataset_view = dataset.match(F("filepath")=="/mnt/fiftyoneDB/Database/Image_Data/Thermal_Images_8Bit/Trip_46_Seq_7/1355061_l.jpg") #change this to be smaller than the entire dataset if you want to do a quick test
-# dataset_view = dataset.select_group_slices()
-# dataset_view = dataset.select_group_slices().take(NUM_SAMPLES)
-dataset_view = dataset
-num_samples = len(dataset_view)
-
-print(f"Calculating softmin score on {num_samples} samples")
-
-model = MaskFormerForInstanceSegmentation.from_pretrained(MODEL_PATH).to(DEVICE)
-processor = MaskFormerImageProcessor.from_pretrained(MODEL_PATH, use_tensors=True)
-
-label_to_id = model.config.label2id
-model_labels =  model.config.id2label
-class_names = [v for k,v in model_labels.items()]
-
 
 def transform_mask_to_image_size(image_size, bbox, mask, index):
     height, width = image_size
@@ -79,7 +53,7 @@ def transform_mask_to_image_size(image_size, bbox, mask, index):
     return image_size_mask
 
 
-def create_image_mask(annotations, image_size):
+def create_image_mask(annotations, image_size, label_to_id):
     """
     Create an image mask from a list of mask annotations.
     
@@ -134,63 +108,78 @@ def softmin_output_to_fo_format(mask):
     return fo_annotations
 
 
-all_softmin_scores = []
+def compute_and_upload_softmin(dataset_view, model_path: str, target_size, mask_field_to_save: str, softmin_score_field: str, device=None):
+    pred_probs_list = []
+    ground_truth_labels_list = []
 
-time0 = time.time()
-for sample in tqdm(dataset_view):
-    image_filepath = sample.filepath
-    # image = Image.open(image_filepath).convert('RGB')
-    image = np.array(Image.open(image_filepath))
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = Image.fromarray(image)
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    pixel_values = image_transform(image=np.array(image))["image"]
-    pixel_values = np.moveaxis(pixel_values, -1, 0)
-    pixel_values = torch.from_numpy(pixel_values).unsqueeze(0)
+    model = MaskFormerForInstanceSegmentation.from_pretrained(model_path).to(device)
+    processor = MaskFormerImageProcessor.from_pretrained(model_path, use_tensors=True)
 
-    with torch.no_grad():
-        outputs = model(pixel_values.to(DEVICE))
+    label_to_id = model.config.label2id
+    model_labels =  model.config.id2label
+    class_names = [v for k,v in model_labels.items()]
 
-    class_queries_logits = outputs.class_queries_logits  # [batch_size, num_queries, num_classes+1]
-    masks_queries_logits = outputs.masks_queries_logits  # [batch_size, num_queries, height, width]
+    all_softmin_scores = []
+    
+    for sample in tqdm(dataset_view):
+        image_filepath = sample.filepath
+        # image = Image.open(image_filepath).convert('RGB')
+        image = np.array(Image.open(image_filepath))
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(image)
 
-    # Compute probabilities and remove the null class `[..., :-1]`
-    masks_classes = class_queries_logits.softmax(dim=-1)[..., :-1]
-    masks_probs = masks_queries_logits.sigmoid()  # [batch_size, num_queries, height, width]
+        pixel_values = image_transform(image=np.array(image))["image"]
+        pixel_values = np.moveaxis(pixel_values, -1, 0)
+        pixel_values = torch.from_numpy(pixel_values).unsqueeze(0)
 
-    # Compute semantic segmentation probabilities of shape (batch_size, num_classes, height, width)
-    pred_probs = torch.einsum("bqc, bqhw -> bchw", masks_classes, masks_probs)
-    target_sizes=[image.size[::-1]]
-    for idx in range(len(pred_probs)):
+        with torch.no_grad():
+            outputs = model(pixel_values.to(device))
+
+        class_queries_logits = outputs.class_queries_logits  # [batch_size, num_queries, num_classes+1]
+        masks_queries_logits = outputs.masks_queries_logits  # [batch_size, num_queries, height, width]
+
+        # Compute probabilities and remove the null class `[..., :-1]`
+        masks_classes = class_queries_logits.softmax(dim=-1)[..., :-1]
+        masks_probs = masks_queries_logits.sigmoid()  # [batch_size, num_queries, height, width]
+
+        # Compute semantic segmentation probabilities of shape (batch_size, num_classes, height, width)
+        pred_probs = torch.einsum("bqc, bqhw -> bchw", masks_classes, masks_probs)
         resized_probs = NNF.interpolate(
-            pred_probs[idx].unsqueeze(dim=0), size=target_sizes[idx], mode='bilinear', align_corners=False
-        )
-    pred_probs_np = resized_probs.cpu().numpy()
+                pred_probs, size=target_size, mode='bilinear', align_corners=False
+            )
+        pred_probs_np = resized_probs.cpu().numpy()
 
-    image_size = (image.size[1], image.size[0])
-    
-    ground_truth_label = np.expand_dims(create_image_mask(sample['ground_truth_det.detections'], image_size), axis=0)
 
-    issues = find_label_issues(ground_truth_label, pred_probs_np, downsample = 4, n_jobs=None, batch_size=1)
-    image_scores, pixel_scores = get_label_quality_scores(labels=ground_truth_label, pred_probs=pred_probs_np)
-    issues_from_score = issues_from_scores(image_scores, pixel_scores, threshold=0.5)
+        ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], (image.size[1], image.size[0]), label_to_id)
 
-    issues_mask = np.squeeze(issues_from_score.astype(int))
+        resized_ground_truth_label = cv2.resize(ground_truth_label, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
 
-    fo_annotations = softmin_output_to_fo_format(issues_mask)
+        pred_probs_list.append(np.squeeze(pred_probs_np))
+        ground_truth_labels_list.append(resized_ground_truth_label)
 
-    # Softmin_score ranges from 0 to 1, such that lower scores indicate images more likely to contain some mislabeled pixels.
-    sample['softmin_score'] = round(image_scores[0],4)
-    
-    all_softmin_scores.append(sample['softmin_score'])
+        ground_truth_label = np.expand_dims(resized_ground_truth_label, axis=0)
 
-    #save in the required field in fiftyone sample
-    sample[FIELD_TO_SAVE] = fo.Detections(detections=fo_annotations)
-    sample.save()
+        image_scores, pixel_scores = get_label_quality_scores(labels=ground_truth_label, pred_probs=pred_probs_np)
+        issues_from_score = issues_from_scores(image_scores, pixel_scores, threshold=0.5)
 
-time1 = time.time()
-print(f"It took {str(time1-time0)} for {num_samples}")
+        issues_mask = np.squeeze(issues_from_score.astype(int))
 
-avg_softmin_score = np.mean(all_softmin_scores)
+        fo_annotations = softmin_output_to_fo_format(issues_mask)
 
-print("Overall average softmin score: ", avg_softmin_score)
+        # Softmin_score ranges from 0 to 1, such that lower scores indicate images more likely to contain some mislabeled pixels.
+        sample[softmin_score_field] = round(image_scores[0], 4)
+        
+        all_softmin_scores.append(sample[softmin_score_field])
+
+        #save in the required field in fiftyone sample
+        sample[mask_field_to_save] = fo.Detections(detections=fo_annotations)
+        sample.save()
+
+    avg_softmin_score = np.mean(all_softmin_scores)
+    pred_probs_all_np = np.stack(pred_probs_list, axis=0)
+    ground_truth_labels_all_np = np.stack(ground_truth_labels_list, axis=0)
+
+    return avg_softmin_score, pred_probs_all_np, ground_truth_labels_all_np
