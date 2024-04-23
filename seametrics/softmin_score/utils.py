@@ -6,7 +6,6 @@ from tqdm import tqdm
 from PIL import Image
 from transformers import MaskFormerForInstanceSegmentation, MaskFormerImageProcessor
 from cleanlab.segmentation.rank import get_label_quality_scores, issues_from_scores 
-from cleanlab.segmentation.filter import find_label_issues 
 import cv2
 import albumentations as A
 import torch.nn.functional as NNF
@@ -126,10 +125,7 @@ def compute_and_upload_softmin(dataset_view, model_path: str, target_size, mask_
     
     for sample in tqdm(dataset_view):
         image_filepath = sample.filepath
-        # image = Image.open(image_filepath).convert('RGB')
-        image = np.array(Image.open(image_filepath))
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(image)
+        image = Image.open(image_filepath).convert('RGB')
 
         pixel_values = image_transform(image=np.array(image))["image"]
         pixel_values = np.moveaxis(pixel_values, -1, 0)
