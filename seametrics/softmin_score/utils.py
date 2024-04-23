@@ -108,6 +108,34 @@ def softmin_output_to_fo_format(mask):
 
 
 def compute_and_upload_softmin(dataset_view, model_path: str, target_size, mask_field_to_save: str, softmin_score_field: str, device=None):
+    """
+    Processes a dataset to compute and store softmin scores and mask annotations for each sample.
+
+    This function loads a pre-trained MaskFormer model for instance segmentation and processes each sample
+    in the dataset. It performs semantic segmentation using the model, computes the resized probabilities for each class,
+    and compares these against ground truth labels to compute quality scores. Issues identified based on these scores
+    are formatted and saved back into the dataset. Additionally, it calculates the average softmin score for all images.
+
+    Parameters:
+        dataset_view (iterable): An iterable view of the dataset where each element is a sample containing
+                                 metadata and image file paths.
+        model_path (str): Path to the directory where the pre-trained MaskFormer model and associated processor
+                          are stored.
+        target_size (tuple): A tuple (height, width) specifying the new size to which the prediction probabilities
+                             and ground truth labels should be resized.
+        mask_field_to_save (str): The field name in the fiftyone dataset where the computed mask annotations should be saved.
+        softmin_score_field (str): The field name in the fiftyone dataset where the computed softmin scores should be stored.
+        device (torch.device, optional): The device on which the computation should be performed. If None, it will
+                                         automatically select GPU if available, otherwise CPU.
+
+    Returns:
+        tuple: A tuple containing three elements:
+            - avg_softmin_score (float): The average softmin score computed across all samples in the dataset.
+            - pred_probs_all_np (numpy.ndarray): A numpy array of all prediction probabilities, stacked from all samples.
+            - ground_truth_labels_all_np (numpy.ndarray): A numpy array of all ground truth labels, resized and stacked
+                                                          from all samples.
+    """
+
     pred_probs_list = []
     ground_truth_labels_list = []
 
