@@ -21,10 +21,11 @@ def payload_to_seg_metric(payload: dict, model_name: str, label2id: dict=None):
     
     pred_frames = []
     gt_frames = []
-    for seq in payload["sequence_list"]:
-        h, w = payload["sequences"][seq]["resolution"]
-        preds = payload["sequences"][seq][model_name] # n_frames, m_detections
-        gts = payload["sequences"][seq][payload["gt_field_name"]] # n_frames, m_detections
+    for seq in payload.sequences:
+        sequence = payload.sequences[f"{seq}"]
+        h, w = sequence.resolution.height, payload.sequences[f"{seq}"].resolution.width
+        preds = sequence[model_name] # n_frames, m_detections
+        gts = sequence[payload.gt_field_name] # n_frames, m_detections
         for frame_dets in preds:
             pred_frames.append(multiple_masks_to_single_mask(frame_dets, h, w, label2id))
         for frame_dets in gts:
