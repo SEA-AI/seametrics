@@ -16,6 +16,5 @@ def package_available(package_name: str) -> bool:
 
 _PYTHON_VERSION = ".".join(map(str, [sys.version_info.major, sys.version_info.minor, sys.version_info.micro]))
 _TORCH_AVAILABLE = package_available("torch")
-_TORCHMETRICS_AVAILABLE = package_available("torchmetrics.detection")
+_TORCHMETRICS_AVAILABLE = False  # package_available("torchmetrics.detection")
 _PYCOCOTOOLS_AVAILABLE = package_available("pycocotools")
-
