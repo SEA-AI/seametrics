@@ -20,8 +20,9 @@ class PanopticQuality():
         """
         self.things = things
         self.stuffs = stuffs
-        self.metric = PQ(things=things, stuffs=stuffs, allow_unknown_preds_category=True)
         self.device = self.select_device()
+        self.metric = PQ(things=things, stuffs=stuffs, allow_unknown_preds_category=True)
+        self.metric.to(self.device)
 
 
     @staticmethod
