@@ -1,3 +1,1 @@
-import importlib.metadata
-
-__version__ = importlib.metadata.version("seametrics")
+__version__ = "1.0.1"
