@@ -192,11 +192,15 @@ class PayloadProcessor:
         Returns:
             Sequence: The sequence data.
         """
+
         sequence_view = self.dataset.match(F("sequence") == sequence).filter_labels(
             self.get_field_name(self.dataset, self.gt_field),
             ~F("label").is_in(self.excluded_classes),
             only_matches=False,
-        ).take(self.num_samples)
+        )
+        
+        if self.num_samples:
+            sequence_view = sequence_view.take(self.num_samples)
 
         detections = {}
         for field_name in self.models + [self.gt_field]:
