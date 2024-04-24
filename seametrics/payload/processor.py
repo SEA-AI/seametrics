@@ -25,7 +25,6 @@ class PayloadProcessor:
         sequence_list: List[str] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
         excluded_classes: List[str] = None,
-        num_samples: int = None,
     ):
         """
         Initializes a PayloadProcessor object.
@@ -53,6 +52,7 @@ class PayloadProcessor:
         self.validate_input_parameters(dataset_name)
         self.dataset: fo.Dataset = None
         self.payload: Payload = None
+        self.num_samples: int = None,
         self.compute_payload()
         logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
 
