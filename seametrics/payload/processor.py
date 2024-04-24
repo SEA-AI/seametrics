@@ -25,6 +25,7 @@ class PayloadProcessor:
         sequence_list: List[str] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
         excluded_classes: List[str] = None,
+        num_samples: int = None,
     ):
         """
         Initializes a PayloadProcessor object.
@@ -181,7 +182,6 @@ class PayloadProcessor:
     def process_sequence(
         self,
         sequence: str,
-        num_samples: int = None,
     ) -> Sequence:
         """
         Retrieves the sequence data from the dataset view.
@@ -196,7 +196,7 @@ class PayloadProcessor:
             self.get_field_name(self.dataset, self.gt_field),
             ~F("label").is_in(self.excluded_classes),
             only_matches=False,
-        ).take(num_samples)
+        ).take(self.num_samples)
 
         detections = {}
         for field_name in self.models + [self.gt_field]:
