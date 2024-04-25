@@ -63,6 +63,8 @@ class PanopticQuality():
         preds, targets = preds.to(self.device), targets.to(self.device)    
 
         self.metric.update(preds, targets)
+
+        preds, targets = preds.to("cpu"), targets.to("cpu")
         print("Added data ...")
 
     def compute(self) -> torch.Tensor:
