@@ -1,11 +1,12 @@
 import logging
-from typing import List, Dict, Literal
-from tqdm import tqdm
+from typing import Dict, List, Literal
+
 import fiftyone as fo
 from fiftyone import ViewField as F
+from tqdm import tqdm
 
-from seametrics.payload import Payload, Resolution, Sequence
 from seametrics.constants import EXCLUDED_CLASSES
+from seametrics.payload import Payload, Resolution, Sequence
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -160,7 +161,9 @@ class PayloadProcessor:
         return Resolution(height=height, width=width)
 
     @staticmethod
-    def get_field_name(view: fo.DatasetView, field_name: str, unwinding: bool = False) -> str:
+    def get_field_name(
+        view: fo.DatasetView, field_name: str, unwinding: bool = False
+    ) -> str:
         """
         Retrieves the field name based on the media type of the view.
 
@@ -199,16 +202,12 @@ class PayloadProcessor:
 
         detections = {}
         for field_name in self.models + [self.gt_field]:
-            field = self.get_field_name(sequence_view, field_name, unwinding=True)
             det_values = sequence_view.filter_labels(
-                        field,
-                        ~F("label").is_in(self.excluded_classes),
-                        only_matches=False,
-                    ).values(f"{field}.detections")
-            detections[field_name] = [
-                d if d is not None else []
-                for d in det_values
-            ]
+                self.get_field_name(sequence_view, field_name, unwinding=True),
+                ~F("label").is_in(self.excluded_classes),
+                only_matches=False,
+            ).values(f"{self.get_field_name(sequence_view, field_name)}.detections")
+            detections[field_name] = [d if d is not None else [] for d in det_values]
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
     def process_sequences(self) -> Dict[str, Sequence]:
