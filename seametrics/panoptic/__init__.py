@@ -1,0 +1,1 @@
+from seametrics.panoptic.pq import PanopticQuality
