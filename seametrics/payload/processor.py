@@ -203,10 +203,12 @@ class PayloadProcessor:
         detections = {}
         for field_name in self.models + [self.gt_field]:
             det_values = sequence_view.filter_labels(
-                self.get_field_name(sequence_view, field_name, unwinding=True),
+                self.get_field_name(sequence_view, field_name),
                 ~F("label").is_in(self.excluded_classes),
                 only_matches=False,
-            ).values(f"{self.get_field_name(sequence_view, field_name)}.detections")
+            ).values(
+                f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
+            )
             detections[field_name] = [d if d is not None else [] for d in det_values]
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
