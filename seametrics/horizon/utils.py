@@ -102,11 +102,6 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     return sequence_results
 
 
-import numpy as np
-import cv2
-import matplotlib.pyplot as plt
-
-
 def xy_points_to_slope_midpoint(xy_points):
     """
     Given two points, return the slope and midpoint of the line
