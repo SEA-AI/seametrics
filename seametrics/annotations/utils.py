@@ -1,14 +1,13 @@
-
+import os
+import cv2
 import numpy as np
 import fiftyone as fo
 import torch
+import json
 from tqdm import tqdm
-from PIL import Image
-from transformers import MaskFormerForInstanceSegmentation, MaskFormerImageProcessor
-from cleanlab.segmentation.rank import get_label_quality_scores, issues_from_scores 
-import cv2
 import albumentations as A
-import torch.nn.functional as NNF
+from cleanlab.segmentation.rank import get_label_quality_scores, issues_from_scores 
+
 
 ADE_MEAN = np.array([123.675, 116.280, 103.530]) / 255
 ADE_STD = np.array([58.395, 57.120, 57.375]) / 255
@@ -17,6 +16,20 @@ image_transform = A.Compose([
     A.Resize(width=512, height=512),
     A.Normalize(mean=ADE_MEAN, std=ADE_STD),
 ])
+
+def get_label2id(model_path):
+    if os.path.exists("label2id.json"):
+        with open("label2id.json", "r") as json_file:
+            label2id = json.load(json_file)
+    else:
+        from transformers import MaskFormerForInstanceSegmentation
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = MaskFormerForInstanceSegmentation.from_pretrained(model_path).to(device)
+        label2id = model.config.label2id
+    return label2id
+
+
 
 def transform_mask_to_image_size(image_size, bbox, mask, index):
     height, width = image_size
@@ -107,7 +120,7 @@ def softmin_output_to_fo_format(mask):
     return fo_annotations
 
 
-def compute_and_upload_softmin(dataset_view, model_path: str, target_size, mask_field_to_save: str, softmin_score_field: str, device=None):
+def compute_and_upload_softmin(dataset_view, model_path: str, target_size, pred_probs_field: str, mask_field_to_save: str, softmin_score_field: str, device=None):
     """
     Processes a dataset to compute and store softmin scores and mask annotations for each sample.
 
@@ -121,6 +134,7 @@ def compute_and_upload_softmin(dataset_view, model_path: str, target_size, mask_
                                  metadata and image file paths.
         model_path (str): Path to the directory where the pre-trained MaskFormer model and associated processor
                           are stored.
+        pred_probs_field (str): fiftyone field in the dataset were the prediction probabilities are saved.
         target_size (tuple): A tuple (height, width) specifying the new size to which the prediction probabilities
                              and ground truth labels should be resized.
         mask_field_to_save (str): The field name in the fiftyone dataset where the computed mask annotations should be saved.
@@ -139,68 +153,37 @@ def compute_and_upload_softmin(dataset_view, model_path: str, target_size, mask_
     pred_probs_list = []
     ground_truth_labels_list = []
 
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    model = MaskFormerForInstanceSegmentation.from_pretrained(model_path).to(device)
-    processor = MaskFormerImageProcessor.from_pretrained(model_path, use_tensors=True)
-
-    label_to_id = model.config.label2id
-    model_labels =  model.config.id2label
-    class_names = [v for k,v in model_labels.items()]
+    label_to_id = get_label2id(model_path)
 
     all_softmin_scores = []
     
     for sample in tqdm(dataset_view):
-        image_filepath = sample.filepath
-        image = Image.open(image_filepath).convert('RGB')
 
-        pixel_values = image_transform(image=np.array(image))["image"]
-        pixel_values = np.moveaxis(pixel_values, -1, 0)
-        pixel_values = torch.from_numpy(pixel_values).unsqueeze(0)
+        if sample[pred_probs_field] is not None:
+            pred_probs_np = sample[pred_probs_field] 
+            ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], (target_size[0], target_size[1]), label_to_id)
 
-        with torch.no_grad():
-            outputs = model(pixel_values.to(device))
+            resized_ground_truth_label = cv2.resize(ground_truth_label, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
+            pred_probs_list.append(np.squeeze(pred_probs_np))
+            ground_truth_labels_list.append(resized_ground_truth_label)
 
-        class_queries_logits = outputs.class_queries_logits  # [batch_size, num_queries, num_classes+1]
-        masks_queries_logits = outputs.masks_queries_logits  # [batch_size, num_queries, height, width]
+            ground_truth_label = np.expand_dims(resized_ground_truth_label, axis=0)
 
-        # Compute probabilities and remove the null class `[..., :-1]`
-        masks_classes = class_queries_logits.softmax(dim=-1)[..., :-1]
-        masks_probs = masks_queries_logits.sigmoid()  # [batch_size, num_queries, height, width]
+            image_scores, pixel_scores = get_label_quality_scores(labels=ground_truth_label, pred_probs=pred_probs_np)
+            issues_from_score = issues_from_scores(image_scores, pixel_scores, threshold=0.5)
 
-        # Compute semantic segmentation probabilities of shape (batch_size, num_classes, height, width)
-        pred_probs = torch.einsum("bqc, bqhw -> bchw", masks_classes, masks_probs)
-        resized_probs = NNF.interpolate(
-                pred_probs, size=target_size, mode='bilinear', align_corners=False
-            )
-        pred_probs_np = resized_probs.cpu().numpy()
+            issues_mask = np.squeeze(issues_from_score.astype(int))
 
+            fo_annotations = softmin_output_to_fo_format(issues_mask)
 
-        ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], (image.size[1], image.size[0]), label_to_id)
+            # Softmin_score ranges from 0 to 1, such that lower scores indicate images more likely to contain some mislabeled pixels.
+            sample[softmin_score_field] = round(image_scores[0], 4)
+            
+            all_softmin_scores.append(sample[softmin_score_field])
 
-        resized_ground_truth_label = cv2.resize(ground_truth_label, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
-
-        pred_probs_list.append(np.squeeze(pred_probs_np))
-        ground_truth_labels_list.append(resized_ground_truth_label)
-
-        ground_truth_label = np.expand_dims(resized_ground_truth_label, axis=0)
-
-        image_scores, pixel_scores = get_label_quality_scores(labels=ground_truth_label, pred_probs=pred_probs_np)
-        issues_from_score = issues_from_scores(image_scores, pixel_scores, threshold=0.5)
-
-        issues_mask = np.squeeze(issues_from_score.astype(int))
-
-        fo_annotations = softmin_output_to_fo_format(issues_mask)
-
-        # Softmin_score ranges from 0 to 1, such that lower scores indicate images more likely to contain some mislabeled pixels.
-        sample[softmin_score_field] = round(image_scores[0], 4)
-        
-        all_softmin_scores.append(sample[softmin_score_field])
-
-        #save in the required field in fiftyone sample
-        sample[mask_field_to_save] = fo.Detections(detections=fo_annotations)
-        sample.save()
+            #save in the required field in fiftyone sample
+            sample[mask_field_to_save] = fo.Detections(detections=fo_annotations)
+            sample.save()
 
     avg_softmin_score = np.mean(all_softmin_scores)
     pred_probs_all_np = np.stack(pred_probs_list, axis=0)
