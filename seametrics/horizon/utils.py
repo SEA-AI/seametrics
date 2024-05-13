@@ -53,20 +53,53 @@ def calculate_horizon_error(annotated_horizon, proposed_horizon):
 def calculate_horizon_error_across_sequence(slope_error_list,
                                             midpoint_error_list,
                                             slope_error_jump_threshold,
-                                            midpoint_error_jump_threshold):
+                                            midpoint_error_jump_threshold,
+                                            vertical_fov_degrees, height):
     """
-    Calculate the error statistics across a sequence of frames
+    Calculate the horizon error across a sequence of frames.
 
-    Args:
-    slope_error_list: List of errors in the slope of the lines
-    midpoint_error_list: List of errors in the midpoint_y of the lines
+    Parameters
+    ----------
+    slope_error_list : list
+        List of slope errors for each frame.
+    midpoint_error_list : list
+        List of midpoint errors for each frame.
+    slope_error_jump_threshold : float
+        Threshold for detecting jumps in slope errors.
+    midpoint_error_jump_threshold : float
+        Threshold for detecting jumps in midpoint errors.
+    vertical_fov_degrees : float
+        Vertical field of view in degrees.
+    height : int
+        Height of the image.
 
-    Returns:
-    average_slope_error: Average error in the slope of the lines
-    average_midpoint_error: Average error in the midpoint_y of the lines
+    Returns
+    -------
+    dict
+        A dictionary containing the following results:
+        - 'average_slope_error': The average slope error in degrees.
+        - 'average_midpoint_error': The average midpoint error in degrees.
+        - 'average_midpoint_error_px': The average midpoint error in pixels.
+        - 'stddev_slope_error': The standard deviation of slope errors in degrees.
+        - 'stddev_midpoint_error': The standard deviation of midpoint errors in degrees.
+        - 'stddev_midpoint_error_px': The standard deviation of midpoint errors in pixels.
+        - 'max_slope_error': The maximum slope error in degrees.
+        - 'max_midpoint_error': The maximum midpoint error in degrees.
+        - 'max_midpoint_error_px': The maximum midpoint error in pixels.
+        - 'num_slope_error_jumps': The number of jumps in slope errors.
+        - 'num_midpoint_error_jumps': The number of jumps in midpoint errors.
     """
 
-    # Calculate the average and standard deviation of the errors
+    # Function implementation...
+    pass
+
+
+def calculate_horizon_error_across_sequence(slope_error_list,
+                                            midpoint_error_list,
+                                            slope_error_jump_threshold,
+                                            midpoint_error_jump_threshold,
+                                            vertical_fov_degrees, height):
+
     average_slope_error = np.mean(slope_error_list)
     average_midpoint_error = np.mean(midpoint_error_list)
 
@@ -87,14 +120,30 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     num_midpoint_error_jumps = np.sum(
         diff_midpoint_error > midpoint_error_jump_threshold)
 
+    # Tranform metrics
+    average_midpoint_error_px = average_midpoint_error * height
+    stddev_midpoint_error_px = stddev_midpoint_error * height
+    max_midpoint_error_px = max_midpoint_error * height
+
+    average_midpoint_error_deg = average_midpoint_error * vertical_fov_degrees
+    stddev_midpoint_error_deg = stddev_midpoint_error * vertical_fov_degrees
+    max_midpoint_error_deg = max_midpoint_error * vertical_fov_degrees
+
+    average_slope_error_dec = slope_to_roll(average_slope_error)
+    stddev_slope_error_dec = slope_to_roll(stddev_slope_error)
+    max_slope_error_dec = slope_to_roll(max_slope_error)
+
     # Create a dictionary to store the results
     sequence_results = {
-        'average_slope_error': average_slope_error,
-        'average_midpoint_error': average_midpoint_error,
-        'stddev_slope_error': stddev_slope_error,
-        'stddev_midpoint_error': stddev_midpoint_error,
-        'max_slope_error': max_slope_error,
-        'max_midpoint_error': max_midpoint_error,
+        'average_slope_error': average_slope_error_dec,
+        'average_midpoint_error': average_midpoint_error_deg,
+        'average_midpoint_error_px': average_midpoint_error_px,
+        'stddev_slope_error': stddev_slope_error_dec,
+        'stddev_midpoint_error': stddev_midpoint_error_deg,
+        'stddev_midpoint_error_px': stddev_midpoint_error_px,
+        'max_slope_error': max_slope_error_dec,
+        'max_midpoint_error': max_midpoint_error_deg,
+        'max_midpoint_error_px': max_midpoint_error_px,
         'num_slope_error_jumps': num_slope_error_jumps,
         'num_midpoint_error_jumps': num_midpoint_error_jumps
     }
