@@ -90,16 +90,6 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         - 'num_midpoint_error_jumps': The number of jumps in midpoint errors.
     """
 
-    # Function implementation...
-    pass
-
-
-def calculate_horizon_error_across_sequence(slope_error_list,
-                                            midpoint_error_list,
-                                            slope_error_jump_threshold,
-                                            midpoint_error_jump_threshold,
-                                            vertical_fov_degrees, height):
-
     average_slope_error = np.mean(slope_error_list)
     average_midpoint_error = np.mean(midpoint_error_list)
 
