@@ -125,23 +125,26 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     stddev_midpoint_error_px = stddev_midpoint_error * height
     max_midpoint_error_px = max_midpoint_error * height
 
-    average_midpoint_error_deg = average_midpoint_error * vertical_fov_degrees
-    stddev_midpoint_error_deg = stddev_midpoint_error * vertical_fov_degrees
-    max_midpoint_error_deg = max_midpoint_error * vertical_fov_degrees
+    average_midpoint_error_deg = midpoint_to_pitch(average_midpoint_error,
+                                                   vertical_fov_degrees)
+    stddev_midpoint_error_deg = midpoint_to_pitch(stddev_midpoint_error,
+                                                  vertical_fov_degrees)
+    max_midpoint_error_deg = midpoint_to_pitch(max_midpoint_error,
+                                               vertical_fov_degrees)
 
-    average_slope_error_dec = slope_to_roll(average_slope_error)
-    stddev_slope_error_dec = slope_to_roll(stddev_slope_error)
-    max_slope_error_dec = slope_to_roll(max_slope_error)
+    average_slope_error_deg = slope_to_roll(average_slope_error)
+    stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
+    max_slope_error_deg = slope_to_roll(max_slope_error)
 
     # Create a dictionary to store the results
     sequence_results = {
-        'average_slope_error': average_slope_error_dec,
+        'average_slope_error': average_slope_error_deg,
         'average_midpoint_error': average_midpoint_error_deg,
         'average_midpoint_error_px': average_midpoint_error_px,
-        'stddev_slope_error': stddev_slope_error_dec,
+        'stddev_slope_error': stddev_slope_error_deg,
         'stddev_midpoint_error': stddev_midpoint_error_deg,
         'stddev_midpoint_error_px': stddev_midpoint_error_px,
-        'max_slope_error': max_slope_error_dec,
+        'max_slope_error': max_slope_error_deg,
         'max_midpoint_error': max_midpoint_error_deg,
         'max_midpoint_error_px': max_midpoint_error_px,
         'num_slope_error_jumps': num_slope_error_jumps,

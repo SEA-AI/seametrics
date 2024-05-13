@@ -98,6 +98,12 @@ class HorizonMetrics:
             self.slope_error_list.append(slope_error)
             self.midpoint_error_list.append(midpoint_error)
 
+        # calculate slope errors, midpoint errors and jumps
+        result = calculate_horizon_error_across_sequence(
+            self.slope_error_list, self.midpoint_error_list,
+            self.slope_threshold, self.midpoint_threshold,
+            self.vertical_fov_degrees, self.height)
+
         # calulcate detection rate
         detected_horizon_count = len(
             self.predictions) - self.predictions.count(None)
@@ -105,12 +111,6 @@ class HorizonMetrics:
             self.ground_truth_det) - self.ground_truth_det.count(None)
 
         detection_rate = detected_horizon_count / detected_gt_count
-
-        result = calculate_horizon_error_across_sequence(
-            self.slope_error_list, self.midpoint_error_list,
-            self.slope_threshold, self.midpoint_threshold,
-            self.vertical_fov_degrees, self.height)
-
         result['detection_rate'] = detection_rate
 
         return result
