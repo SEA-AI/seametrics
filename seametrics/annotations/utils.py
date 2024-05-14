@@ -37,7 +37,7 @@ def transform_mask_to_image_size(image_size, bbox, mask, index):
     
     # Unpack bounding box coordinates
     left, top, bbox_width, bbox_height = bbox
-    
+
     # Calculate absolute coordinates
     abs_top = round(top * height)
     abs_left = round(left * width)
@@ -147,7 +147,8 @@ def compute_and_upload_softmin(dataset_view, model_path: str, target_size, pred_
 
         if pred_probs_field in sample.field_names and sample[pred_probs_field] is not None:
             pred_probs_np = sample[pred_probs_field] 
-            ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], (target_size[0], target_size[1]), label_to_id)
+
+            ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], (sample['metadata.height'], sample['metadata.width']), label_to_id)
 
             resized_ground_truth_label = cv2.resize(ground_truth_label, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
             pred_probs_list.append(np.squeeze(pred_probs_np))
