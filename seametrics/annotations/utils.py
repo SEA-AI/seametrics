@@ -78,7 +78,8 @@ def create_image_mask(annotations, image_size, label_to_id):
     """
     height, width = image_size
     image_mask = np.zeros((height, width), dtype=np.uint8)   
-    for annotation in annotations:
+    sorted_annotations = sorted(annotations, key=lambda det: det["mask"].sum(), reverse=True) # put large masks below smaller masks
+    for annotation in sorted_annotations:
         bbox = annotation['bounding_box']
         mask = annotation['mask']
         index = label_to_id[annotation['label']]
