@@ -17,7 +17,7 @@ image_transform = A.Compose([
     A.Normalize(mean=ADE_MEAN, std=ADE_STD),
 ])
 
-def get_label2id(model_path):
+def get_label2id(model_path, device=None):
     if os.path.exists("label2id.json"):
         with open("label2id.json", "r") as json_file:
             label2id = json.load(json_file)
@@ -153,13 +153,13 @@ def compute_and_upload_softmin(dataset_view, model_path: str, target_size, pred_
     pred_probs_list = []
     ground_truth_labels_list = []
 
-    label_to_id = get_label2id(model_path)
+    label_to_id = get_label2id(model_path, device)
 
     all_softmin_scores = []
     
     for sample in tqdm(dataset_view):
 
-        if sample[pred_probs_field] is not None:
+        if pred_probs_field in sample.field_names and sample[pred_probs_field] is not None:
             pred_probs_np = sample[pred_probs_field] 
             ground_truth_label = create_image_mask(sample['ground_truth_det.detections'], (target_size[0], target_size[1]), label_to_id)
 
