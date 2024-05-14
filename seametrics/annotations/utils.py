@@ -37,28 +37,13 @@ def transform_mask_to_image_size(image_size, bbox, mask, index):
     
     # Unpack bounding box coordinates
     left, top, bbox_width, bbox_height = bbox
-    # Calculate absolute coordinates
-    abs_top = int(top * height)
-    abs_left = int(left * width)
-    abs_bottom = min(abs_top + int(bbox_height * height), height)
-    abs_right = min(abs_left + int(bbox_width * width), width)
     
-    # Calculate the actual height and width of the mask area
-    actual_height = abs_bottom - abs_top
-    actual_width = abs_right - abs_left
+    # Calculate absolute coordinates
+    abs_top = round(top * height)
+    abs_left = round(left * width)
+    abs_bottom = min(abs_top + round(bbox_height * height), height)
+    abs_right = min(abs_left + round(bbox_width * width), width)
 
-    # Resize the mask if its dimensions do not match the bounding box slice dimensions
-    if (mask.shape[0] != actual_height) or (mask.shape[1] != actual_width):
-        # If resizing is needed, consider using interpolation methods appropriate for mask data
-        resized_mask = np.zeros((actual_height, actual_width), dtype=mask.dtype)
-        scale_y = actual_height / mask.shape[0]
-        scale_x = actual_width / mask.shape[1]
-        for i in range(actual_height):
-            for j in range(actual_width):
-                orig_y = int(i / scale_y)
-                orig_x = int(j / scale_x)
-                resized_mask[i, j] = mask[orig_y, orig_x]
-        mask = resized_mask
     # Place mask in image mask
     image_size_mask[abs_top:abs_bottom, abs_left:abs_right] = mask * index
 
