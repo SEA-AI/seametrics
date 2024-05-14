@@ -20,7 +20,7 @@ dataset = fo.load_dataset(DATASET_NAME)
 # dataset_view = dataset.match(F("filepath")=="/mnt/fiftyoneDB/Database/Image_Data/Thermal_Images_8Bit/Trip_46_Seq_7/1355061_l.jpg") #change this to be smaller than the entire dataset if you want to do a quick test
 # dataset_view = dataset.select_group_slices()
 # dataset_view = dataset.select_group_slices().take(NUM_SAMPLES)
-dataset_view = dataset.take(1000)
+dataset_view = dataset.take(100)
 num_samples = len(dataset_view)
 
 print(f"Calculating softmin score on {num_samples} samples")
