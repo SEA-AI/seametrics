@@ -35,7 +35,7 @@ test = [
   # "pytest-asyncio-network-simulator"
 ]
 panoptic = [
-  "torchmetrics>=1.3.2",
+  "torchmetrics>=1.4.0",
   "cleanlab",
   "transformers",
 ]
