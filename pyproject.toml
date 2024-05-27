@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seametrics"
-version = "1.0.1"
+dynamic = ['version']
 authors = [{ name = "Kevin Serrano" }, { name = "Vasco Rodrigues" }]
 description = "Custom metrics for evaluating performance of A.I. pipelines at SEA.AI"
 readme = "README.md"
@@ -34,10 +34,18 @@ test = [
   # "pytest-asyncio>=0.15.1",
   # "pytest-asyncio-network-simulator"
 ]
+panoptic = [
+  "torchmetrics>=1.3.2",
+  "cleanlab",
+  "transformers",
+]
 
 [project.urls]
 Homepage = "https://github.com/SEA-AI/metrics"
 Issues = "https://github.com/SEA-AI/metrics/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "seametrics.__version__" }
 
 # Tools settings
 [tool.setuptools.packages.find]
