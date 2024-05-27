@@ -39,7 +39,7 @@ jobs:
           python -m venv ./.venv
           source ./.venv/bin/activate
           python -m pip install --upgrade pip wheel
-          pip install ".[test]" --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install ".[test, fiftyone]" --extra-index-url https://download.pytorch.org/whl/cpu
     - name: Install repo project # We do this since the install deps step can be skipped
       shell: bash
       run: |
