@@ -9,7 +9,8 @@ class PanopticQuality():
             things: Set[int],
             stuffs: Set[int],
             return_sq_and_rq: bool = True,
-            return_per_class: bool = True
+            return_per_class: bool = True,
+            CHUNK_SIZE: int = 200
         ) -> None:
         """
         Initializes the PanopticQuality class with the given sets of things and stuffs.
@@ -32,6 +33,7 @@ class PanopticQuality():
             return_per_class=return_per_class
         )
         self.metric.to(self.device)
+        self.CHUNK_SIZE = CHUNK_SIZE
 
 
     @staticmethod
@@ -69,9 +71,11 @@ class PanopticQuality():
         if type(targets) == np.ndarray:
             targets = torch.from_numpy(targets)
 
-        preds, targets = preds.to(self.device), targets.to(self.device)    
+        for pred_chunk, target_chunk in zip(torch.split(preds, self.CHUNK_SIZE), torch.split(targets, self.CHUNK_SIZE)):
+            pred_chunk, target_chunk = pred_chunk.to(self.device), target_chunk.to(self.device)    
+            self.metric.update(pred_chunk, target_chunk)
+            pred_chunk.to("cpu"), target_chunk.to("cpu")
 
-        self.metric.update(preds, targets)
         print("Added data ...")
 
     def compute(self) -> torch.Tensor:
