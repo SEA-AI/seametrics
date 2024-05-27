@@ -40,6 +40,7 @@ jobs:
           source ./.venv/bin/activate
           python -m pip install --upgrade pip wheel
           pip install ".[test, fiftyone]" --extra-index-url https://download.pytorch.org/whl/cpu
+      if: steps.cache-venv.outputs.cache-hit != 'true'
     - name: Install repo project # We do this since the install deps step can be skipped
       shell: bash
       run: |
