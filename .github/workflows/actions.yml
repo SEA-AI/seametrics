@@ -16,23 +16,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
+    - name: 🛎️ Checkout
+      uses: actions/checkout@v4
       with:
-        python-version: "3.10"
-    - uses: actions/cache@v3
-      id: cache
+          ref: ${{ github.head_ref }}
+    - name: 🐍 Set up Python 3.8
+      id: setup-python
+      uses: actions/setup-python@v5
       with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.*') }}
-        restore-keys: | 
-          ${{ runner.os }}-pip-
-    - name: Install dependencies
+        python-version: "3.8"
+    - name: 📦 Cache venv
+      id: cache-venv
+      uses: actions/cache@v4
+      with:
+        path: ./.venv/
+        key: ${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+            ${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-venv-
+    - name: 🦾 Install dependencies
+      shell: bash
       run: |
-        python -m pip install --upgrade pip
-        pip install pytest pytest-cov
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          python -m venv ./.venv
+          source ./.venv/bin/activate
+          python -m pip install --upgrade pip wheel
+          pip install ".[dev, inference]" --extra-index-url https://download.pytorch.org/whl/cpu
+    - name: Install repo project # We do this since the install deps step can be skipped
+      shell: bash
+      run: |
+        source ./.venv/bin/activate
+        python -m pip install -U -e .
     - name: Test with pytest
       run: |
-        pytest
+        source ./.venv/bin/activate
+        python -m pip install -U -e .
+        python -m pytest
