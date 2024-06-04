@@ -20,6 +20,12 @@ To get started with horizon-metrics, make sure you have the necessary dependenci
 
 This is how you can quickly evaluate your horizon prediction models using the horizon-metrics:
 
+> [!IMPORTANT]  
+> The vertical_fov_degrees and heigt parameters are required. The default value for roll_rehsold is 0.5 and for pitch_threshold it is 0.1.
+
+> [!IMPORTANT]  
+> The horizon metric should be calculated per sequence. Make sure that the vertical_fov and height are consistent across the inputs and do not change.
+
 ##### Use artifical data for testing
 
 ```python
@@ -66,7 +72,7 @@ prediction_points = [
 from seametrics.horizon.horizon import HorizonMetrics
 
 # Create the metrics object
-metrics = HorizonMetrics(roll_threshold=0.5, pitch_threshold=0.1, vertical_fov_degrees=25.6, height=512)
+metrics = HorizonMetrics(vertical_fov_degrees=25.6, height=512, roll_threshold=0.5, pitch_threshold=0.1)
 
 # Set ground truth and predictions
 metrics.update(predictions=prediction_points,

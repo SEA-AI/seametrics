@@ -7,14 +7,15 @@ class HorizonMetrics:
 
     Parameters
     ----------
+    vertical_fov_degrees : float
+        The vertical field of view of the camera in degrees.
+    height : int
+        The height of the camera in pixels.
     roll_threshold : float, optional
         The roll threshold in radians. Defaults to 0.5.
     pitch_threshold : float, optional
         The pitch threshold in radians. Defaults to 0.1.
-    vertical_fov_degrees : float, optional
-        The vertical field of view of the camera in degrees. Defaults to 25.6.
-    height : int, optional
-            The height of the camera in pixels. Defaults to 512.
+   
 
     Attributes
     ----------
@@ -33,23 +34,24 @@ class HorizonMetrics:
     """
 
     def __init__(self,
+                 vertical_fov_degrees,
+                 height,
                  roll_threshold=0.5,
-                 pitch_threshold=0.1,
-                 vertical_fov_degrees=25.6,
-                 height=512) -> None:
+                 pitch_threshold=0.1) -> None:
         """
         Initialize the HorizonMetrics class.
 
         Parameters
         ----------
+        vertical_fov_degrees : float
+            The vertical field of view of the camera in degrees
+        height : int
+            The height of the camera in pixels.
         roll_threshold : float, optional
             The roll threshold in radians. Defaults to 0.5.
         pitch_threshold : float, optional
             The pitch threshold in radians. Defaults to 0.1.
-        vertical_fov_degrees : float, optional
-            The vertical field of view of the camera in degrees. Defaults to 25.6.
-        height : int, optional
-            The height of the camera in pixels. Defaults to 512.
+        
 
         """
         self.vertical_fov_degrees = vertical_fov_degrees
