@@ -1,22 +1,22 @@
-## Horizon Metrics
+# Horizon Metrics
 
 This metric uses `seametrics.horizon.HorizonMetrics` to calculate the slope and midpoint errors.
 
-## How to Use
+# How to Use
 
 To utilize horizon-metrics effectively, start by installing the necessary dependencies using the provided pip command. Once installed, import the evaluate library into your Python environment. Then, use this metric to evaluate your horizon prediction models. Ensure that both ground truth and prediction points are correctly formatted before computing the result. Finally, analyze the computed result to gain insights into the performance of your prediction models.
 
-### Getting Started
+## Getting Started
 
 To get started with horizon-metrics, make sure you have the necessary dependencies installed. This metric relies on the `seametrics` libraries.
 
-### Installation
+## Installation
 
 ```sh
   pip install evaluate git+https://github.com/SEA-AI/seametrics@develop
 ```
 
-### Basic Usage
+## Basic Usage
 
 This is how you can quickly evaluate your horizon prediction models using the horizon-metrics:
 
@@ -26,7 +26,7 @@ This is how you can quickly evaluate your horizon prediction models using the ho
 > [!IMPORTANT]  
 > The horizon metric should be calculated per sequence. Make sure that the vertical_fov and height are consistent across the inputs and do not change.
 
-##### Use artificial data for testing
+### Use artificial data for testing
 
 ```python
 ground_truth_points = [[[0.0, 0.5384765625], [1.0, 0.4931640625]],
@@ -42,7 +42,7 @@ prediction_points = [[[0.0, 0.5428930956049597], [1.0, 0.4642497615378973]],
                      [[0.0, 0.523573113510805], [1.0, 0.47642688648919496]]]
 ```
 
-##### Load data from fiftyone
+### Load data from fiftyone
 
 ```python
 # Load data from fiftyone
@@ -66,9 +66,9 @@ prediction_points = [
     for line in polylines_pred[0]
 ```
 
-##### Calculate horizon metrics
+## Calculate horizon metrics
 
-###### Input parameters
+### Input parameters
 
 - **vertical_fov_degrees (in degrees)**: vertical field of view
 - **height (in pixels)**: height of the images
@@ -108,7 +108,7 @@ This is output the evaluation metrics for your horizon prediction model:
  'detection_rate': 0.2606486908948808}
 ```
 
-### Output Values
+## Output Values
 
 The metric includes the following performance metrics for horizon prediction:
 
