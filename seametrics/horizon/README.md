@@ -21,12 +21,12 @@ To get started with horizon-metrics, make sure you have the necessary dependenci
 This is how you can quickly evaluate your horizon prediction models using the horizon-metrics:
 
 > [!IMPORTANT]  
-> The vertical_fov_degrees and heigt parameters are required. The default value for roll_rehsold is 0.5 and for pitch_threshold it is 0.1.
+> The vertical_fov_degrees and height parameters are required. The default value for roll_threshold is 0.5 and for pitch_threshold it is 0.1.
 
 > [!IMPORTANT]  
 > The horizon metric should be calculated per sequence. Make sure that the vertical_fov and height are consistent across the inputs and do not change.
 
-##### Use artifical data for testing
+##### Use artificial data for testing
 
 ```python
 ground_truth_points = [[[0.0, 0.5384765625], [1.0, 0.4931640625]],
@@ -83,7 +83,7 @@ metrics.compute()
 
 ```
 
-This is output the evalutaion metrics for your horizon prediciton model:
+This is output the evaluation metrics for your horizon prediction model:
 
 ```console
 {'average_slope_error': 0.39394822776758726,
