@@ -88,7 +88,7 @@ class HorizonMetrics:
 
         """
 
-        # calculate erros and store values in slope_error_list and midpoint_error_list
+        # calculate errors and store values in slope_error_list and midpoint_error_list
         for annotated_horizon, proposed_horizon in zip(self.ground_truth_det,
                                                        self.predictions):
 
@@ -106,7 +106,7 @@ class HorizonMetrics:
             self.slope_threshold, self.midpoint_threshold,
             self.vertical_fov_degrees, self.height)
 
-        # calulcate detection rate
+        # calculate detection rate
         detected_horizon_count = len(
             self.predictions) - self.predictions.count(None)
         detected_gt_count = len(

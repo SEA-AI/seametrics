@@ -68,6 +68,14 @@ prediction_points = [
 
 ##### Calculate horizon metrics
 
+###### Input parameters
+
+- **vertical_fov_degrees (in degrees)**: vertical field of view
+- **height (in pixels)**: height of the images
+- **roll_threshold (in degrees)**: This value is internally converted to a slope threshold. It is used to determine the number of slope error jumps. A slope error jump is counted if the difference in slope error between two successive frames exceeds this threshold.
+
+- **pitch_threshold (in degrees)**: This value is internally converted to the midpoint. It is used as a threshold to determine the number of midpoint error jumps. A midpoint error jump is counted if the difference in midpoint error between two successive frames exceeds this threshold.
+
 ```python
 from seametrics.horizon.horizon import HorizonMetrics
 
