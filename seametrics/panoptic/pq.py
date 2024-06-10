@@ -67,7 +67,7 @@ class AreaPanopticQuality(PQ):
         )
         flatten_target = _prepocess_inputs(self.things, self.stuffs, target, self.void_color, True)
         iou_sum, true_positives, false_positives, false_negatives = _panoptic_quality_update(
-            flatten_preds, flatten_target, self.cat_id_to_continuous_id, self.void_color
+            flatten_preds, flatten_target, self.cat_id_to_continuous_id, self.void_color, areas=self.areas
         )
         self.iou_sum += iou_sum
         self.true_positives += true_positives
