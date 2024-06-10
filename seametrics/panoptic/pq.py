@@ -6,9 +6,12 @@ from torchmetrics.detection import PanopticQuality as PQ
 
 class PanopticQuality():
     def __init__(self,
-                 things: Set[int],
-                 stuffs: Set[int],
-                 CHUNK_SIZE: int = 200) -> None:
+            things: Set[int],
+            stuffs: Set[int],
+            return_sq_and_rq: bool = True,
+            return_per_class: bool = True,
+            CHUNK_SIZE: int = 200
+        ) -> None:
         """
         Initializes the PanopticQuality class with the given sets of things and stuffs.
 
@@ -22,7 +25,13 @@ class PanopticQuality():
         self.things = things
         self.stuffs = stuffs
         self.device = self.select_device()
-        self.metric = PQ(things=things, stuffs=stuffs, allow_unknown_preds_category=True)
+        self.metric = PQ(
+            things=things,
+            stuffs=stuffs,
+            allow_unknown_preds_category=True,
+            return_sq_and_rq=return_sq_and_rq,
+            return_per_class=return_per_class
+        )
         self.metric.to(self.device)
         self.CHUNK_SIZE = CHUNK_SIZE
 
