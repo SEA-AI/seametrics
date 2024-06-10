@@ -3,7 +3,7 @@ from typing import List, Tuple
 import numpy as np
 import fiftyone as fo
 
-def payload_to_seg_metric(payload: dict, model_name: str, area: Tuple[float], label2id: dict=None):
+def payload_to_seg_metric(payload: dict, model_name: str, label2id: dict=None):
     """
     Convert data in the standard payload format to the format expected by the segmentation metric.
      * merges all masks into one image
