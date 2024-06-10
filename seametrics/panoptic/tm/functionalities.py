@@ -35,6 +35,8 @@ def _filter_false_positives(
     false_positive_colors = set(pred_areas) - pred_segment_matched
     false_positive_colors.discard(void_color)
     for pred_color in false_positive_colors:
+        print(pred_areas[pred_color])
+        print(area)
         pred_void_area = intersection_areas.get((pred_color, void_color), 0)
         # we only calculate a prediction as false positive if it is within the current area range
         if pred_void_area / pred_areas[pred_color] <= 0.5 and (pred_areas[pred_color] >= lower) and (pred_areas[pred_color] < upper):
@@ -87,10 +89,6 @@ def _panoptic_quality_update_sample(
     pred_areas = cast(Dict[_Color, Tensor], _get_color_areas(flatten_preds))
     target_areas = cast(Dict[_Color, Tensor], _get_color_areas(flatten_target))
 
-    print(flatten_target.shape)
-    print(target_areas)
-    print(void_color)
-
     target_areas_split = [
         [target_color for target_color, value in target_areas.items() if (value.item() >= lower and value.item() < upper)]
         for lower, upper in areas
@@ -128,7 +126,6 @@ def _panoptic_quality_update_sample(
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 false_negatives[i, continuous_id] += 1
-
         for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color, area=area):
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
@@ -139,8 +136,6 @@ def _panoptic_quality_update_sample(
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 true_positives[i, continuous_id] += 1
     
-    print(iou_sum.shape)
-
     return iou_sum, true_positives, false_positives, false_negatives
 
 
@@ -188,7 +183,6 @@ def _panoptic_quality_update(
             stuffs_modified_metric=modified_metric_stuffs,
             areas=areas
         )
-        print(iou_sum.shape)
         iou_sum += result[0]
         true_positives += result[1]
         false_positives += result[2]
