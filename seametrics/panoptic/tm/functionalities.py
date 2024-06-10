@@ -94,10 +94,13 @@ def _panoptic_quality_update_sample(
         for lower, upper in areas
     ]
 
-    for i, (target_color, area) in enumerate(zip(target_areas_split, areas)):
+    for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
         #for target_areas in target_areas_split:
         # intersection matrix of shape [num_pixels, 2, 2]
-        intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
+        mask = torch.tensor(tuple(ft) in target_colors for ft in flatten_target)
+        flatten_target_new = torch.clone(flatten_target)
+        flatten_target_new[mask] = torch.tensor(void_color)
+        intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target_new), -1), -1, -2)
         intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
 
         # select intersection of things of same category with iou > 0.5
@@ -126,6 +129,7 @@ def _panoptic_quality_update_sample(
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 false_negatives[i, continuous_id] += 1
+
         for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color, area=area):
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
