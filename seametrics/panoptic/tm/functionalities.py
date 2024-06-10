@@ -93,14 +93,13 @@ def _panoptic_quality_update_sample(
         [target_color for target_color, value in target_areas.items() if (value.item() >= lower and value.item() < upper)]
         for lower, upper in areas
     ]
+    print(target_areas_split)
 
     for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
         #for target_areas in target_areas_split:
         # intersection matrix of shape [num_pixels, 2, 2]
-        mask = torch.tensor([tuple(ft) in target_colors for ft in flatten_target], dtype=torch.bool, device=device)
-        flatten_target_new = torch.clone(flatten_target).to(device)
-        flatten_target_new[mask] = torch.tensor(void_color).double().to(device)
-        intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target_new), -1), -1, -2)
+
+        intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
         intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
 
         # select intersection of things of same category with iou > 0.5
@@ -111,7 +110,7 @@ def _panoptic_quality_update_sample(
             # test only non void, matching category
             if target_color == void_color:
                 continue
-            if target_color not in target_areas_split[i]:
+            if target_color not in target_colors:
                 continue
             if pred_color[0] != target_color[0]:
                 continue
