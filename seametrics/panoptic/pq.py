@@ -109,7 +109,7 @@ class PanopticQuality():
         self.things = things
         self.stuffs = stuffs
         self.device = self.select_device()
-        self.metrics = AreaPanopticQuality(
+        self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
             allow_unknown_preds_category=True,
