@@ -99,7 +99,7 @@ def _panoptic_quality_update_sample(
         # intersection matrix of shape [num_pixels, 2, 2]
         mask = torch.tensor([tuple(ft) in target_colors for ft in flatten_target], dtype=torch.bool, device=device)
         flatten_target_new = torch.clone(flatten_target)
-        flatten_target_new[mask] = torch.tensor(void_color)
+        flatten_target_new[mask] = torch.tensor(void_color).long()
         intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target_new), -1), -1, -2)
         intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
 
