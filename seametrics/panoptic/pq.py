@@ -114,6 +114,7 @@ class PanopticQuality():
         self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
+            areas=areas,
             allow_unknown_preds_category=True,
             return_sq_and_rq=return_sq_and_rq,
             return_per_class=return_per_class
