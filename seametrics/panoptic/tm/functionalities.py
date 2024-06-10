@@ -153,7 +153,7 @@ def _panoptic_quality_update_sample(
             elif target_color[0] in stuffs_modified_metric and iou > 0:
                 iou_sum[i, continuous_id] += iou
 
-        for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color):
+        for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color, area=area):
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 false_negatives[i, continuous_id] += 1
