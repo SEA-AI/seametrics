@@ -22,7 +22,7 @@ class AreaPanopticQuality(PQ):
                  return_sq_and_rq: bool = False,
                  return_per_class: bool = False,
                  **kwargs: Any):
-        super.__init__(
+        super().__init__(
             things=things, 
             stuffs=stuffs, 
             allow_unknown_preds_category=allow_unknown_preds_category, 
