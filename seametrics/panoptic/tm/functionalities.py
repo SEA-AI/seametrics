@@ -244,8 +244,14 @@ def _panoptic_quality_compute(
     rq: Tensor = torch.where(denominator > 0.0, true_positives / denominator, 0.0)
     # compute per-class panoptic quality
     pq: Tensor = sq * rq
-    # compute averages
-    pq_avg: Tensor = torch.mean(pq[denominator > 0], dim=-1)
-    sq_avg: Tensor = torch.mean(sq[denominator > 0], dim=-1)
-    rq_avg: Tensor = torch.mean(rq[denominator > 0], dim=-1)
+    # compute averages over class
+    pq_avg: Tensor = torch.stack(
+        pq[i][denominator[i] > 0].mean().item() for i in range (len(pq))
+    )
+    sq_avg: Tensor = torch.stack(
+        sq[i][denominator[i] > 0].mean().item() for i in range (len(sq))
+    )
+    rq_avg: Tensor = torch.stack(
+        rq[i][denominator[i] > 0].mean().item() for i in range (len(rq))
+    )
     return pq, sq, rq, pq_avg, sq_avg, rq_avg
