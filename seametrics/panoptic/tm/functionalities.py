@@ -64,8 +64,6 @@ def _filter_false_positives(
     false_positive_colors = set(pred_areas) - pred_segment_matched
     false_positive_colors.discard(void_color)
     for pred_color in false_positive_colors:
-        print(pred_areas[pred_color])
-        print(area)
         pred_void_area = intersection_areas.get((pred_color, void_color), 0)
         # we only calculate a prediction as false positive if it is within the current area range
         if pred_void_area / pred_areas[pred_color] <= 0.5 and (pred_areas[pred_color] >= lower) and (pred_areas[pred_color] < upper):
@@ -122,7 +120,6 @@ def _panoptic_quality_update_sample(
         [target_color for target_color, value in target_areas.items() if (value.item() >= lower and value.item() < upper)]
         for lower, upper in areas
     ]
-    print(target_areas_split)
 
     for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
         #for target_areas in target_areas_split:
