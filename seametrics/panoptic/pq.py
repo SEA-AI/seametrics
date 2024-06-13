@@ -81,8 +81,8 @@ class AreaPanopticQuality(PQ):
         )
         if self.return_per_class:
             if self.return_sq_and_rq:
-                return torch.stack((pq, sq, rq), dim=-1)
-            return pq.view(1, -1)
+                return torch.stack((pq, sq, rq), dim=0)
+            return pq
         if self.return_sq_and_rq:
             return torch.stack((pq_avg, sq_avg, rq_avg), dim=0)
         return pq_avg
