@@ -133,6 +133,9 @@ class PanopticQuality():
         # Default to CPU if neither CUDA nor MPS is available
         else:
             return torch.device('cpu')
+    
+    def get_areas(self):
+        return self.metric.areas
 
     def update(self,
                preds: torch.Tensor,
