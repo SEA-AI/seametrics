@@ -79,8 +79,6 @@ class AreaPanopticQuality(PQ):
         pq, sq, rq, pq_avg, sq_avg, rq_avg = _panoptic_quality_compute(
             self.iou_sum, self.true_positives, self.false_positives, self.false_negatives
         )
-        print(pq.shape, sq.shape, rq.shape)
-        print(pq_avg.shape, rq_avg.shape, sq_avg.shape)
         if self.return_per_class:
             if self.return_sq_and_rq:
                 return torch.stack((pq, sq, rq), dim=-1)
