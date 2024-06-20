@@ -2,7 +2,7 @@ import os
 import contextlib
 import io
 from typing import Dict, List, Tuple
-import deprecated
+from deprecated import deprecated
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
