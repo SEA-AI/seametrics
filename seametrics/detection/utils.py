@@ -15,7 +15,6 @@ from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
 if _TORCHMETRICS_AVAILABLE:
     from torch import tensor
 
-
 # payload functions
 
 
@@ -46,12 +45,13 @@ def payload_to_det_metric(
             sequence.resolution.width,
             sequence.resolution.height,
         )
-        predictions.extend(payload_sequence_to_det_metrics(sequence[model_name], w, h))
+        predictions.extend(
+            payload_sequence_to_det_metrics(sequence[model_name], w, h))
         references.extend(
-            payload_sequence_to_det_metrics(
-                sequence[payload.gt_field_name], w, h, is_gt=True
-            )
-        )
+            payload_sequence_to_det_metrics(sequence[payload.gt_field_name],
+                                            w,
+                                            h,
+                                            is_gt=True))
 
     return predictions, references
 
@@ -121,7 +121,8 @@ def frame_dets_to_det_metrics(
 
         detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
         labels.append(0 if class_agnostic else det["label"])
-        scores.append(det["confidence"] if det["confidence"] else 1.0)  # None for gt
+        scores.append(
+            det["confidence"] if det["confidence"] else 1.0)  # None for gt
 
         if is_gt:
             if "area" not in det.field_names:
@@ -144,17 +145,9 @@ def frame_dets_to_det_metrics(
 
 
 # DEPRECATED helper functions
-
-
-def prepare_data_for_det_metrics(
-    gt_bboxes_per_frame,
-    gt_labels_per_frame,
-    dt_bboxes_per_frame,
-    dt_labels_per_frame,
-    dt_scores_per_frame,
-    img_w: int = 640,
-    img_h: int = 512,
-):
+def prepare_data_for_det_metrics(gt_bboxes_per_frame, gt_labels_per_frame,
+                                 dt_bboxes_per_frame, dt_labels_per_frame,
+                                 dt_scores_per_frame, img_w, img_h):
     """
     Returns
     -------
@@ -168,40 +161,41 @@ def prepare_data_for_det_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
-        img_w: int = 640,
-        img_h: int = 512,
+        img_w,
+        img_h,
     ):
         """Converts a list of frames with detections (bboxes) to numpy format."""
 
         # put to numpy format
         target = []
         for boxes, labels in zip(gt_bboxes_per_frame, gt_labels_per_frame):
-            target.append(
-                {
-                    "boxes": box_convert(
-                        box_denormalize(boxes, img_w, img_h),
-                        in_fmt="xywh",
-                        out_fmt="xyxy",
-                    ),
-                    "labels": np.unique(labels, return_inverse=True)[1],
-                }
-            )
+            target.append({
+                "boxes":
+                box_convert(
+                    box_denormalize(boxes, img_w, img_h),
+                    in_fmt="xywh",
+                    out_fmt="xyxy",
+                ),
+                "labels":
+                np.unique(labels, return_inverse=True)[1],
+            })
 
         preds = []
-        for boxes, labels, scores in zip(
-            dt_bboxes_per_frame, dt_labels_per_frame, dt_scores_per_frame
-        ):
-            preds.append(
-                {
-                    "boxes": box_convert(
-                        box_denormalize(boxes, img_w, img_h),
-                        in_fmt="xywh",
-                        out_fmt="xyxy",
-                    ),
-                    "labels": np.unique(labels, return_inverse=True)[1],
-                    "scores": np.array(scores),
-                }
-            )
+        for boxes, labels, scores in zip(dt_bboxes_per_frame,
+                                         dt_labels_per_frame,
+                                         dt_scores_per_frame):
+            preds.append({
+                "boxes":
+                box_convert(
+                    box_denormalize(boxes, img_w, img_h),
+                    in_fmt="xywh",
+                    out_fmt="xyxy",
+                ),
+                "labels":
+                np.unique(labels, return_inverse=True)[1],
+                "scores":
+                np.array(scores),
+            })
 
         return target, preds
 
@@ -220,26 +214,14 @@ def prepare_data_for_det_metrics(
         if data is None or len(data) == 0:
             data = [data]
         if data_type in ["bbox", "mask"]:
-            if any(
-                [
-                    (
-                        _not_falsy(item)
-                        and not isinstance(item[0], (tuple, list, np.ndarray))
-                    )
-                    for item in data
-                ]
-            ):
+            if any([(_not_falsy(item)
+                     and not isinstance(item[0], (tuple, list, np.ndarray)))
+                    for item in data]):
                 data = [data]
         elif data_type in ["score", "label"]:
-            if any(
-                [
-                    (
-                        _not_falsy(item)
-                        and not isinstance(item, (tuple, list, np.ndarray))
-                    )
-                    for item in data
-                ]
-            ):
+            if any([(_not_falsy(item)
+                     and not isinstance(item, (tuple, list, np.ndarray)))
+                    for item in data]):
                 data = [data]
         else:
             raise ValueError(f"Unsupported data type: {data_type}")
@@ -255,18 +237,23 @@ def prepare_data_for_det_metrics(
             return False
         return True
 
-    gt_bboxes_per_frame = _validate_arrays(gt_bboxes_per_frame, data_type="bbox")
-    gt_labels_per_frame = _validate_arrays(gt_labels_per_frame, data_type="label")
-    dt_bboxes_per_frame = _validate_arrays(dt_bboxes_per_frame, data_type="bbox")
-    dt_labels_per_frame = _validate_arrays(dt_labels_per_frame, data_type="label")
-    dt_scores_per_frame = _validate_arrays(dt_scores_per_frame, data_type="score")
+    gt_bboxes_per_frame = _validate_arrays(gt_bboxes_per_frame,
+                                           data_type="bbox")
+    gt_labels_per_frame = _validate_arrays(gt_labels_per_frame,
+                                           data_type="label")
+    dt_bboxes_per_frame = _validate_arrays(dt_bboxes_per_frame,
+                                           data_type="bbox")
+    dt_labels_per_frame = _validate_arrays(dt_labels_per_frame,
+                                           data_type="label")
+    dt_scores_per_frame = _validate_arrays(dt_scores_per_frame,
+                                           data_type="score")
 
     assert len(gt_bboxes_per_frame) == len(dt_bboxes_per_frame), (
-        "Number of frames in GT and prediction do not match"
-        + f" ({len(gt_bboxes_per_frame)} vs {len(dt_bboxes_per_frame)})"
-    )
+        "Number of frames in GT and prediction do not match" +
+        f" ({len(gt_bboxes_per_frame)} vs {len(dt_bboxes_per_frame)})")
 
-    if all([item is None for sublist in dt_scores_per_frame for item in sublist]):
+    if all(
+        [item is None for sublist in dt_scores_per_frame for item in sublist]):
         # print("All scores are None, setting them to 1.0")
         dt_scores_per_frame = [[1.0] * len(x) for x in dt_scores_per_frame]
 
@@ -276,6 +263,8 @@ def prepare_data_for_det_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
+        img_w,
+        img_h,
     )
 
     if _TORCHMETRICS_AVAILABLE:
@@ -285,8 +274,8 @@ def prepare_data_for_det_metrics(
 
 
 def get_relevant_fields(
-    view: fo.DatasetView,
-    fields: list,  # fiftyone field names
+        view: fo.DatasetView,
+        fields: list,  # fiftyone field names
 ):
     """
     Returns a view with only the relevant fields to prevent memory issues.
@@ -305,8 +294,7 @@ def get_relevant_fields(
     """
     if view.media_type == "video":
         return view.select_fields(
-            [f"frames.{f}" if view.has_frame_field(f) else f for f in fields]
-        )
+            [f"frames.{f}" if view.has_frame_field(f) else f for f in fields])
     elif view.media_type == "image":
         return view.select_fields(fields)
     else:
@@ -314,8 +302,8 @@ def get_relevant_fields(
 
 
 def get_values(
-    view: fo.DatasetView,
-    field_name: str,  # fiftyone field name
+        view: fo.DatasetView,
+        field_name: str,  # fiftyone field name
 ):
     """
     Parameters
@@ -359,8 +347,8 @@ def smart_compute_metrics(
         sequence_names = set(view.values("sequence"))
         for sequence_name in tqdm(sequence_names):
             target, preds = get_target_and_preds(
-                (view.match(F("sequence") == sequence_name)), gt_field, pred_field
-            )
+                (view.match(F("sequence") == sequence_name)), gt_field,
+                pred_field)
             metric.update(preds, target)
 
     elif view.media_type == "image":
@@ -375,25 +363,28 @@ def smart_compute_metrics(
 
 
 def get_target_and_preds(
-    view: fo.DatasetView,
-    gt_field: str,  # fiftyone field name
-    pred_field: str,  # fiftyone field name
+        view: fo.DatasetView,
+        gt_field: str,  # fiftyone field name
+        pred_field: str,  # fiftyone field name
 ):
     view = get_relevant_fields(view, [gt_field, pred_field])
 
-    gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
+    img_w = view.first()["metadata"]["width"]
+    img_h = view.first()["metadata"]["height"]
+    print(f"Resolution: {img_w}x{img_h}")
+
+    gt_bboxes_per_frame = get_values(view,
+                                     f"{gt_field}.detections.bounding_box")
     gt_labels_per_frame = get_values(view, f"{gt_field}.detections.label")
-    dt_bboxes_per_frame = get_values(view, f"{pred_field}.detections.bounding_box")
+    dt_bboxes_per_frame = get_values(view,
+                                     f"{pred_field}.detections.bounding_box")
     dt_labels_per_frame = get_values(view, f"{pred_field}.detections.label")
-    dt_scores_per_frame = get_values(view, f"{pred_field}.detections.confidence")
+    dt_scores_per_frame = get_values(view,
+                                     f"{pred_field}.detections.confidence")
 
     target, preds = prepare_data_for_det_metrics(
-        gt_bboxes_per_frame,
-        gt_labels_per_frame,
-        dt_bboxes_per_frame,
-        dt_labels_per_frame,
-        dt_scores_per_frame,
-    )
+        gt_bboxes_per_frame, gt_labels_per_frame, dt_bboxes_per_frame,
+        dt_labels_per_frame, dt_scores_per_frame, img_w, img_h)
 
     return target, preds
 
@@ -408,13 +399,19 @@ def compute_metrics(
     """Computes metrics for a given dataset view."""
 
     view = get_relevant_fields(view, [gt_field, pred_field])
+    img_w = view.first()["metadata"]["width"]
+    img_h = view.first()["metadata"]["height"]
+    print(f"Resolution: {img_w}x{img_h}")
 
     print("Collecting bboxes, labels and scores...")
-    gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
+    gt_bboxes_per_frame = get_values(view,
+                                     f"{gt_field}.detections.bounding_box")
     gt_labels_per_frame = get_values(view, f"{gt_field}.detections.label")
-    dt_bboxes_per_frame = get_values(view, f"{pred_field}.detections.bounding_box")
+    dt_bboxes_per_frame = get_values(view,
+                                     f"{pred_field}.detections.bounding_box")
     dt_labels_per_frame = get_values(view, f"{pred_field}.detections.label")
-    dt_scores_per_frame = get_values(view, f"{pred_field}.detections.confidence")
+    dt_scores_per_frame = get_values(view,
+                                     f"{pred_field}.detections.confidence")
 
     print("Converting to metric format...")
     target, preds = prepare_data_for_det_metrics(
@@ -423,6 +420,8 @@ def compute_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
+        img_w,
+        img_h,
     )
 
     # free memory
@@ -534,9 +533,9 @@ def compute_and_save_sequence_metrics(
     name_separator: str = "__",
 ):
     csv_name = name_separator.join(
-        [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
-    )
-    csv_name = name_separator.join([csv_name, csv_suffix]) if csv_suffix else csv_name
+        [view.dataset_name, gt_field, pred_field, metric_fn.__name__])
+    csv_name = name_separator.join([csv_name, csv_suffix
+                                    ]) if csv_suffix else csv_name
     csv_name += ".csv"
     csv_path = os.path.join(csv_dirpath, csv_name)
     print(f"Saving metrics to {csv_path}")
@@ -568,9 +567,8 @@ def compute_and_save_sequence_metrics(
     df.to_csv(csv_path, index=False)
 
 
-def get_confidence_metric_vals(
-    cocoeval: np.ndarray, T: int, R: int, K: int, A: int, M: int
-):
+def get_confidence_metric_vals(cocoeval: np.ndarray, T: int, R: int, K: int,
+                               A: int, M: int):
     """Get confidence values for plotting:
     - recall vs confidence
     - precision vs confidence
