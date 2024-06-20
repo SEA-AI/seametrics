@@ -2,6 +2,7 @@ import os
 import contextlib
 import io
 from typing import Dict, List, Tuple
+from deprecated import deprecated
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
@@ -14,7 +15,6 @@ from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
 
 if _TORCHMETRICS_AVAILABLE:
     from torch import tensor
-
 
 # payload functions
 
@@ -144,16 +144,14 @@ def frame_dets_to_det_metrics(
 
 
 # DEPRECATED helper functions
-
-
 def prepare_data_for_det_metrics(
     gt_bboxes_per_frame,
     gt_labels_per_frame,
     dt_bboxes_per_frame,
     dt_labels_per_frame,
     dt_scores_per_frame,
-    img_w: int = 640,
-    img_h: int = 512,
+    img_w,
+    img_h,
 ):
     """
     Returns
@@ -168,8 +166,8 @@ def prepare_data_for_det_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
-        img_w: int = 640,
-        img_h: int = 512,
+        img_w,
+        img_h,
     ):
         """Converts a list of frames with detections (bboxes) to numpy format."""
 
@@ -276,13 +274,14 @@ def prepare_data_for_det_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
+        img_w,
+        img_h,
     )
 
     if _TORCHMETRICS_AVAILABLE:
         target, preds = _to_tm_format(target, preds)
 
     return target, preds
-
 
 def get_relevant_fields(
     view: fo.DatasetView,
@@ -338,7 +337,7 @@ def get_values(
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
-
+@deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def smart_compute_metrics(
     view: fo.DatasetView,
     metric_fn: callable,  # torchmetrics metric
@@ -373,13 +372,17 @@ def smart_compute_metrics(
     print("Computing metrics...")
     return metric.compute()
 
-
+@deprecated(reason="We do not guarantee the correctness of this function.")
 def get_target_and_preds(
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
     pred_field: str,  # fiftyone field name
 ):
     view = get_relevant_fields(view, [gt_field, pred_field])
+
+    img_w = view.first()["metadata"]["width"]
+    img_h = view.first()["metadata"]["height"]
+    print(f"Resolution: {img_w}x{img_h}")
 
     gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
     gt_labels_per_frame = get_values(view, f"{gt_field}.detections.label")
@@ -393,11 +396,13 @@ def get_target_and_preds(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
+        img_w,
+        img_h,
     )
 
     return target, preds
 
-
+@deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def compute_metrics(
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
@@ -408,6 +413,9 @@ def compute_metrics(
     """Computes metrics for a given dataset view."""
 
     view = get_relevant_fields(view, [gt_field, pred_field])
+    img_w = view.first()["metadata"]["width"]
+    img_h = view.first()["metadata"]["height"]
+    print(f"Resolution: {img_w}x{img_h}")
 
     print("Collecting bboxes, labels and scores...")
     gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
@@ -423,6 +431,8 @@ def compute_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
+        img_w,
+        img_h,
     )
 
     # free memory
@@ -433,7 +443,6 @@ def compute_metrics(
     metric = metric_fn(**metric_kwargs)
     metric.update(preds, target)
     return metric.compute()
-
 
 def results_to_df(results, fixed_columns: dict = {}):
     # save to pandas dataframe
@@ -475,7 +484,6 @@ def results_to_df(results, fixed_columns: dict = {}):
         }
 
     return df
-
 
 def sequence_results_to_df(sequence_results):
     # save to pandas dataframe
@@ -521,7 +529,6 @@ def sequence_results_to_df(sequence_results):
 
     return df
 
-
 def compute_and_save_sequence_metrics(
     csv_dirpath: str,
     view: fo.DatasetView,
@@ -566,7 +573,6 @@ def compute_and_save_sequence_metrics(
         os.makedirs(csv_dirpath)
     df = sequence_results_to_df(sequence_results)
     df.to_csv(csv_path, index=False)
-
 
 def get_confidence_metric_vals(
     cocoeval: np.ndarray, T: int, R: int, K: int, A: int, M: int
