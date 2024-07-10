@@ -1,13 +1,97 @@
-from typing import Set
+from typing import Set, List, Tuple, Collection, Any
 
 import numpy as np
 import torch
 from torchmetrics.detection import PanopticQuality as PQ
+from torchmetrics.functional.detection._panoptic_quality_common import (
+    _prepocess_inputs,
+    _validate_inputs,
+)
+
+from seametrics.panoptic.tm.functionalities import (
+    _panoptic_quality_compute,
+    _panoptic_quality_update
+)
+
+class AreaPanopticQuality(PQ):
+    def __init__(self,
+                 things: Collection[int],
+                 stuffs: Collection[int],
+                 areas: List[Tuple[float]] = [(0, 1e10)],
+                 allow_unknown_preds_category: bool = False,
+                 return_sq_and_rq: bool = False,
+                 return_per_class: bool = False,
+                 **kwargs: Any):
+        super().__init__(
+            things=things, 
+            stuffs=stuffs, 
+            allow_unknown_preds_category=allow_unknown_preds_category, 
+            return_sq_and_rq=return_sq_and_rq, 
+            return_per_class=return_per_class, 
+            **kwargs
+        )
+        self.areas = areas
+        num_categories = len(things) + len(stuffs)
+        self.add_state("iou_sum", default=torch.zeros(len(areas), num_categories, dtype=torch.double), dist_reduce_fx="sum")
+        self.add_state("true_positives", default=torch.zeros(len(areas), num_categories, dtype=torch.int), dist_reduce_fx="sum")
+        self.add_state("false_positives", default=torch.zeros(len(areas), num_categories, dtype=torch.int), dist_reduce_fx="sum")
+        self.add_state("false_negatives", default=torch.zeros(len(areas), num_categories, dtype=torch.int), dist_reduce_fx="sum")
+
+    
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        r"""Update state with predictions and targets.
+
+        Args:
+            preds: panoptic detection of shape ``[batch, *spatial_dims, 2]`` containing
+                the pair ``(category_id, instance_id)`` for each point.
+                If the ``category_id`` refer to a stuff, the instance_id is ignored.
+
+            target: ground truth of shape ``[batch, *spatial_dims, 2]`` containing
+                the pair ``(category_id, instance_id)`` for each pixel of the image.
+                If the ``category_id`` refer to a stuff, the instance_id is ignored.
+
+        Raises:
+            TypeError:
+                If ``preds`` or ``target`` is not an ``torch.Tensor``.
+            ValueError:
+                If ``preds`` and ``target`` have different shape.
+            ValueError:
+                If ``preds`` has less than 3 dimensions.
+            ValueError:
+                If the final dimension of ``preds`` has size != 2.
+
+        """
+        _validate_inputs(preds, target)
+        flatten_preds = _prepocess_inputs(
+            self.things, self.stuffs, preds, self.void_color, self.allow_unknown_preds_category
+        )
+        flatten_target = _prepocess_inputs(self.things, self.stuffs, target, self.void_color, True)
+        iou_sum, true_positives, false_positives, false_negatives = _panoptic_quality_update(
+            flatten_preds, flatten_target, self.cat_id_to_continuous_id, self.void_color, areas=self.areas
+        )
+        self.iou_sum += iou_sum
+        self.true_positives += true_positives
+        self.false_positives += false_positives
+        self.false_negatives += false_negatives
+
+    def compute(self) -> torch.Tensor:
+        """Compute panoptic quality based on inputs passed in to ``update`` previously."""
+        pq, sq, rq, pq_avg, sq_avg, rq_avg = _panoptic_quality_compute(
+            self.iou_sum, self.true_positives, self.false_positives, self.false_negatives
+        )
+        if self.return_per_class:
+            if self.return_sq_and_rq:
+                return torch.stack((pq, sq, rq), dim=0)
+            return pq
+        if self.return_sq_and_rq:
+            return torch.stack((pq_avg, sq_avg, rq_avg), dim=0)
+        return pq_avg
 
 class PanopticQuality():
     def __init__(self,
             things: Set[int],
             stuffs: Set[int],
+            areas: List[Tuple[float]] = [(0, 1e10)],
             return_sq_and_rq: bool = True,
             return_per_class: bool = True,
             CHUNK_SIZE: int = 200
@@ -25,16 +109,16 @@ class PanopticQuality():
         self.things = things
         self.stuffs = stuffs
         self.device = self.select_device()
-        self.metric = PQ(
+        self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
+            areas=areas,
             allow_unknown_preds_category=True,
             return_sq_and_rq=return_sq_and_rq,
             return_per_class=return_per_class
         )
         self.metric.to(self.device)
         self.CHUNK_SIZE = CHUNK_SIZE
-
 
     @staticmethod
     def select_device():
@@ -49,6 +133,9 @@ class PanopticQuality():
         # Default to CPU if neither CUDA nor MPS is available
         else:
             return torch.device('cpu')
+    
+    def get_areas(self):
+        return self.metric.areas
 
     def update(self,
                preds: torch.Tensor,
