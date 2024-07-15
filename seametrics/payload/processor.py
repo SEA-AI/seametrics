@@ -109,7 +109,7 @@ class PayloadProcessor:
             relevant_slices = set(self.slices)
         self.dataset = self.dataset.select_group_slices(relevant_slices)
 
-        if len(self.sequence_list) == 0:
+        if not self.sequence_list or len(self.sequence_list) == 0:
             self.sequence_list = self.dataset.distinct("sequence")
             logger.info(f"Using all sequences in dataset: {self.sequence_list}")
             
