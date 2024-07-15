@@ -18,6 +18,7 @@ if _TORCHMETRICS_AVAILABLE:
 
 # payload functions
 
+error_code = None
 
 def payload_to_det_metric(
     payload: Payload,
@@ -108,6 +109,8 @@ def frame_dets_to_det_metrics(
     Returns:
         Dict[str, np.ndarray]: A dictionary containing the converted detections.
     """
+    global error_code
+
     if not class_agnostic:
         raise ValueError("Only class agnostic mode is supported")
 
@@ -128,6 +131,9 @@ def frame_dets_to_det_metrics(
                 areas.append(det["area"])
             else:
                 areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3]-bbox[1]))
+                if error_code is None:
+                    print("⚠️WARNING: Area not found in ground truth annotation(s), using bbox area instead for these cases.")
+                    error_code = 1
     metrics_dict = {
         "boxes": np.array(detections),
         "labels": np.array(labels),
