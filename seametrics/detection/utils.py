@@ -124,14 +124,10 @@ def frame_dets_to_det_metrics(
         scores.append(det["confidence"] if det["confidence"] else 1.0)  # None for gt
 
         if is_gt:
-            if "area" not in det.field_names:
-                msg = (
-                    "Area not found in ground truth detections. "
-                    "Please make sure that area is included in ground truth detections."
-                )
-                raise ValueError(msg)
-            areas.append(det["area"] if "area" in det.field_names else -1)
-
+            if "area" in det.field_names:
+                areas.append(det["area"])
+            else:
+                areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3]-bbox[1]))
     metrics_dict = {
         "boxes": np.array(detections),
         "labels": np.array(labels),
