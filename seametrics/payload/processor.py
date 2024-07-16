@@ -26,7 +26,8 @@ class PayloadProcessor:
         sequence_list: List[str] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
         excluded_classes: List[str] = None,
-        slices: List[str] = None
+        slices: List[str] = None,
+        tags: List[str] = None,
     ):
         """
         Initializes a PayloadProcessor object.
@@ -45,6 +46,8 @@ class PayloadProcessor:
                 Defaults to None.
             slices (List[str], optional): The list of slices to process.
                 Defaults to None. If None, a smart selection of available slices takes place.
+            tags (List[str], optional): The list of tags to filter the dataset.
+                Defaults to None.
         """
         self.dataset_name = dataset_name
         self.gt_field = gt_field
@@ -53,6 +56,7 @@ class PayloadProcessor:
         self.sequence_list = sequence_list
         self.data_type = data_type
         self.slices = slices
+        self.tags = tags
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
         self.validate_input_parameters(dataset_name)
         self.dataset: fo.Dataset = None
@@ -108,6 +112,9 @@ class PayloadProcessor:
         else:
             relevant_slices = set(self.slices)
         self.dataset = self.dataset.select_group_slices(relevant_slices)
+
+        if self.tags:
+            self.dataset = self.dataset.match_tags(self.tags, all=True)
 
         if not self.sequence_list or len(self.sequence_list) == 0:
             self.sequence_list = self.dataset.distinct("sequence")
