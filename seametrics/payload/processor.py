@@ -114,8 +114,7 @@ class PayloadProcessor:
         self.dataset = self.dataset.select_group_slices(relevant_slices)
 
         if self.tags:
-            for tag in self.tags:
-                self.dataset = self.dataset.match_tags(tag)
+            self.dataset = self.dataset.match_tags(self.tags, all=True)
 
         if not self.sequence_list or len(self.sequence_list) == 0:
             self.sequence_list = self.dataset.distinct("sequence")
