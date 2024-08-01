@@ -142,7 +142,7 @@ def _panoptic_quality_update_sample(
                 continue
             iou = _calculate_iou(pred_color, target_color, pred_areas, target_areas, intersection_areas, void_color)
             continuous_id = cat_id_to_continuous_id[target_color[0]]
-            if target_color[0] not in stuffs_modified_metric and iou > 0.5:
+            if target_color[0] not in stuffs_modified_metric and iou > 0.01:
                 pred_segment_matched.add(pred_color)
                 target_segment_matched.add(target_color)
                 iou_sum[i, continuous_id] += iou
