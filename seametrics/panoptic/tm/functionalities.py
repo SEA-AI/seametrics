@@ -33,9 +33,12 @@ def _filter_false_negatives(
     lower, upper = area
     false_negative_colors = set(target_areas) - target_segment_matched
     false_negative_colors.discard(void_color)
+    print(f"False Negative Colors: {false_negative_colors}")
     for target_color in false_negative_colors:
         void_target_area = intersection_areas.get((void_color, target_color), 0)
+        print(f"False Negative Void Target Area: {void_target_area}")
         if void_target_area / target_areas[target_color] <= 0.5 and (target_areas[target_color] >= lower) and (target_areas[target_color] < upper):
+            print(f"False Negative trigger: {target_color[0]}")
             yield target_color[0]
 
 def _filter_false_positives(
@@ -63,10 +66,13 @@ def _filter_false_positives(
     lower, upper = area
     false_positive_colors = set(pred_areas) - pred_segment_matched
     false_positive_colors.discard(void_color)
+    print(f"False Positive Colors: {false_positive_colors}")
     for pred_color in false_positive_colors:
         pred_void_area = intersection_areas.get((pred_color, void_color), 0)
+        print(f"False Positive Pred Void Area: {pred_void_area}")
         # we only calculate a prediction as false positive if it is within the current area range
         if pred_void_area / pred_areas[pred_color] <= 0.5 and (pred_areas[pred_color] >= lower) and (pred_areas[pred_color] < upper):
+            print(f"False Positive trigger: {pred_color[0]}")
             yield pred_color[0]
 
 
@@ -104,6 +110,7 @@ def _panoptic_quality_update_sample(
 
     """
     stuffs_modified_metric = stuffs_modified_metric or set()
+    print(f"Stuffs Modified Metric: {stuffs_modified_metric}")
     device = flatten_preds.device
     num_categories = len(cat_id_to_continuous_id)
     iou_sum = torch.zeros(len(areas), num_categories, dtype=torch.double, device=device)
@@ -121,17 +128,28 @@ def _panoptic_quality_update_sample(
         for lower, upper in areas
     ]
 
+    print(f"Target Areas Split: {target_areas_split}")
+    print(f"Areas: {areas}")
+
     for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
         #for target_areas in target_areas_split:
         # intersection matrix of shape [num_pixels, 2, 2]
+        print(f"I: {i}")
+        print(f"Target Colors: {target_colors}")
+        print(f"Area: {area}")
 
         intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
         intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
+
+        print(f"Intersection Matrix: {intersection_matrix}")
+        print(f"Intersection Areas: {intersection_areas}")
 
         # select intersection of things of same category with iou > 0.5
         pred_segment_matched = set()
         target_segment_matched = set()
         for pred_color, target_color in intersection_areas:
+            print(f"Pred color: {pred_color}")
+            print(f"Target color: {target_color}")
 
             # test only non void, matching category
             if target_color == void_color:
@@ -141,7 +159,9 @@ def _panoptic_quality_update_sample(
             if pred_color[0] != target_color[0]:
                 continue
             iou = _calculate_iou(pred_color, target_color, pred_areas, target_areas, intersection_areas, void_color)
+            print(f"IOU: {iou}")
             continuous_id = cat_id_to_continuous_id[target_color[0]]
+            print(f"Continuous ID: {continuous_id}")
             if target_color[0] not in stuffs_modified_metric and iou > 0.01:
                 pred_segment_matched.add(pred_color)
                 target_segment_matched.add(target_color)
@@ -149,21 +169,32 @@ def _panoptic_quality_update_sample(
                 true_positives[i, continuous_id] += 1
             elif target_color[0] in stuffs_modified_metric and iou > 0:
                 iou_sum[i, continuous_id] += iou
+            
+            print(f"ITER IOU SUMMMMMM: {iou_sum}")
 
         for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color, area=area):
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 false_negatives[i, continuous_id] += 1
+                print(f"ITER FALSE NEGATIVES: {false_negatives}")
+
 
         for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color, area=area):
             if cat_id not in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 false_positives[i, continuous_id] += 1
+                print(f"ITER FALSE POSITIVES: {false_positives}")
 
         for cat_id, _ in target_areas:
             if cat_id in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 true_positives[i, continuous_id] += 1
+                print(f"ITER TRUE POSITIVES: {true_positives}")
+
+    print(f"FINAL IOU sum: {iou_sum}")
+    print(f"FINAL True Positives: {true_positives}")
+    print(f"FINAL False Positives: {false_positives}")
+    print(f"FINAL False Negatives: {false_negatives}")
     
     return iou_sum, true_positives, false_positives, false_negatives
 
