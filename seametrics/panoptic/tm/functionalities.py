@@ -121,12 +121,14 @@ def _panoptic_quality_update_sample(
         for lower, upper in areas
     ]
 
-    for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
-        #for target_areas in target_areas_split:
-        # intersection matrix of shape [num_pixels, 2, 2]
+    #for target_areas in target_areas_split:
+    # intersection matrix of shape [num_pixels, 2, 2]
+    intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
+    intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
 
-        intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
-        intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
+    overall_pred_segment_matched = set()
+
+    for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
 
         # select intersection of things of same category with iou > 0.5
         pred_segment_matched = set()
@@ -144,6 +146,7 @@ def _panoptic_quality_update_sample(
             continuous_id = cat_id_to_continuous_id[target_color[0]]
             if target_color[0] not in stuffs_modified_metric and iou > 0.5:
                 pred_segment_matched.add(pred_color)
+                overall_pred_segment_matched.add(pred_color)
                 target_segment_matched.add(target_color)
                 iou_sum[i, continuous_id] += iou
                 true_positives[i, continuous_id] += 1
@@ -155,15 +158,16 @@ def _panoptic_quality_update_sample(
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 false_negatives[i, continuous_id] += 1
 
-        for cat_id in _filter_false_positives(pred_areas, pred_segment_matched, intersection_areas, void_color, area=area):
-            if cat_id not in stuffs_modified_metric:
-                continuous_id = cat_id_to_continuous_id[cat_id]
-                false_positives[i, continuous_id] += 1
-
         for cat_id, _ in target_areas:
             if cat_id in stuffs_modified_metric:
                 continuous_id = cat_id_to_continuous_id[cat_id]
                 true_positives[i, continuous_id] += 1
+    
+    for i, area in enumerate(areas):
+        for cat_id in _filter_false_positives(pred_areas, overall_pred_segment_matched, intersection_areas, void_color, area=area):
+            if cat_id not in stuffs_modified_metric:
+                continuous_id = cat_id_to_continuous_id[cat_id]
+                false_positives[i, continuous_id] += 1
     
     return iou_sum, true_positives, false_positives, false_negatives
 
