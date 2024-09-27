@@ -121,7 +121,7 @@ class PayloadProcessor:
         Raises:
             ValueError: If there is no matching data slice for the data type.
         """
-        thermal_slices = {"thermal_wide", "thermal_right", "thermal_left"}
+        thermal_slices = {"thermal_wide", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
         existing_slices = set(self.dataset.group_slices)
