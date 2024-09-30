@@ -26,6 +26,8 @@ class PayloadProcessor:
         sequence_list: List[str] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
         excluded_classes: List[str] = None,
+        slices: List[str] = None,
+        tags: List[str] = None,
     ):
         """
         Initializes a PayloadProcessor object.
@@ -42,6 +44,10 @@ class PayloadProcessor:
                 Defaults to "thermal".
             excluded_classes (List[str], optional): The list of excluded classes.
                 Defaults to None.
+            slices (List[str], optional): The list of slices to process.
+                Defaults to None. If None, a smart selection of available slices takes place.
+            tags (List[str], optional): The list of tags to filter the dataset.
+                Defaults to None.
         """
         self.dataset_name = dataset_name
         self.gt_field = gt_field
@@ -49,6 +55,8 @@ class PayloadProcessor:
         self.tracking_mode = tracking_mode
         self.sequence_list = sequence_list
         self.data_type = data_type
+        self.slices = slices
+        self.tags = tags
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
         self.validate_input_parameters(dataset_name)
         self.dataset: fo.Dataset = None
@@ -65,8 +73,6 @@ class PayloadProcessor:
         """
         self.validate_input_parameters(self.dataset_name)
         self.dataset = fo.load_dataset(self.dataset_name)
-        if not self.sequence_list:
-            self.sequence_list = self.dataset.distinct("sequence")
         logger.debug(f"{self.dataset}")
 
         self.payload = Payload(
@@ -101,12 +107,19 @@ class PayloadProcessor:
         """
         self.print_info()
 
-        if len(self.sequence_list) == 0:
+        if self.slices is None:
+            relevant_slices = self.get_datatype_slices()
+        else:
+            relevant_slices = set(self.slices)
+        self.dataset = self.dataset.select_group_slices(relevant_slices)
+
+        if self.tags:
+            self.dataset = self.dataset.match_tags(self.tags, all=True)
+
+        if not self.sequence_list or len(self.sequence_list) == 0:
             self.sequence_list = self.dataset.distinct("sequence")
             logger.info(f"Using all sequences in dataset: {self.sequence_list}")
-
-        relevant_slices = self.get_datatype_slices()
-        self.dataset = self.dataset.select_group_slices(relevant_slices)
+            
         logger.info(f"Using slice: {relevant_slices}")
 
         return self.process_sequences()
@@ -237,6 +250,7 @@ class PayloadProcessor:
         logger.info(f"Sequence list: {self.sequence_list}")
         logger.info(f"Data type: {self.data_type}")
         logger.info(f"Excluded classes: {self.excluded_classes}")
+        logger.info(f"Slices: {self.slices}")
 
 
 # Setup logging at the beginning of your script
