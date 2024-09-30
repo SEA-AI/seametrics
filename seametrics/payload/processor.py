@@ -28,6 +28,8 @@ class PayloadProcessor:
         excluded_classes: List[str] = None,
         slices: List[str] = None,
         tags: List[str] = None,
+        start_frame_id: int = None,
+        end_frame_id: int = None
     ):
         """
         Initializes a PayloadProcessor object.
@@ -48,6 +50,8 @@ class PayloadProcessor:
                 Defaults to None. If None, a smart selection of available slices takes place.
             tags (List[str], optional): The list of tags to filter the dataset.
                 Defaults to None.
+            start_frame_id (int, optional): The start frame id. Defaults to None.
+            end_frame_id (int, optional): The end frame id. Defaults to None.
         """
         self.dataset_name = dataset_name
         self.gt_field = gt_field
@@ -61,6 +65,8 @@ class PayloadProcessor:
         self.validate_input_parameters(dataset_name)
         self.dataset: fo.Dataset = None
         self.payload: Payload = None
+        self.start_frame_id = start_frame_id
+        self.end_frame_id = end_frame_id
         self.compute_payload()
         logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
 
@@ -222,7 +228,7 @@ class PayloadProcessor:
             ).values(
                 f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
             )
-            detections[field_name] = [d if d is not None else [] for d in det_values]
+            detections[field_name] = [d if d is not None else [] for d in det_values][self.start_frame_id:self.end_frame_id+1]
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
     def process_sequences(self) -> Dict[str, Sequence]:
