@@ -569,7 +569,7 @@ class PrecisionRecallF1Support:
 
     def _get_classes(self) -> List:
         """Return a list of unique classes found in ground truth and detection data."""
-        all_labels = np.concatenate(self.detection_labels + self.groundtruth_labels)
+        all_labels = np.concatenate([self.detection_labels,self.groundtruth_labels])
         unique_classes = np.unique(all_labels)
         return unique_classes.tolist()
 
