@@ -66,7 +66,7 @@ class PayloadProcessor:
         self.dataset: fo.Dataset = None
         self.payload: Payload = None
         self.start_frame_id = start_frame_id
-        self.end_frame_id = end_frame_id
+        self.end_frame_id = end_frame_id + 1 if end_frame_id is not None else None
         self.compute_payload()
         logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
 
@@ -228,7 +228,7 @@ class PayloadProcessor:
             ).values(
                 f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
             )
-            detections[field_name] = [d if d is not None else [] for d in det_values][self.start_frame_id:self.end_frame_id+1]
+            detections[field_name] = [d if d is not None else [] for d in det_values][self.start_frame_id:self.end_frame_id]
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
     def process_sequences(self) -> Dict[str, Sequence]:
