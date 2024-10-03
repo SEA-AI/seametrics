@@ -58,7 +58,7 @@ class PayloadProcessor:
         self.slices = slices
         self.tags = tags
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
-        self.validate_input_parameters(dataset_name)
+        self.validate_input_parameters()
         self.dataset: fo.Dataset = None
         self.payload: Payload = None
         self.compute_payload()
@@ -71,7 +71,7 @@ class PayloadProcessor:
         Returns:
             Payload: The updated payload.
         """
-        self.validate_input_parameters(self.dataset_name)
+        self.validate_input_parameters()
         self.dataset = fo.load_dataset(self.dataset_name)
         logger.debug(f"{self.dataset}")
 
@@ -83,32 +83,29 @@ class PayloadProcessor:
         )
         return self.payload
 
-    def validate_input_parameters(self, dataset_name: str):
+    def validate_input_parameters(self):
         """
-    Validates the input parameters.
+        Validates the input parameters.
 
-    Args:
-        dataset_name (str): The name of the dataset.
+        Raises:
+            TypeError: If any of the parameters are of the wrong type.
+            ValueError: If dataset is not found in FiftyOne or if tracking mode is enabled for RGB data.
 
-    Raises:
-        TypeError: If any of the parameters are of the wrong type.
-        ValueError: If dataset is not found in FiftyOne or if tracking mode is enabled for RGB data.
-
-    Validations:
-        - `dataset_name` must be a string.
-        - `gt_field` must be a string.
-        - `models` must be a list of strings.
-        - `tracking_mode` must be a boolean.
-        - `sequence_list` must be None or a list of strings.
-        - `data_type` must be either "rgb" or "thermal".
-        - `excluded_classes` must be None or a list of strings.
-        - `slices` must be None or a list of strings.
-        - `tags` must be None or a list of strings
+        Validations:
+            - `dataset_name` must be a string.
+            - `gt_field` must be a string.
+            - `models` must be a list of strings.
+            - `tracking_mode` must be a boolean.
+            - `sequence_list` must be None or a list of strings.
+            - `data_type` must be either "rgb" or "thermal".
+            - `excluded_classes` must be None or a list of strings.
+            - `slices` must be None or a list of strings.
+            - `tags` must be None or a list of strings
         """
         
         # Check dataset_name is a string
-        if not isinstance(dataset_name, str):
-            raise TypeError(f"dataset_name must be of type str, but got {type(dataset_name)}")
+        if not isinstance(self.dataset_name, str):
+            raise TypeError(f"dataset_name must be of type str, but got {type(self.dataset_name)}")
 
         # Check gt_field is a string
         if not isinstance(self.gt_field, str):
@@ -143,13 +140,11 @@ class PayloadProcessor:
             raise TypeError(f"tags must be a list of strings or None, but got {self.tags}")
 
         # Additional validation logic can go here, like dataset name lookup
-        if dataset_name not in fo.list_datasets():
-            raise ValueError(f"Dataset {dataset_name} not found in FiftyOne.")
+        if self.dataset_name not in fo.list_datasets():
+            raise ValueError(f"Dataset {self.dataset_name} not found in FiftyOne.")
 
         if self.tracking_mode and self.data_type == "rgb":
             raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
-        
-
 
     def process_dataset(self):
         """
