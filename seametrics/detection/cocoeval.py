@@ -497,35 +497,39 @@ class COCOeval:
         toc = time.time()
         print('DONE (t={:0.2f}s).'.format( toc-tic))
 
-    def summarize(self):
+    def summarize(self, metric_type='pr_rec_f1'):
+        """ type: 'ap', 'ar' or 'pr_rec_f1' """
         results = {}
-        max_dets = self.params.maxDets[-1]
-        min_iou = self.params.iouThrs[0]
-
+        
         results['params'] = self.params
         results['eval'] = self.eval
         results['metrics'] = {}
+        
+        if metric_type == 'pr_rec_f1':
+            metrics_str = f"{'tp':>6}, {'fp':>6}, {'fn':>6}, {'dup':>6}, "
+            metrics_str += f"{'pr':>5.2}, {'rec':>5.2}, {'f1':>5.2}, {'supp':>6}"
+            metrics_str += f", {'fpi':>6}, {'nImgs':>6}"
+            print('{:>51} {}'.format('METRIC', metrics_str))
 
-        # for area_lbl in self.params.areaRngLbl:
-        #     results.append(self._summarize('ap', iouThr=min_iou,
-        #                  areaRng=area_lbl, maxDets=max_dets))
-
-        # for area_lbl in self.params.areaRngLbl:
-        #     results.append(self._summarize('ar', iouThr=min_iou,
-        #                  areaRng=area_lbl, maxDets=max_dets))
-
-        metrics_str = f"{'tp':>6}, {'fp':>6}, {'fn':>6}, {'dup':>6}, "
-        metrics_str += f"{'pr':>5.2}, {'rec':>5.2}, {'f1':>5.2}, {'supp':>6}"
-        metrics_str += f", {'fpi':>6}, {'nImgs':>6}"
-        print('{:>51} {}'.format('METRIC', metrics_str))
+        max_dets = self.params.maxDets if metric_type == 'ar' else self.params.maxDets[-1]
+        
         for area_lbl in self.params.areaRngLbl:
-            results['metrics'][area_lbl] = self._summarize(
-                'pr_rec_f1',
-                iouThr=min_iou,
-                areaRng=area_lbl,
-                maxDets=max_dets
-            )
-            
+            results['metrics'][area_lbl] = {}
+            if metric_type in ['ap', 'ar']: # for ap and ar want also the precision under the curve 0.5:0.05:0.95 
+                results['metrics'][area_lbl]['IoU=0.50:0.75'] = self._summarize(
+                    metric_type,
+                    areaRng=area_lbl,
+                    maxDets=max_dets
+                )
+                        
+            for iouThr in self.params.iouThrs:
+                results['metrics'][area_lbl][f'IoU={iouThr}'] = self._summarize(
+                    metric_type,
+                    iouThr=iouThr,
+                    areaRng=area_lbl,
+                    maxDets=max_dets
+                )
+
         return results
 
     def _summarize(self, metric_type='ap', iouThr=None, areaRng='all', maxDets=100):
@@ -621,8 +625,8 @@ class COCOeval:
             print(iStr.format(iouStr, areaRng, maxDets, metrics_str))
 
             return {
-                'range': p.areaRng[aind[0]],
-                'iouThr': iouStr,
+                # 'range': p.areaRng[aind[0]],
+                # 'iouThr': iouStr,
                 'maxDets': maxDets,
                 'tp': int(tp),
                 'fp': int(fp),
@@ -647,6 +651,7 @@ class COCOeval:
     def __str__(self):
         self.summarize()
 
+    
 class Params:
     '''
     Params for coco evaluation api

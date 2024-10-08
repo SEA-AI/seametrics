@@ -228,7 +228,7 @@ class PrecisionRecallF1Support:
             )
         self.iou_thresholds = (
             iou_thresholds
-            or np.linspace(0.5, 0.95, round((0.95 - 0.5) / 0.05) + 1).tolist()
+            or [0.5, 0.75]
         )
 
         if rec_thresholds is not None and not isinstance(rec_thresholds, list):
@@ -355,8 +355,8 @@ class PrecisionRecallF1Support:
                 item.get("area", np.zeros_like(item["labels"]))
             )
 
-    def compute(self) -> dict:
-        """Computes the metric."""
+    def compute(self, meas_type='pr_rec_f1') -> dict:
+        """Computes the metrics for meas_type: ('pr_rec_f1', 'ap', or 'ar')."""
         coco_target, coco_preds = COCO(), COCO()
 
         coco_target.dataset = self._get_coco_format(
@@ -387,9 +387,9 @@ class PrecisionRecallF1Support:
         if self.debug:
             print(f.getvalue())
 
-        metrics = coco_eval.summarize()
+        metrics = coco_eval.summarize(meas_type)
         return metrics
-
+    
     @staticmethod
     def coco_to_np(
         coco_preds: str,
