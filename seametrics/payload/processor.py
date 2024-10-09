@@ -62,7 +62,7 @@ class PayloadProcessor:
         self.slices = slices
         self.tags = tags
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
-        self.validate_input_parameters(dataset_name)
+        self.validate_input_parameters()
         self.dataset: fo.Dataset = None
         self.payload: Payload = None
         self.start_frame_id = start_frame_id
@@ -77,7 +77,7 @@ class PayloadProcessor:
         Returns:
             Payload: The updated payload.
         """
-        self.validate_input_parameters(self.dataset_name)
+        self.validate_input_parameters()
         self.dataset = fo.load_dataset(self.dataset_name)
         logger.debug(f"{self.dataset}")
 
@@ -89,18 +89,66 @@ class PayloadProcessor:
         )
         return self.payload
 
-    def validate_input_parameters(self, dataset_name: str):
+    def validate_input_parameters(self):
         """
         Validates the input parameters.
 
-        Args:
-            dataset_name (str): The name of the dataset.
-
         Raises:
-            ValueError: If dataset is not found or tracking mode enabled for RGB data.
+            TypeError: If any of the parameters are of the wrong type.
+            ValueError: If dataset is not found in FiftyOne or if tracking mode is enabled for RGB data.
+
+        Validations:
+            - `dataset_name` must be a string.
+            - `gt_field` must be a string.
+            - `models` must be a list of strings.
+            - `tracking_mode` must be a boolean.
+            - `sequence_list` must be None or a list of strings.
+            - `data_type` must be either "rgb" or "thermal".
+            - `excluded_classes` must be None or a list of strings.
+            - `slices` must be None or a list of strings.
+            - `tags` must be None or a list of strings
         """
-        if dataset_name not in fo.list_datasets():
-            raise ValueError(f"Dataset {dataset_name} not found in FiftyOne.")
+        
+        # Check dataset_name is a string
+        if not isinstance(self.dataset_name, str):
+            raise TypeError(f"dataset_name must be of type str, but got {type(self.dataset_name)}")
+
+        # Check gt_field is a string
+        if not isinstance(self.gt_field, str):
+            raise TypeError(f"gt_field must be of type str, but got {type(self.gt_field)}")
+
+        # Check models is a list of strings
+        if not isinstance(self.models, list) or not all(isinstance(model, str) for model in self.models):
+            raise TypeError(f"models must be a list of strings, but got {self.models}")
+
+        # Check tracking_mode is a boolean
+        if not isinstance(self.tracking_mode, bool):
+            raise TypeError(f"tracking_mode must be of type bool, but got {type(self.tracking_mode)}")
+
+        # Check sequence_list is None or a list of strings
+        if self.sequence_list is not None and (not isinstance(self.sequence_list, list) or not all(isinstance(seq, str) for seq in self.sequence_list)):
+            raise TypeError(f"sequence_list must be a list of strings or None, but got {self.sequence_list}")
+
+        # Check data_type is either "rgb" or "thermal"
+        if self.data_type not in ["rgb", "thermal"]:
+            raise ValueError(f"data_type must be 'rgb' or 'thermal', but got {self.data_type}")
+
+        # Check excluded_classes is None or a list of strings
+        if self.excluded_classes is not None and (not isinstance(self.excluded_classes, list) or not all(isinstance(cls, str) for cls in self.excluded_classes)):
+            raise TypeError(f"excluded_classes must be a list of strings or None, but got {self.excluded_classes}")
+
+        # Check slices is None or a list of strings
+        if self.slices is not None and (not isinstance(self.slices, list) or not all(isinstance(s, str) for s in self.slices)):
+            raise TypeError(f"slices must be a list of strings or None, but got {self.slices}")
+
+        # Check tags is None or a list of strings
+        if self.tags is not None and (not isinstance(self.tags, list) or not all(isinstance(tag, str) for tag in self.tags)):
+            raise TypeError(f"tags must be a list of strings or None, but got {self.tags}")
+
+        # Additional validation logic can go here, like dataset name lookup
+        if self.dataset_name not in fo.list_datasets():
+            raise ValueError(f"Dataset {self.dataset_name} not found in FiftyOne.")
+
         if self.tracking_mode and self.data_type == "rgb":
             raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
 
@@ -140,7 +188,7 @@ class PayloadProcessor:
         Raises:
             ValueError: If there is no matching data slice for the data type.
         """
-        thermal_slices = {"thermal_wide", "thermal_right", "thermal_left"}
+        thermal_slices = {"thermal_wide", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
         existing_slices = set(self.dataset.group_slices)
