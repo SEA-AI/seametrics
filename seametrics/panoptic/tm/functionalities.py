@@ -183,7 +183,7 @@ def _panoptic_quality_update_sample(
         for j, label_col in enumerate(labels):
             pred_target = (pred_col, label_col)
             void_pred = intersection_areas.get((pred_col, void_color), 0)
-            void_target = intersection_areas.get((label_col, void_color), 0)
+            void_target = intersection_areas.get((void_color, label_col), 0)
             union_matrix_nxm[i, j] = counts_preds[i].item() + counts_target[j].item() - void_pred - void_target
             if pred_target in intersection_areas.keys():
                 intersection_matrix_nxm[i, j] = intersection_areas[pred_target].cpu()
