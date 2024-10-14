@@ -605,7 +605,7 @@ class COCOeval:
             if tp == -1 and fp == -1 and fn == -1:
                 pr, rec, f1 = -1, -1, -1
                 support, fpi = 0, 0
-                tp, fp, fn = 0, 0, 0 # reset counts as -1 is unintuitive
+                tp, fp, fn, dup = 0, 0, 0, 0 # reset counts as -1 is unintuitive
             else:
                 pr = 0 if tp + fp == 0 else tp / (tp + fp)
                 rec = 0 if tp + fn == 0 else tp / (tp + fn)
