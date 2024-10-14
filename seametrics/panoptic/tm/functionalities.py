@@ -250,6 +250,7 @@ def _panoptic_quality_update(
     void_color: Tuple[int, int],
     modified_metric_stuffs: Optional[Set[int]] = None,
     areas: List[Tuple[float]] = [(0, 1e10)],
+    method: str = Literal["hungarian", "iou"]
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """Calculate stat scores required to compute the metric for a full batch.
 
@@ -285,7 +286,8 @@ def _panoptic_quality_update(
             cat_id_to_continuous_id,
             void_color,
             stuffs_modified_metric=modified_metric_stuffs,
-            areas=areas
+            areas=areas,
+            method=method
         )
         iou_sum += result[0]
         true_positives += result[1]
