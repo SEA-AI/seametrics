@@ -1,12 +1,53 @@
 import torch
-from typing import Dict, Tuple, Iterator, Set, List, Optional, cast
+from typing import Dict, Tuple, Iterator, Set, List, Optional, cast, Literal
 from torch import Tensor
 
+from scipy.optimize import linear_sum_assignment
+
 from torchmetrics.functional.detection._panoptic_quality_common import (
-    _calculate_iou,
     _get_color_areas,
     _Color
 )
+
+def get_match(
+        iou_matrix: Tensor,
+        pred_labels: List[Tuple[float]], 
+        gt_labels: List[Tuple[float]],
+        method: Literal["iou", "hungarian"],
+        min_iou: float=0.01
+) -> Dict[Tuple[Tuple[float], Tuple[float]], float]:
+    """Match prediction masks to ground truth masks.
+
+    Either matches predictions and ground truths based on the criterion iou > 0.5, or uses
+    an hungarian optimization algorithm, which also allows matches with min_iou < iou <= 0.5.
+
+    Args:
+        iou_matrix (Tensor): prediction indices in the rows, ground truth indices in columns
+        pred_labels (List[Tuple]): prediction labels (pred_labels[i] is in row i in iou_matrix)
+        gt_labels (List[Tuple]): ground truth labels (gt_labels[i] is in column i in iou_matrix)
+        method (Literal[&quot;iou&quot;, &quot;hungarian&quot;]): method "iou" or "hungarian"
+        min_iou (float, optional): minimum IOU that is in general required under
+            hungarian matching. Defaults to 0.01.
+
+    Returns:
+        Dict[Tuple[Tuple[int], Tuple[int]], float]: dict holding matched predictions and ground
+            truths (as key) with their IOU (as value).
+    """
+    matches = {}
+    if method=="iou":
+        for i in range(iou_matrix.shape[0]):
+            for j in range(iou_matrix.shape[1]):
+                iou_value = iou_matrix[i, j]
+                if iou_value > 0.5:
+                    matches[(pred_labels[i], gt_labels[j])] = iou_value
+
+    elif method=="hungarian":
+        row_ind, col_ind = linear_sum_assignment(1-iou_matrix)
+        for i, j in zip(row_ind, col_ind):
+            if iou_matrix[i, j] > min_iou:
+                matches[(pred_labels[i], gt_labels[j])] = iou_matrix[i,j]
+
+    return matches
 
 def _filter_false_negatives(
     target_areas: Dict[_Color, Tensor],
@@ -77,6 +118,7 @@ def _panoptic_quality_update_sample(
     void_color: Tuple[int, int],
     areas: List[Tuple[float]]=None,
     stuffs_modified_metric: Optional[Set[int]] = None,
+    method: str = Literal["hungarian", "iou"]
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """Calculate stat scores required to compute the metric **for a single sample**.
 
@@ -121,37 +163,66 @@ def _panoptic_quality_update_sample(
         for lower, upper in areas
     ]
 
-    #for target_areas in target_areas_split:
+    # for target_areas in target_areas_split:
     # intersection matrix of shape [num_pixels, 2, 2]
     intersection_matrix = torch.transpose(torch.stack((flatten_preds, flatten_target), -1), -1, -2)
     intersection_areas = cast(Dict[Tuple[_Color, _Color], Tensor], _get_color_areas(intersection_matrix))
 
+    # get unique prediction and ground truth labels in List[Tuple[int]],
+    # each label is of form (category, instance_id)
+    preds, counts_preds = flatten_preds.unique(dim=0, return_counts=True)
+    labels, counts_target = flatten_target.unique(dim=0, return_counts=True)
+    preds, labels = preds.tolist(), labels.tolist()
+    preds = [tuple(pred) for pred in preds]
+    labels = [tuple(label) for label in labels]
+    
+    # get intersection and union matrices
+    intersection_matrix_nxm = torch.zeros((len(preds), len(labels)))
+    union_matrix_nxm = torch.zeros((len(preds), len(labels)))
+    for i, pred_col in enumerate(preds):
+        for j, label_col in enumerate(labels):
+            pred_target = (pred_col, label_col)
+            void_pred = intersection_areas.get((pred_col, void_color), 0)
+            void_target = intersection_areas.get((label_col, void_color), 0)
+            union_matrix_nxm[i, j] = counts_preds[i].item() + counts_target[j].item() - void_pred - void_target
+            if pred_target in intersection_areas.keys():
+                intersection_matrix_nxm[i, j] = intersection_areas[pred_target].cpu()
+                union_matrix_nxm[i, j] -= intersection_areas[pred_target].cpu()
+
+    iou_matrix_nxm = intersection_matrix_nxm / union_matrix_nxm
+    iou_matrix_nxm[iou_matrix_nxm == torch.inf] = 0
+
+    matches = get_match(iou_matrix_nxm, preds, labels, method=method)
+
     overall_pred_segment_matched = set()
-
     for i, (target_colors, area) in enumerate(zip(target_areas_split, areas)):
-
-        # select intersection of things of same category with iou > 0.5
         pred_segment_matched = set()
         target_segment_matched = set()
-        for pred_color, target_color in intersection_areas:
+        for pred_color in preds:
+            for target_color in labels:
+                if target_color == void_color:
+                    # test only non void, matching category
+                    continue
+                if target_color not in target_colors:
+                    # ground truth is not in current area range
+                    continue
+                if pred_color[0] != target_color[0]:
+                    # pred and ground truth color are different
+                    continue
+                if (pred_color, target_color) not in matches.keys():
+                    # ground truth and prediction are not matched
+                    continue
 
-            # test only non void, matching category
-            if target_color == void_color:
-                continue
-            if target_color not in target_colors:
-                continue
-            if pred_color[0] != target_color[0]:
-                continue
-            iou = _calculate_iou(pred_color, target_color, pred_areas, target_areas, intersection_areas, void_color)
-            continuous_id = cat_id_to_continuous_id[target_color[0]]
-            if target_color[0] not in stuffs_modified_metric and iou > 0.5:
-                pred_segment_matched.add(pred_color)
-                overall_pred_segment_matched.add(pred_color)
-                target_segment_matched.add(target_color)
-                iou_sum[i, continuous_id] += iou
-                true_positives[i, continuous_id] += 1
-            elif target_color[0] in stuffs_modified_metric and iou > 0:
-                iou_sum[i, continuous_id] += iou
+                continuous_id = cat_id_to_continuous_id[target_color[0]]
+                iou = matches[(pred_color, target_color)]
+                if target_color[0] not in stuffs_modified_metric:
+                    pred_segment_matched.add(pred_color)
+                    overall_pred_segment_matched.add(pred_color)
+                    target_segment_matched.add(target_color)
+                    iou_sum[i, continuous_id] += iou
+                    true_positives[i, continuous_id] += 1
+                elif target_color[0] in stuffs_modified_metric and iou > 0:
+                    iou_sum[i, continuous_id] += iou
 
         for cat_id in _filter_false_negatives(target_areas, target_segment_matched, intersection_areas, void_color, area=area):
             if cat_id not in stuffs_modified_metric:

@@ -1,4 +1,4 @@
-from typing import Set, List, Tuple, Collection, Any
+from typing import Set, List, Tuple, Collection, Any, Literal
 
 import numpy as np
 import torch
@@ -21,6 +21,7 @@ class AreaPanopticQuality(PQ):
                  allow_unknown_preds_category: bool = False,
                  return_sq_and_rq: bool = False,
                  return_per_class: bool = False,
+                 method: str = "hungarian",
                  **kwargs: Any):
         super().__init__(
             things=things, 
@@ -31,6 +32,7 @@ class AreaPanopticQuality(PQ):
             **kwargs
         )
         self.areas = areas
+        self.method = method
         num_categories = len(things) + len(stuffs)
         self.add_state("iou_sum", default=torch.zeros(len(areas), num_categories, dtype=torch.double), dist_reduce_fx="sum")
         self.add_state("true_positives", default=torch.zeros(len(areas), num_categories, dtype=torch.int), dist_reduce_fx="sum")
@@ -67,7 +69,7 @@ class AreaPanopticQuality(PQ):
         )
         flatten_target = _prepocess_inputs(self.things, self.stuffs, target, self.void_color, True)
         iou_sum, true_positives, false_positives, false_negatives = _panoptic_quality_update(
-            flatten_preds, flatten_target, self.cat_id_to_continuous_id, self.void_color, areas=self.areas
+            flatten_preds, flatten_target, self.cat_id_to_continuous_id, self.void_color, areas=self.areas, method=self.method
         )
         self.iou_sum += iou_sum
         self.true_positives += true_positives
@@ -94,6 +96,7 @@ class PanopticQuality():
             areas: List[Tuple[float]] = [(0, 1e10)],
             return_sq_and_rq: bool = True,
             return_per_class: bool = True,
+            method: Literal["hungarian", "iou"] = "hungarian",
             CHUNK_SIZE: int = 200
         ) -> None:
         """
@@ -102,6 +105,22 @@ class PanopticQuality():
         Parameters:
             things (Set[int]): A set of integers representing the things.
             stuffs (Set[int]): A set of integers representing the stuffs.
+            areas (List[Tuple[float]]): A list of tuples representing the area ranges.
+            return_sq_and_rq (bool): Whether to return segmentation quality and recognition quality as well.
+            return_per_class (bool): Whether to return the panoptic quality per class.
+            CHUNK_SIZE (int): The number of images to update the metric at once
+                (large numbers can lead to GPU out of memory errors).
+            method (Literal["hungarian", "iou"]): The method to use to match predictions and 
+                targets while computing the panoptic quality.
+                * "iou" (https://arxiv.org/pdf/1801.00868) matches a prediction with a target iff iou(pred, target) > 0.5
+                * "hungarian" (https://arxiv.org/abs/2309.04887) matches a prediction with a target using the Hungarian algorithm,
+                   which allows matches also for 0.01 < iou(pred, target) < 0.5 
+
+        Raises:
+            ValueError:
+                If ``return_sq_and_rq`` is False and ``return_per_class`` is False.
+            ValueError:
+                If ``return_sq_and_rq`` is True and ``return_per_class`` is True.   
 
         Returns:
             None
@@ -115,7 +134,8 @@ class PanopticQuality():
             areas=areas,
             allow_unknown_preds_category=True,
             return_sq_and_rq=return_sq_and_rq,
-            return_per_class=return_per_class
+            return_per_class=return_per_class,
+            method=method
         )
         self.metric.to(self.device)
         self.CHUNK_SIZE = CHUNK_SIZE
