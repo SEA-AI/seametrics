@@ -110,6 +110,7 @@ class PanopticQuality():
         self.things = things
         self.stuffs = stuffs
         self.device = self.select_device(device)
+        print("SEAMETRICS DEVICE: ", self.device)
         self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
