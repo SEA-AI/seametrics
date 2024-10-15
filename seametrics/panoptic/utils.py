@@ -2,6 +2,7 @@ from typing import List, Tuple
 
 import numpy as np
 import fiftyone as fo
+from .consts import SEMANTIC_CLASSES
 
 def payload_to_seg_metric(payload: dict, model_name: str, label2id: dict=None):
     """
@@ -35,12 +36,10 @@ def payload_to_seg_metric(payload: dict, model_name: str, label2id: dict=None):
 
     return np.stack(pred_frames, axis=0), np.stack(gt_frames, axis=0), label2id
 
-
 def multiple_masks_to_single_mask(frame_dets: List[fo.Detection],
                                   h: int,
                                   w: int,
                                   label2id: dict):
-    STUFF = ["WATER", "SKY", "LAND", "CONSTRUCTION", "ICE", "OWN_BOAT"]
     single_mask = np.ones((h, w, 2))*(-1)
     for instance_idx, det in enumerate(sorted(frame_dets, 
                                             key=lambda det: det["mask"].sum(), 
@@ -51,5 +50,5 @@ def multiple_masks_to_single_mask(frame_dets: List[fo.Detection],
         x += int(start_x)
         if det["label"] not in label2id:
             label2id[det["label"]] = len(label2id)
-        single_mask[y,x] = np.array([label2id[det["label"]], instance_idx]) if det["label"].upper() not in STUFF else np.array([label2id[det["label"]], 0])
+        single_mask[y,x] = np.array([label2id[det["label"]], instance_idx]) if det["label"].upper() not in SEMANTIC_CLASSES else np.array([label2id[det["label"]], 0])
     return single_mask

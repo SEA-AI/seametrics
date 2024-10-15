@@ -124,8 +124,17 @@ class PanopticQuality():
     def select_device():
         # Check for CUDA GPU availability
         if torch.cuda.is_available():
-            return torch.device('cuda')
-        
+            best_device = None
+            max_free_memory = 0
+
+            for i in range(torch.cuda.device_count()):
+                device = torch.device(f'cuda:{i}')
+                free_memory = torch.cuda.get_device_properties(device).total_memory - torch.cuda.memory_reserved(device)
+                if free_memory > max_free_memory:
+                    best_device = device
+                    max_free_memory = free_memory
+            return best_device
+          
         # Check for MPS availability (for macOS on Apple Silicon)
         elif torch.backends.mps.is_available():
             return torch.device('mps')
