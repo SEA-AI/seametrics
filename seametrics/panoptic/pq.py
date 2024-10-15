@@ -94,7 +94,8 @@ class PanopticQuality():
             areas: List[Tuple[float]] = [(0, 1e10)],
             return_sq_and_rq: bool = True,
             return_per_class: bool = True,
-            CHUNK_SIZE: int = 200
+            CHUNK_SIZE: int = 200,
+            device: str = None
         ) -> None:
         """
         Initializes the PanopticQuality class with the given sets of things and stuffs.
@@ -108,7 +109,7 @@ class PanopticQuality():
         """
         self.things = things
         self.stuffs = stuffs
-        self.device = self.select_device()
+        self.device = self.select_device(device)
         self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
