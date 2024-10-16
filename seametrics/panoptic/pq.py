@@ -110,7 +110,6 @@ class PanopticQuality():
         self.things = things
         self.stuffs = stuffs
         self.device = self.select_device(device)
-        print("SEAMETRICS DEVICE: ", self.device)
         self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
@@ -124,7 +123,6 @@ class PanopticQuality():
 
     @staticmethod
     def select_device(device: str = None) -> torch.device:
-        print("I got this device as arg: ", device)
         # Check if device is specified
         if device is not None:
             return torch.device(device)
