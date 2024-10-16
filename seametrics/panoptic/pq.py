@@ -124,6 +124,7 @@ class PanopticQuality():
 
     @staticmethod
     def select_device(device: str = None) -> torch.device:
+        print("I got this device as arg: ", device)
         # Check if device is specified
         if device is not None:
             return torch.device(device)
