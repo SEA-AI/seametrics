@@ -44,7 +44,7 @@ def test_empty_gt_false_pred_with_default_args():
     ]
     target = [
         dict(
-            boxes=np.array([[]]),
+            boxes=np.array([]),
             labels=np.array([]),
         )
     ]
@@ -62,7 +62,7 @@ def test_empty_gt_false_pred_with_default_args():
         assert val['recall'] == -1
         assert val['f1'] == -1
         assert val['support'] == 0
-        assert val['fpi'] == 0
+        assert val['fpi'] == 1
         assert val['nImgs'] == 1
 
 def test_empty_pred_missed_gt_with_default_args():
