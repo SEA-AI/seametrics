@@ -22,10 +22,10 @@ def test_empty_input_with_default_args():
         assert key == 'all'
         assert val['iouThr'] == '0.50'
         assert val['maxDets'] == 100
-        assert val['tp'] == -1
-        assert val['fp'] == -1
-        assert val['fn'] == -1
-        assert val['duplicates'] == -1
+        assert val['tp'] == 0
+        assert val['fp'] == 0
+        assert val['fn'] == 0
+        assert val['duplicates'] == 0
         assert val['precision'] == -1
         assert val['recall'] == -1
         assert val['f1'] == -1
