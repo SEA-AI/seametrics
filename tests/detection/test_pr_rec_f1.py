@@ -93,7 +93,7 @@ def test_empty_pred_missed_gt_with_default_args():
         assert val['precision'] == -1
         assert val['recall'] == 0
         assert val['f1'] == -1
-        assert val['support'] == 0
+        assert val['support'] == 1
         assert val['fpi'] == 0
         assert val['nImgs'] == 1
         
