@@ -595,14 +595,13 @@ class COCOeval:
             dup = dup[:, :, aind, mind].squeeze()
             fpi = fpi[:, :, aind, mind].squeeze()
 
-            # handle case where tp, fp, fn and dup are empty (no gt and no dt)
-            if all([not np.any(m) for m in [tp, fp, fn, dup, fpi]]):
-                tp, fp, fn, dup, fpi = [-1] * 5
+            # handle case where tp, fp, fn and dup are empty (no gt and no dt),
+            # i.e. all are zero or all are -1
+            if all([(not np.any(m) or np.all(m==-1)) for m in [tp, fp, fn, dup, fpi]]):
+                tp, fp, fn, dup, fpi = [0] * 5
             else:
                 tp, fp, fn, dup, fpi = [e.item() for e in [tp, fp, fn, dup, fpi]]
 
-            if tp == -1 and fp == -1 and fn == -1:
-                tp, fp, fn, dup, fpi = [0] * 5
             
             # compute precision, recall, f1
             pr = -1 if tp + fp == 0 else tp / (tp + fp)
