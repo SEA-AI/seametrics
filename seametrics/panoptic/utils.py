@@ -1,10 +1,12 @@
 from typing import List, Tuple
-
 import numpy as np
 import fiftyone as fo
 from .consts import SEMANTIC_CLASSES
 
-def payload_to_seg_metric(payload: dict, model_name: str, label2id: dict=None):
+
+def payload_to_seg_metric(
+    payload: dict, model_name: str, label2id: dict = None
+) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Convert data in the standard payload format to the format expected by the segmentation metric.
      * merges all masks into one image
@@ -21,34 +23,59 @@ def payload_to_seg_metric(payload: dict, model_name: str, label2id: dict=None):
 
     if label2id is None:
         label2id = dict()
-    
+
     pred_frames = []
     gt_frames = []
     for seq in payload.sequences:
         sequence = payload.sequences[f"{seq}"]
         h, w = sequence.resolution.height, payload.sequences[f"{seq}"].resolution.width
-        preds = sequence[model_name] # n_frames, m_detections
-        gts = sequence[payload.gt_field_name] # n_frames, m_detections
+        preds = sequence[model_name]  # n_frames, m_detections
+        gts = sequence[payload.gt_field_name]  # n_frames, m_detections
         for frame_dets in preds:
-            pred_frames.append(multiple_masks_to_single_mask(frame_dets, h, w, label2id))
+            pred_frames.append(
+                multiple_masks_to_single_mask(frame_dets, h, w, label2id)
+            )
         for frame_dets in gts:
             gt_frames.append(multiple_masks_to_single_mask(frame_dets, h, w, label2id))
 
     return np.stack(pred_frames, axis=0), np.stack(gt_frames, axis=0), label2id
 
-def multiple_masks_to_single_mask(frame_dets: List[fo.Detection],
-                                  h: int,
-                                  w: int,
-                                  label2id: dict):
-    single_mask = np.ones((h, w, 2))*(-1)
-    for instance_idx, det in enumerate(sorted(frame_dets, 
-                                            key=lambda det: det["mask"].sum(), 
-                                            reverse=True)): # put large masks below smaller masks
-        start_x, start_y = int(det["bounding_box"][0]*w), int(det["bounding_box"][1]*h)
+
+def multiple_masks_to_single_mask(
+    frame_dets: List[fo.Detection], h: int, w: int, label2id: dict
+) -> np.ndarray:
+    """
+    Convert a list of detections to a single mask image.
+        * merges all masks into one image
+        * smaller masks are put on top of larger masks
+        * The third dimension of single_mask stores both the class label and the instance index for instance classes.
+
+    Args:
+        frame_dets (List[fo.Detection]): A list of detections.
+        h (int): The height of the image.
+        w (int): The width of the image.
+        label2id (dict): The dictionary mapping labels to IDs.
+
+    Returns:
+        np.ndarray: The single mask image.
+    """
+
+    single_mask = np.ones((h, w, 2)) * (-1)
+    for instance_idx, det in enumerate(
+        sorted(frame_dets, key=lambda det: det["mask"].sum(), reverse=True)
+    ):  # put large masks below smaller masks
+        start_x, start_y = (
+            int(det["bounding_box"][0] * w),
+            int(det["bounding_box"][1] * h),
+        )
         y, x = np.where(det["mask"] == 1)
         y += int(start_y)
         x += int(start_x)
         if det["label"] not in label2id:
             label2id[det["label"]] = len(label2id)
-        single_mask[y,x] = np.array([label2id[det["label"]], instance_idx]) if det["label"].upper() not in SEMANTIC_CLASSES else np.array([label2id[det["label"]], 0])
+        single_mask[y, x] = (
+            np.array([label2id[det["label"]], instance_idx])
+            if det["label"].upper() not in SEMANTIC_CLASSES
+            else np.array([label2id[det["label"]], 0])
+        )
     return single_mask
