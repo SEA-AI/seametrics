@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
 import torch
+from consts import unit_tests_results
+from test_panoptic_utils import generate_synthetic_payload
 
 from seametrics.panoptic.pq import PanopticQuality
 from seametrics.panoptic.utils import payload_to_seg_metric
-from test_panoptic_utils import generate_synthetic_payload
 
 
 @pytest.fixture
@@ -43,11 +44,11 @@ def setup_panoptic_quality():
         return_sq_and_rq=split_sq_rq,
         areas=area_rng,
     )
-    return pq
+    return pq, label2id
 
 
 def test_panoptic_quality_initialization(setup_panoptic_quality):
-    pq = setup_panoptic_quality
+    pq, _ = setup_panoptic_quality
     assert pq.device is not None, "Device should not be None"
     assert pq.metric.return_per_class is True
     assert pq.metric.return_sq_and_rq is True
@@ -58,7 +59,7 @@ def test_panoptic_quality_initialization(setup_panoptic_quality):
 
 
 def test_panoptic_quality_areas(setup_panoptic_quality):
-    pq = setup_panoptic_quality
+    pq, _ = setup_panoptic_quality
     assert pq.get_areas() == [
         (0, 1e5**2),
         (0**2, 6**2),
@@ -68,7 +69,7 @@ def test_panoptic_quality_areas(setup_panoptic_quality):
 
 
 def test_update_with_numpy_array(setup_panoptic_quality):
-    pq = setup_panoptic_quality
+    pq, _ = setup_panoptic_quality
 
     preds = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
     targets = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
@@ -78,7 +79,7 @@ def test_update_with_numpy_array(setup_panoptic_quality):
 
 
 def test_update_with_torch_tensor(setup_panoptic_quality):
-    pq = setup_panoptic_quality
+    pq, _ = setup_panoptic_quality
 
     preds = torch.tensor([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
     targets = torch.tensor([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
@@ -88,59 +89,93 @@ def test_update_with_torch_tensor(setup_panoptic_quality):
 
 
 def test_compute_metric(setup_panoptic_quality):
-    pq = setup_panoptic_quality
+    pq, label2id = setup_panoptic_quality
 
-    payload = generate_synthetic_payload(gt_config=[1, 2, 0], model_config=[1, 0, 2])
-    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    payload = generate_synthetic_payload(gt_config=[1, 2], model_config=[1, 0])
+    pred, gt, label2id = payload_to_seg_metric(
+        payload=payload, model_name="model", label2id=label2id
+    )
+    pred[pred == -1] = 0
+    gt[gt == -1] = 0
 
     pq.update(pred, gt)
-    result = pq.compute()
+    assert (
+        pq.metric.true_positives.sum() == 3 * 2
+    )  # The * 2 is because we are counting each
+    assert (
+        pq.metric.false_positives.sum() == 0 * 2
+    )  # object twice due to the area ranges
+    assert pq.metric.false_negatives.sum() == 2 * 2
 
-    assert isinstance(result, torch.Tensor)
-    assert result is not None
-    assert result.shape == (3, 4, 19)
-    assert result.sum() == 6
+    pq_value, rq_value, sq_value = pq.compute()
+
+    expected_pq = unit_tests_results["test_panoptic_pq"]["test_compute_metric"][
+        "pq_value"
+    ]
+    expected_rq = unit_tests_results["test_panoptic_pq"]["test_compute_metric"][
+        "rq_value"
+    ]
+    expected_sq = unit_tests_results["test_panoptic_pq"]["test_compute_metric"][
+        "sq_value"
+    ]
+
+    assert torch.allclose(pq_value, expected_pq, atol=1e-4)
+    assert torch.allclose(rq_value, expected_rq, atol=1e-4)
+    assert torch.allclose(sq_value, expected_sq, atol=1e-4)
 
 
 def test_update_and_compute(setup_panoptic_quality):
-    pq = setup_panoptic_quality
+    pq, label2id = setup_panoptic_quality
+    pq_1, _ = setup_panoptic_quality
+    payload = generate_synthetic_payload(gt_config=[1, 2], model_config=[1, 0])
+    pred, gt, label2id = payload_to_seg_metric(
+        payload=payload, model_name="model", label2id=label2id
+    )
+    pred[pred == -1] = 0
+    gt[gt == -1] = 0
+    pq.update(pred, gt)
+    pq_value, rq_value, sq_value = pq.compute()
+    pq_1_value, rq_1_value, sq_1_value = pq_1.update_and_compute(pred, gt)
 
-    preds = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
-    targets = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
+    assert torch.allclose(pq_value, pq_1_value, atol=1e-4)
+    assert torch.allclose(rq_value, rq_1_value, atol=1e-4)
+    assert torch.allclose(sq_value, sq_1_value, atol=1e-4)
 
-    result = pq.update_and_compute(preds, targets)
-    assert isinstance(result, torch.Tensor), "Result should be a torch Tensor"
-    assert result is not None, "Update and compute should return a valid result"
-    pq_1 = setup_panoptic_quality
-    pq_1.update(preds, targets)
-    assert torch.equal(
-        result, pq_1.compute()
-    ), "Update and compute should be equal to update followed by compute"
 
 def test_multiple_updates_before_compute(setup_panoptic_quality):
-    pq = setup_panoptic_quality
-    pq1 = setup_panoptic_quality
+    pq, label2id = setup_panoptic_quality
+    pq1, label2id_1 = setup_panoptic_quality
 
     payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
-    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    pred, gt, label2id = payload_to_seg_metric(
+        payload=payload, model_name="model", label2id=label2id
+    )
     pq.update(pred, gt)
     payload = generate_synthetic_payload(gt_config=[2], model_config=[1])
-    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    pred, gt, label2id = payload_to_seg_metric(
+        payload=payload, model_name="model", label2id=label2id
+    )
     pq.update(pred, gt)
-    result = pq.compute()
-    payload = generate_synthetic_payload(gt_config=[1,2], model_config=[1,1])
-    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    payload = generate_synthetic_payload(gt_config=[0], model_config=[0])
+    pred, gt, label2id = payload_to_seg_metric(
+        payload=payload, model_name="model", label2id=label2id
+    )
+    pq.update(pred, gt)
+    pq_value, rq_value, sq_value = pq.compute()
+
+    payload = generate_synthetic_payload(gt_config=[1, 2, 0], model_config=[1, 1, 0])
+    pred, gt, label2id_1 = payload_to_seg_metric(
+        payload=payload, model_name="model", label2id=label2id_1
+    )
     pq1.update(pred, gt)
-    result1 = pq1.compute()
-    assert torch.equal(result, result1), "Results should be equal"
-    assert isinstance(result, torch.Tensor)
-    assert result is not None
-    assert result.shape == (3, 4, 19)
+    pq_1_value, rq_1_value, sq_1_value = pq1.compute()
+
+    assert torch.allclose(pq_value, pq_1_value, atol=1e-4)
+    assert torch.allclose(rq_value, rq_1_value, atol=1e-4)
+    assert torch.allclose(sq_value, sq_1_value, atol=1e-4)
+
 
 """
- I think there could be a test added, where the metric is updated twice before computing the results, 
- as this would test the internal aggregation of numbers in the metric (maybe even updating three times 
- where one update corresponds to a noise sequence with no predictions? I don’t know what happens then 
- though). And then, it would also be nice to have one update test, where the areas are split up in two 
+And then, it would also be nice to have one update test, where the areas are split up in two 
  area ranges and there are two ground truths which are not in the same area ranges.
  """
