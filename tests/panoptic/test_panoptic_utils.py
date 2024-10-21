@@ -3,15 +3,15 @@ TL:DR I know that this file does not follow the name convention, but it causes
 an error since there is already another file with this name.
 """
 
-import pytest
-import numpy as np
 import fiftyone as fo
+import numpy as np
+import pytest
 
 from seametrics.panoptic.utils import (
     multiple_masks_to_single_mask,
     payload_to_seg_metric,  # This functin is used by the HF pipeline
 )
-from seametrics.payload import Payload, Sequence, Resolution
+from seametrics.payload import Payload, Resolution, Sequence
 
 
 def generate_synthetic_payload(
@@ -270,12 +270,12 @@ def test_multiple_masks_to_single_mask_multiple_overlapping_masks():
 def test_payload_to_seg_metric_mock_payload():
     payload = generate_synthetic_payload(gt_config=[1, 2], model_config=[1, 2])
     pred, gt, label2id = payload_to_seg_metric(payload=payload, model_name="model")
-    # assert pred.shape == (1, 512, 640, 2)
-    # assert gt.shape == (1, 512, 640, 2)
-    # assert label2id == {"SPHERICAL_BUOY": 0}
-    # assert (pred == gt).all()
-    # assert np.unique(pred).size == 2
-    # assert np.unique(gt).size == 2
+    assert pred.shape == (2, 512, 640, 2)
+    assert gt.shape == (2, 512, 640, 2)
+    assert label2id == {"MOTORBOAT": 0, "SPHERICAL_BUOY": 1}
+    assert (pred == gt).all()
+    assert np.unique(pred).size == 3
+    assert np.unique(gt).size == 3
 
 
 def test_payload_to_seg_metric_empty_payload():
@@ -284,18 +284,21 @@ def test_payload_to_seg_metric_empty_payload():
     label2id = {"WATER": 0, "SKY": 1}
 
     with pytest.raises(AttributeError):
-        pred, gt, label2id = payload_to_seg_metric(payload, model_name, label2id)
+        _, _, label2id = payload_to_seg_metric(payload, model_name, label2id)
 
     assert label2id == {"WATER": 0, "SKY": 1}
-    # assert pred is None
-    # assert gt is None
 
 
 def test_payload_to_seg_metric_missing_model_name():
     payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
+    with pytest.raises(TypeError):
+        payload_to_seg_metric(payload=payload)
+
+
+def test_payload_to_seg_metric_model_name_not_on_sequence():
+    payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
     with pytest.raises(AttributeError):
-        pred, gt, label2id = payload_to_seg_metric(payload=payload)
-    # assert ??
+        payload_to_seg_metric(payload=payload, model_name="not_model")
 
 
 def test_payload_to_seg_metric_missing_gt_field():
@@ -303,38 +306,52 @@ def test_payload_to_seg_metric_missing_gt_field():
         gt_field_name=False, gt_config=[1], model_config=[1]
     )
     with pytest.raises(AttributeError):
-        pred, gt, label2id = payload_to_seg_metric(payload=payload, model_name="model")
-    # assert ??
+        payload_to_seg_metric(payload=payload, model_name="model")
 
 
 def test_payload_to_seg_metric_label2id_populated():
-    payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
+    payload = generate_synthetic_payload(gt_config=[1], model_config=[2])
     label2id = {"WATER": 0, "SKY": 1}
-    pred, gt, label2id = payload_to_seg_metric(
+    _, _, label2id = payload_to_seg_metric(
         payload=payload, model_name="model", label2id=label2id
     )
-    # assert
+    assert label2id == {'WATER': 0, 'SKY': 1, 'MOTORBOAT': 2, 'SPHERICAL_BUOY': 3}
 
 
 def test_payload_to_seg_metric_none_label2id():
-    payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
+    payload = generate_synthetic_payload(gt_config=[1], model_config=[2])
     label2id = None
     pred, gt, label2id = payload_to_seg_metric(
         payload=payload, model_name="model", label2id=label2id
     )
-    # assert
-
+    assert label2id == {"MOTORBOAT": 0, "SPHERICAL_BUOY": 1}
 
 def test_payload_to_seg_metric_single_frame():
     payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
     pred, gt, label2id = payload_to_seg_metric(payload=payload, model_name="model")
-    # assert
+    assert label2id == {'MOTORBOAT': 0}
+    assert pred.shape == (1, 512, 640, 2)
+    assert gt.shape == (1, 512, 640, 2)
+    assert (pred == gt).all()
+    assert np.unique(pred).size == 2
+    assert np.unique(gt).size == 2
 
 
 def test_payload_to_seg_metric_partial_gt_and_preds():
     payload = generate_synthetic_payload(gt_config=[1, 2, 0], model_config=[1, 0, 2])
     pred, gt, label2id = payload_to_seg_metric(payload=payload, model_name="model")
-    # assert
-
-
-### TODO: check asserts from the payload_to_seg_metric function
+    assert label2id == {'MOTORBOAT': 0, 'SPHERICAL_BUOY': 1}
+    assert pred.shape == (3, 512, 640, 2)
+    assert gt.shape == (3, 512, 640, 2)
+    assert (pred != gt).any()
+    assert pred[0,:,:,0].sum() == pred[0,:,:,1].sum() == -327630
+    assert pred[1,:,:,0].sum() == pred[1,:,:,1].sum() == -327680
+    assert pred[2,:,:,0].sum() == pred[2,:,:,1].sum() == -327560
+    assert gt[0,:,:,0].sum() == gt[0,:,:,1].sum() == -327630
+    assert gt[1,:,:,0].sum() == gt[1,:,:,1].sum() == -327560
+    assert gt[2,:,:,0].sum() == gt[2,:,:,1].sum() == -327680
+    assert np.unique(pred).size == 3
+    assert np.unique(gt).size == 3
+    assert np.unique(pred[0,:,:,0]).size == np.unique(gt[0,:,:,0]).size == np.unique(pred[0,:,:,1]).size == np.unique(gt[0,:,:,1]).size == 2
+    assert np.unique(pred[2,:,:,0]).size == np.unique(gt[1,:,:,0]).size == np.unique(pred[2,:,:,1]).size == np.unique(gt[1,:,:,1]).size == 3
+    assert np.unique(pred[1,:,:,0]).size == np.unique(gt[2,:,:,0]).size == np.unique(pred[1,:,:,1]).size == np.unique(gt[2,:,:,1]).size == 1

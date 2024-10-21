@@ -3,6 +3,9 @@ import pytest
 import torch
 
 from seametrics.panoptic.pq import PanopticQuality
+from seametrics.panoptic.utils import payload_to_seg_metric
+from test_panoptic_utils import generate_synthetic_payload
+
 
 @pytest.fixture
 def setup_panoptic_quality():
@@ -83,21 +86,25 @@ def test_update_with_torch_tensor(setup_panoptic_quality):
     pq.update(preds, targets)
     assert pq.metric.true_positives.sum() > 0, "True positives should be updated"
 
+
 def test_compute_metric(setup_panoptic_quality):
     pq = setup_panoptic_quality
-    
-    preds = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
-    targets = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
 
-    pq.update(preds, targets)
+    payload = generate_synthetic_payload(gt_config=[1, 2, 0], model_config=[1, 0, 2])
+    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+
+    pq.update(pred, gt)
     result = pq.compute()
-    assert isinstance(result, torch.Tensor), "Result should be a torch Tensor"
-    assert result is not None, "Compute should return a valid result"
+
+    assert isinstance(result, torch.Tensor)
+    assert result is not None
+    assert result.shape == (3, 4, 19)
+    assert result.sum() == 6
 
 
 def test_update_and_compute(setup_panoptic_quality):
     pq = setup_panoptic_quality
-    
+
     preds = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
     targets = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
 
@@ -106,5 +113,34 @@ def test_update_and_compute(setup_panoptic_quality):
     assert result is not None, "Update and compute should return a valid result"
     pq_1 = setup_panoptic_quality
     pq_1.update(preds, targets)
-    assert result == pq_1.compute(), "Update and compute should return the same result as compute"
+    assert torch.equal(
+        result, pq_1.compute()
+    ), "Update and compute should be equal to update followed by compute"
 
+def test_multiple_updates_before_compute(setup_panoptic_quality):
+    pq = setup_panoptic_quality
+    pq1 = setup_panoptic_quality
+
+    payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
+    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    pq.update(pred, gt)
+    payload = generate_synthetic_payload(gt_config=[2], model_config=[1])
+    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    pq.update(pred, gt)
+    result = pq.compute()
+    payload = generate_synthetic_payload(gt_config=[1,2], model_config=[1,1])
+    pred, gt, _ = payload_to_seg_metric(payload=payload, model_name="model")
+    pq1.update(pred, gt)
+    result1 = pq1.compute()
+    assert torch.equal(result, result1), "Results should be equal"
+    assert isinstance(result, torch.Tensor)
+    assert result is not None
+    assert result.shape == (3, 4, 19)
+
+"""
+ I think there could be a test added, where the metric is updated twice before computing the results, 
+ as this would test the internal aggregation of numbers in the metric (maybe even updating three times 
+ where one update corresponds to a noise sequence with no predictions? I don’t know what happens then 
+ though). And then, it would also be nice to have one update test, where the areas are split up in two 
+ area ranges and there are two ground truths which are not in the same area ranges.
+ """
