@@ -94,7 +94,8 @@ class PanopticQuality():
             areas: List[Tuple[float]] = [(0, 1e10)],
             return_sq_and_rq: bool = True,
             return_per_class: bool = True,
-            CHUNK_SIZE: int = 200
+            CHUNK_SIZE: int = 200,
+            device: str = None
         ) -> None:
         """
         Initializes the PanopticQuality class with the given sets of things and stuffs.
@@ -108,7 +109,7 @@ class PanopticQuality():
         """
         self.things = things
         self.stuffs = stuffs
-        self.device = self.select_device()
+        self.device = self.select_device(device)
         self.metric = AreaPanopticQuality(
             things=things,
             stuffs=stuffs,
@@ -121,11 +122,13 @@ class PanopticQuality():
         self.CHUNK_SIZE = CHUNK_SIZE
 
     @staticmethod
-    def select_device():
-        # Check for CUDA GPU availability
-        if torch.cuda.is_available():
+    def select_device(device: str = None) -> torch.device:
+        # Check if device is specified
+        if device is not None:
+            return torch.device(device)
+        # Check for CUDA availability
+        elif torch.cuda.is_available():
             return torch.device('cuda')
-        
         # Check for MPS availability (for macOS on Apple Silicon)
         elif torch.backends.mps.is_available():
             return torch.device('mps')
