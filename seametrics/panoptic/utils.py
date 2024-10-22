@@ -3,7 +3,6 @@ import numpy as np
 import fiftyone as fo
 from .consts import SEMANTIC_CLASSES
 
-
 def payload_to_seg_metric(
     payload: dict, model_name: str, label2id: dict = None
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
@@ -68,6 +67,7 @@ def multiple_masks_to_single_mask(
             int(det["bounding_box"][0] * w),
             int(det["bounding_box"][1] * h),
         )
+
         y, x = np.where(det["mask"] == 1)
         y += int(start_y)
         x += int(start_x)
@@ -79,3 +79,4 @@ def multiple_masks_to_single_mask(
             else np.array([label2id[det["label"]], 0])
         )
     return single_mask
+
