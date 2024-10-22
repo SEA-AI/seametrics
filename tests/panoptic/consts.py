@@ -90,7 +90,7 @@ unit_tests_results = {
                         0.0000,
                     ],
                 ],
-                device="cuda:0",
+                device="cpu",
                 dtype=torch.float64,
             ),
             "rq_value": torch.tensor(
@@ -180,7 +180,7 @@ unit_tests_results = {
                         0.0000,
                     ],
                 ],
-                device="cuda:0",
+                device="cpu",
                 dtype=torch.float64,
             ),
             "sq_value": torch.tensor(
@@ -270,7 +270,7 @@ unit_tests_results = {
                         0.0000,
                     ],
                 ],
-                device="cuda:0",
+                device="cpu",
                 dtype=torch.float64,
             ),
         }
