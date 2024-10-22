@@ -8,8 +8,7 @@ from seametrics.panoptic.pq import PanopticQuality
 from seametrics.panoptic.utils import payload_to_seg_metric
 
 
-@pytest.fixture
-def setup_panoptic_quality():
+def setup_panoptic_quality(area_range=None):
     label2id = {
         "WATER": 0,
         "SKY": 1,
@@ -34,7 +33,7 @@ def setup_panoptic_quality():
     stuff = ["WATER", "SKY", "LAND", "CONSTRUCTION", "ICE", "OWN_BOAT"]
     per_class = True
     split_sq_rq = True
-    area_rng = [(0, 1e5**2), (0**2, 6**2), (6**2, 12**2), (12**2, 1e5**2)]
+    area_rng = area_range if area_range is not None else [(0, 1e5**2), (0**2, 6**2), (6**2, 12**2), (12**2, 1e5**2)]
     pq = PanopticQuality(
         things=set(
             [label2id[label] for label in label2id.keys() if label not in stuff]
@@ -47,8 +46,9 @@ def setup_panoptic_quality():
     return pq, label2id
 
 
-def test_panoptic_quality_initialization(setup_panoptic_quality):
-    pq, _ = setup_panoptic_quality
+
+def test_panoptic_quality_initialization():
+    pq, _ = setup_panoptic_quality()
     assert pq.device is not None, "Device should not be None"
     assert pq.metric.return_per_class is True
     assert pq.metric.return_sq_and_rq is True
@@ -58,8 +58,8 @@ def test_panoptic_quality_initialization(setup_panoptic_quality):
     assert pq.CHUNK_SIZE == 200
 
 
-def test_panoptic_quality_areas(setup_panoptic_quality):
-    pq, _ = setup_panoptic_quality
+def test_panoptic_quality_areas():
+    pq, _ = setup_panoptic_quality()
     assert pq.get_areas() == [
         (0, 1e5**2),
         (0**2, 6**2),
@@ -68,8 +68,8 @@ def test_panoptic_quality_areas(setup_panoptic_quality):
     ], "Areas are not set correctly"
 
 
-def test_update_with_numpy_array(setup_panoptic_quality):
-    pq, _ = setup_panoptic_quality
+def test_update_with_numpy_array():
+    pq, _ = setup_panoptic_quality()
 
     preds = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
     targets = np.array([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
@@ -78,8 +78,8 @@ def test_update_with_numpy_array(setup_panoptic_quality):
     assert pq.metric.true_positives.sum() > 0, "True positives should be updated"
 
 
-def test_update_with_torch_tensor(setup_panoptic_quality):
-    pq, _ = setup_panoptic_quality
+def test_update_with_torch_tensor():
+    pq, _ = setup_panoptic_quality()
 
     preds = torch.tensor([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
     targets = torch.tensor([[[[3, 1], [4, 1]], [[7, 0], [8, 0]]]])
@@ -88,8 +88,8 @@ def test_update_with_torch_tensor(setup_panoptic_quality):
     assert pq.metric.true_positives.sum() > 0, "True positives should be updated"
 
 
-def test_compute_metric(setup_panoptic_quality):
-    pq, label2id = setup_panoptic_quality
+def test_compute_metric():
+    pq, label2id = setup_panoptic_quality()
 
     payload = generate_synthetic_payload(gt_config=[1, 2], model_config=[1, 0])
     pred, gt, label2id = payload_to_seg_metric(
@@ -101,10 +101,10 @@ def test_compute_metric(setup_panoptic_quality):
     pq.update(pred, gt)
     assert (
         pq.metric.true_positives.sum() == 3 * 2
-    )  # The * 2 is because we are counting each
+    )  # The * 2 is because we are counting each object twice due to the area ranges
     assert (
         pq.metric.false_positives.sum() == 0 * 2
-    )  # object twice due to the area ranges
+    )  
     assert pq.metric.false_negatives.sum() == 2 * 2
 
     pq_value, rq_value, sq_value = pq.compute()
@@ -124,9 +124,9 @@ def test_compute_metric(setup_panoptic_quality):
     assert torch.allclose(sq_value, expected_sq, atol=1e-4)
 
 
-def test_update_and_compute(setup_panoptic_quality):
-    pq, label2id = setup_panoptic_quality
-    pq_1, _ = setup_panoptic_quality
+def test_update_and_compute():
+    pq, label2id = setup_panoptic_quality()
+    pq_1, _ = setup_panoptic_quality()
     payload = generate_synthetic_payload(gt_config=[1, 2], model_config=[1, 0])
     pred, gt, label2id = payload_to_seg_metric(
         payload=payload, model_name="model", label2id=label2id
@@ -142,9 +142,9 @@ def test_update_and_compute(setup_panoptic_quality):
     assert torch.allclose(sq_value, sq_1_value, atol=1e-4)
 
 
-def test_multiple_updates_before_compute(setup_panoptic_quality):
-    pq, label2id = setup_panoptic_quality
-    pq1, label2id_1 = setup_panoptic_quality
+def test_multiple_updates_before_compute():
+    pq, label2id = setup_panoptic_quality()
+    pq1, label2id_1 = setup_panoptic_quality()
 
     payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
     pred, gt, label2id = payload_to_seg_metric(
@@ -174,8 +174,24 @@ def test_multiple_updates_before_compute(setup_panoptic_quality):
     assert torch.allclose(rq_value, rq_1_value, atol=1e-4)
     assert torch.allclose(sq_value, sq_1_value, atol=1e-4)
 
+def test_compute_w_multiple_area_ranges():
+    pq, label2id = setup_panoptic_quality(area_range=[(0**2, 12**2), (12**2, 1e5**2)])
+    payload = generate_synthetic_payload(gt_config=[1], model_config=[1])
+    #the detection has area 66 so it should be considered in the first area range
 
-"""
-And then, it would also be nice to have one update test, where the areas are split up in two 
- area ranges and there are two ground truths which are not in the same area ranges.
- """
+    pred, gt, label2id = payload_to_seg_metric( 
+        payload=payload, model_name="model", label2id=label2id
+    )   
+    gt[gt == -1] = 0
+    #the water is a larger object so it should be considered in the second area range
+
+    pq.update(pred, gt)
+    pq_value, rq_value, sq_value = pq.compute()
+    assert pq_value[0].sum() > 0
+    assert pq_value[1].sum() == 0
+    assert rq_value[0].sum() > 0
+    assert rq_value[1].sum() == 0
+    assert sq_value[0].sum() > 0
+    assert sq_value[1].sum() == 0
+
+    
