@@ -595,21 +595,22 @@ class COCOeval:
             dup = dup[:, :, aind, mind].squeeze()
             fpi = fpi[:, :, aind, mind].squeeze()
 
-            # handle case where tp, fp, fn and dup are empty (no gt and no dt)
-            if all([not np.any(m) for m in [tp, fp, fn, dup, fpi]]):
-                tp, fp, fn, dup, fpi =[-1] * 5
+            # handle case where tp, fp, fn and dup are empty (no gt and no dt),
+            # i.e. all are zero or all are -1
+            if all([(not np.any(m) or np.all(m==-1)) for m in [tp, fp, fn, dup, fpi]]):
+                tp, fp, fn, dup, fpi = [0] * 5
             else:
                 tp, fp, fn, dup, fpi = [e.item() for e in [tp, fp, fn, dup, fpi]]
+
             
             # compute precision, recall, f1
-            if tp == -1 and fp == -1 and fn == -1:
-                pr, rec, f1 = -1, -1, -1
-                support, fpi = 0, 0
+            pr = -1 if tp + fp == 0 else tp / (tp + fp)
+            rec = -1 if tp + fn == 0 else tp / (tp + fn)
+            if pr == -1 or rec == -1:
+                f1 = -1
             else:
-                pr = 0 if tp + fp == 0 else tp / (tp + fp)
-                rec = 0 if tp + fn == 0 else tp / (tp + fn)
                 f1 = 0 if pr + rec == 0 else 2 * pr * rec / (pr + rec)
-                support = tp + fn
+            support = tp + fn
             # print(f"{tp=}, {fp=}, {fn=}, {dup=}, {pr=}, {rec=}, {f1=}, {support=}, {fpi=}")
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
