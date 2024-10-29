@@ -124,6 +124,9 @@ class PayloadProcessor:
         # Check tracking_mode is a boolean
         if not isinstance(self.tracking_mode, bool):
             raise TypeError(f"tracking_mode must be of type bool, but got {type(self.tracking_mode)}")
+        
+        if self.tracking_mode and len(self.models) != 1:
+            raise ValueError(f"When tracking mode is enabled only one model is supported, but got {len(self.models)} models")
 
         # Check sequence_list is None or a list of strings
         if self.sequence_list is not None and (not isinstance(self.sequence_list, list) or not all(isinstance(seq, str) for seq in self.sequence_list)):
@@ -268,6 +271,10 @@ class PayloadProcessor:
         )
 
         detections = {}
+
+        if self.tracking_mode:
+            mux_values = [m if m is not None else [] for m in sequence_view.values("frames[].mux")][self.start_frame_id:self.end_frame_id]
+        
         for field_name in self.models + [self.gt_field]:
             det_values = sequence_view.filter_labels(
                 self.get_field_name(sequence_view, field_name),
@@ -275,8 +282,13 @@ class PayloadProcessor:
                 only_matches=False,
             ).values(
                 f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
-            )
-            detections[field_name] = [d if d is not None else [] for d in det_values][self.start_frame_id:self.end_frame_id]
+            )[self.start_frame_id:self.end_frame_id]
+
+            if self.tracking_mode:
+                detections[field_name] = [d if d is not None else [] for (d,m) in zip(det_values,mux_values) if self.models[0] in m]
+            else:
+                detections[field_name] = [d if d is not None else [] for d in det_values]
+        
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
     def process_sequences(self) -> Dict[str, Sequence]:
