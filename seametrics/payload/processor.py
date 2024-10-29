@@ -173,10 +173,11 @@ class PayloadProcessor:
         if self.tags:
             self.dataset = self.dataset.match_tags(self.tags, all=True)
 
-        if not self.sequence_list or len(self.sequence_list) == 0:
-            self.sequence_list = self.dataset.distinct("sequence")
-            logger.info(f"Using all sequences in dataset: {self.sequence_list}")
-            
+        if self.sequence_list:
+            self.dataset = self.dataset.match(F("sequence").is_in(self.sequence_list))
+
+        self.sequence_list = self.dataset.distinct("sequence")
+
         logger.info(f"Using slice: {relevant_slices}")
 
         return self.process_sequences()
