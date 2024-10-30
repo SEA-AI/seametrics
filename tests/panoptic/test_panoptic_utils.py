@@ -346,9 +346,9 @@ def test_payload_to_seg_metric_partial_gt_and_preds():
     assert (pred != gt).any()
     assert pred[0,:,:,0].sum() == pred[0,:,:,1].sum() == -327630
     assert pred[1,:,:,0].sum() == pred[1,:,:,1].sum() == -327680
-    assert pred[2,:,:,0].sum() == pred[2,:,:,1].sum() == -327560
+    assert pred[2,:,:,0].sum() == pred[2,:,:,1].sum() == -327560 # this is because we add mask with 35 pixels of 1, since 1-(-1) = 2, we have 35*2 = 70 difference to the -327630
     assert gt[0,:,:,0].sum() == gt[0,:,:,1].sum() == -327630
-    assert gt[1,:,:,0].sum() == gt[1,:,:,1].sum() == -327560
+    assert gt[1,:,:,0].sum() == gt[1,:,:,1].sum() == -327560 # same thing as the pred[2]
     assert gt[2,:,:,0].sum() == gt[2,:,:,1].sum() == -327680
     assert np.unique(pred).size == 3
     assert np.unique(gt).size == 3

@@ -95,8 +95,8 @@ def test_compute_metric():
     pred, gt, label2id = payload_to_seg_metric(
         payload=payload, model_name="model", label2id=label2id
     )
-    pred[pred == -1] = 0
-    gt[gt == -1] = 0
+    pred[pred == -1] = 0    # we need to add the water mask to pred and gt
+    gt[gt == -1] = 0       # because the -1 is a void pixel and will make the pixels not be consider in the pq computation
 
     pq.update(pred, gt)
     assert (

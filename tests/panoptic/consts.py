@@ -1,5 +1,7 @@
 import torch
 
+device = torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+
 unit_tests_results = {
     "test_panoptic_pq": {
         "test_compute_metric": {
@@ -90,7 +92,7 @@ unit_tests_results = {
                         0.0000,
                     ],
                 ],
-                device="cpu",
+                device=device,
                 dtype=torch.float64,
             ),
             "rq_value": torch.tensor(
@@ -180,7 +182,7 @@ unit_tests_results = {
                         0.0000,
                     ],
                 ],
-                device="cpu",
+                device=device,
                 dtype=torch.float64,
             ),
             "sq_value": torch.tensor(
@@ -270,7 +272,7 @@ unit_tests_results = {
                         0.0000,
                     ],
                 ],
-                device="cpu",
+                device=device,
                 dtype=torch.float64,
             ),
         }
