@@ -192,7 +192,7 @@ class PayloadProcessor:
         Raises:
             ValueError: If there is no matching data slice for the data type.
         """
-        thermal_slices = {"thermal_wide", "thermal_right", "thermal_left", "thermal_stitched"}
+        thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
         existing_slices = set(self.dataset.group_slices)
@@ -273,22 +273,25 @@ class PayloadProcessor:
 
         detections = {}
 
-        if self.tracking_mode:
-            mux_values = [m if m is not None else [] for m in sequence_view.values("frames[].mux")][self.start_frame_id:self.end_frame_id]
-        
         for field_name in self.models + [self.gt_field]:
-            det_values = sequence_view.filter_labels(
+
+            filter_view = sequence_view.filter_labels(
                 self.get_field_name(sequence_view, field_name),
                 ~F("label").is_in(self.excluded_classes),
                 only_matches=False,
-            ).values(
+            )
+            
+            det_values = filter_view.values(
                 f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
             )[self.start_frame_id:self.end_frame_id]
 
-            if self.tracking_mode:
-                detections[field_name] = [d if d is not None else [] for (d,m) in zip(det_values,mux_values) if self.models[0] in m]
+            keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
+
+            if self.tracking_mode and field_name != self.gt_field:
+                detections[field_name] = [d if d is not None and k else [] for d, k in zip(det_values, keyframe_values)]
             else:
                 detections[field_name] = [d if d is not None else [] for d in det_values]
+
         
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
