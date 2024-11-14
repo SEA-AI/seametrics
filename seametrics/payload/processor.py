@@ -285,9 +285,8 @@ class PayloadProcessor:
                 f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
             )[self.start_frame_id:self.end_frame_id]
 
-            keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
-
-            if self.tracking_mode and field_name != self.gt_field:
+            if self.tracking_mode:
+                keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, self.models[0], unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
                 detections[field_name] = [d if d is not None and k else [] for d, k in zip(det_values, keyframe_values)]
             else:
                 detections[field_name] = [d if d is not None else [] for d in det_values]
