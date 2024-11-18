@@ -1,0 +1,38 @@
+name: Build
+on:
+  push:
+    branches:
+      - CV-204-sonarcloud-integration
+  pull_request:
+    types: [opened, synchronize, reopened]
+jobs:
+  sonarcloud:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
+      # Set up Python environment
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.9"  # Change the version if needed
+
+      # Install dependencies from pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .  # Install your package (if needed)
+
+      # Run tests and generate coverage report
+      - name: Run tests and generate coverage report
+        run: |
+          pytest --cov=seametrics --cov-report=xml
+
+      # SonarCloud Scan
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
