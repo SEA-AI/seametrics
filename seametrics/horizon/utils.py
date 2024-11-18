@@ -244,7 +244,7 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
     horizons = []
     for sample in seq:
         horizon = [[-1, -1], [-1, -1]]
-        if hasattr(sample[field], "polylines"):
+        if hasattr(sample[field], "polylines") and (sample[field].polylines is not None):
             horizon = sample[field].polylines[0].points[0]
         else:
             for det in sample[field]:
