@@ -2,7 +2,7 @@ name: Build
 on:
   push:
     branches:
-      - CV-204-sonarcloud-integration
+      - CV-204-sonar-cloud-integration
   pull_request:
     types: [opened, synchronize, reopened]
 jobs:
