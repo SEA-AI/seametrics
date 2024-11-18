@@ -124,6 +124,9 @@ class PayloadProcessor:
         # Check tracking_mode is a boolean
         if not isinstance(self.tracking_mode, bool):
             raise TypeError(f"tracking_mode must be of type bool, but got {type(self.tracking_mode)}")
+        
+        if self.tracking_mode and len(self.models) != 1:
+            raise ValueError(f"When tracking mode is enabled only one model is supported, but got {len(self.models)} models")
 
         # Check sequence_list is None or a list of strings
         if self.sequence_list is not None and (not isinstance(self.sequence_list, list) or not all(isinstance(seq, str) for seq in self.sequence_list)):
@@ -170,10 +173,11 @@ class PayloadProcessor:
         if self.tags:
             self.dataset = self.dataset.match_tags(self.tags, all=True)
 
-        if not self.sequence_list or len(self.sequence_list) == 0:
-            self.sequence_list = self.dataset.distinct("sequence")
-            logger.info(f"Using all sequences in dataset: {self.sequence_list}")
-            
+        if self.sequence_list:
+            self.dataset = self.dataset.match(F("sequence").is_in(self.sequence_list))
+
+        self.sequence_list = self.dataset.distinct("sequence")
+
         logger.info(f"Using slice: {relevant_slices}")
 
         return self.process_sequences()
@@ -188,7 +192,7 @@ class PayloadProcessor:
         Raises:
             ValueError: If there is no matching data slice for the data type.
         """
-        thermal_slices = {"thermal_wide", "thermal_right", "thermal_left", "thermal_stitched"}
+        thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
         existing_slices = set(self.dataset.group_slices)
@@ -268,15 +272,26 @@ class PayloadProcessor:
         )
 
         detections = {}
+
         for field_name in self.models + [self.gt_field]:
-            det_values = sequence_view.filter_labels(
+
+            filter_view = sequence_view.filter_labels(
                 self.get_field_name(sequence_view, field_name),
                 ~F("label").is_in(self.excluded_classes),
                 only_matches=False,
-            ).values(
-                f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
             )
-            detections[field_name] = [d if d is not None else [] for d in det_values][self.start_frame_id:self.end_frame_id]
+            
+            det_values = filter_view.values(
+                f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
+            )[self.start_frame_id:self.end_frame_id]
+
+            if self.tracking_mode:
+                keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, self.models[0], unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
+                detections[field_name] = [d if d is not None and k else [] for d, k in zip(det_values, keyframe_values)]
+            else:
+                detections[field_name] = [d if d is not None else [] for d in det_values]
+
+        
         return Sequence(resolution=self.get_resolution(sequence_view), **detections)
 
     def process_sequences(self) -> Dict[str, Sequence]:

@@ -136,3 +136,38 @@ def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
             models=models,
             tracking_mode=False,
         )
+
+def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_payload):
+    """
+    Test that start_frame_id and end_frame_id are set correctly.
+    """
+    processor = PayloadProcessor(
+        dataset_name="valid_dataset",
+        gt_field="ground_truth_det",
+        models=["model1"],
+        tracking_mode=False,
+        start_frame_id=5,
+        end_frame_id=10,
+    )
+    assert processor.start_frame_id == 5
+    assert processor.end_frame_id == 11  
+
+    processor = PayloadProcessor(
+        dataset_name="valid_dataset",
+        gt_field="ground_truth_det",
+        models=["model1"],
+        tracking_mode=False,
+        start_frame_id=2,
+        end_frame_id=None,
+    )
+    assert processor.start_frame_id == 2
+    assert processor.end_frame_id is None
+
+    processor = PayloadProcessor(
+        dataset_name="valid_dataset",
+        gt_field="ground_truth_det",
+        models=["model1"],
+        tracking_mode=False,
+    )
+    assert processor.start_frame_id is None
+    assert processor.end_frame_id is None

@@ -39,7 +39,7 @@ jobs:
           python -m venv ./.venv
           source ./.venv/bin/activate
           python -m pip install --upgrade pip wheel
-          pip install ".[test, fiftyone]" --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install ".[test, fiftyone, panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
       if: steps.cache-venv.outputs.cache-hit != 'true'
     #- name: 🕵️ Test virtual environment activation
     #  shell: bash
