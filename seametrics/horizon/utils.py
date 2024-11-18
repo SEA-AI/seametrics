@@ -1,4 +1,9 @@
+from typing import List
+
+import fiftyone as fo
 import numpy as np
+
+from sklearn.linear_model import LinearRegression
 
 
 def xy_points_to_slope_midpoint(xy_points):
@@ -200,3 +205,51 @@ def pitch_to_midpoint(pitch, vertical_fov_degrees):
     """
     midpoint = pitch / vertical_fov_degrees
     return midpoint
+
+def get_horizon_from_water(mask: np.ndarray) -> List[List[float]]:
+    """
+    Generate horizon from water mask by fitting a linear regression
+    to all x-values and their respective top-most non-zero y-value.
+
+    Args:
+        mask (np.ndarray): binary mask of water in shape of image
+
+    Returns:
+        List[List[float]]: horizon defined by [[0, y_1], [1, y_2]],
+            where y_1, y_2 € [0,1].
+    """
+    row, col = np.nonzero(mask)
+    row = row.astype(np.float32)/(mask.shape[0])
+    col = col.astype(np.float32)/ mask.shape[1]
+    xs = np.unique(col)
+    ys = np.array([min(row[col==x]) for x in xs])
+    reg = LinearRegression().fit(xs[..., np.newaxis], ys)
+    min_y, max_y = reg.predict([[0],[1]])
+    return [[0, min_y], [1, max_y]]
+
+def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[float]]]:
+    """
+    Extract horizons for all frames of sequence.
+
+    Args:
+        seq (fo.DatasetView): FiftyOne view holding all frames of sequence.
+        field (str): Field to extract annotations from.
+
+    Returns:
+        List[List[List[float]]]: list holding all horizos in shape where the
+            length is the number of frames in the sequence and horizons[i] is
+            the parameterization of the horizon in frame i parametrized by
+            two points in format [[0, y_1], [1, y_2]].
+    """
+    horizons = []
+    for sample in seq:
+        horizon = [[-1, -1], [-1, -1]]
+        for det in sample[field]:
+            if det.label == "WATER":
+                if (not hasattr(det, "mask")) or (det.mask is None):
+                    raise ValueError("Non-segmentation dataset.")
+                horizon = get_horizon_from_water(det["mask"])
+        horizons.append(horizon)
+        
+    return horizons
+
