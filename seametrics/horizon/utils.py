@@ -247,7 +247,7 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
         if hasattr(sample[field], "polylines") and (sample[field].polylines is not None):
             horizon = sample[field].polylines[0].points[0]
         else:
-            for det in sample[field]:
+            for det in sample[field].detections:
                 if det.label == "WATER":
                     if (not hasattr(det, "mask")) or (det.mask is None):
                         raise ValueError("Non-segmentation dataset.")
