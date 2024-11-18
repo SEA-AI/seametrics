@@ -244,12 +244,15 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
     horizons = []
     for sample in seq:
         horizon = [[-1, -1], [-1, -1]]
-        for det in sample[field]:
-            if det.label == "WATER":
-                if (not hasattr(det, "mask")) or (det.mask is None):
-                    raise ValueError("Non-segmentation dataset.")
-                horizon = get_horizon_from_water(det["mask"])
+        if field == "ground_truth_pl":
+            horizon = sample[field].polylines[0].points[0]
+        else:
+            for det in sample[field]:
+                if det.label == "WATER":
+                    if (not hasattr(det, "mask")) or (det.mask is None):
+                        raise ValueError("Non-segmentation dataset.")
+                    horizon = get_horizon_from_water(det["mask"])
         horizons.append(horizon)
-        
+
     return horizons
 
