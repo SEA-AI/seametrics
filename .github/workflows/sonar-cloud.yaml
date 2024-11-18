@@ -23,8 +23,8 @@ jobs:
       # Install dependencies from pyproject.toml
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install .  # Install your package (if needed)
+          python -m pip install --upgrade pip wheel
+          pip install ".[test, fiftyone, panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
 
       # Run tests and generate coverage report
       - name: Run tests and generate coverage report
