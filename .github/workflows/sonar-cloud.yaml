@@ -11,16 +11,16 @@ jobs:
     name: SonarQube Cloud
     runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout the code
-      - name: 🛎️ Checkout
+      # Step 1: Check out code
+      - name: 🛎️ Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Disable shallow clones for better relevancy
+          fetch-depth: 0  # Full history for better relevancy of analysis
 
       # Step 2: Set up Python
-      - name: 🐍 Set up Python 3.9
+      - name: 🐍 Setup Python
         id: setup-python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v2
         with:
           python-version: "3.9"
 
@@ -29,30 +29,27 @@ jobs:
         id: cache-venv
         uses: actions/cache@v4
         with:
-          path: ./.venv/
-          key: ${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('requirements.txt') }}
+          path: ./.venv
+          key: ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            ${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-venv-
+            ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
 
-      # Step 4: Install dependencies
+      # Step 4: Install dependencies in a virtual environment
       - name: 🦾 Install dependencies
         shell: bash
         run: |
           python -m venv ./.venv
           source ./.venv/bin/activate
-          python -m pip install --upgrade pip
-          pip install pytest pytest-cov fiftyone loguru
-          pip install -r ./jobs/oversea/requirements.txt
+          python -m pip install --upgrade pip wheel
+          pip install ".[test, fiftyone, panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
         if: steps.cache-venv.outputs.cache-hit != 'true'
 
-      # Step 5: Run tests with pytest and coverage
-      - name: 🧪 Run tests with pytest
+      # Step 5: Run tests and generate coverage report
+      - name: 🧪 Run tests and generate coverage report
         shell: bash
         run: |
-          source ./.venv/bin/activate
-          pytest --cov=jobs --cov-report=xml
-        env:
-          CI: true  # Required for pytest to run in CI mode
+          source .venv/bin/activate
+          pytest --cov=seametrics --cov-report=xml
 
       # Step 6: SonarCloud scan
       - name: 🔎 SonarQube Cloud Scan
