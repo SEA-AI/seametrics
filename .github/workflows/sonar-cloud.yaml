@@ -5,34 +5,58 @@ on:
       - CV-204-sonar-cloud-integration
   pull_request:
     types: [opened, synchronize, reopened]
+
 jobs:
   sonarcloud:
     name: SonarQube Cloud
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Step 1: Checkout the code
+      - name: 🛎️ Checkout
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0  # Disable shallow clones for better relevancy
 
-      # Set up Python environment
-      - name: Setup Python
-        uses: actions/setup-python@v2
+      # Step 2: Set up Python
+      - name: 🐍 Set up Python 3.9
+        id: setup-python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.9"  # Change the version if needed
+          python-version: "3.9"
 
-      # Install dependencies from pyproject.toml
-      - name: Install dependencies
+      # Step 3: Cache the virtual environment
+      - name: 📦 Cache venv
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: ./.venv/
+          key: ${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-venv-
+
+      # Step 4: Install dependencies
+      - name: 🦾 Install dependencies
+        shell: bash
         run: |
-          python -m pip install --upgrade pip wheel
-          pip install ".[test, fiftyone, panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m venv ./.venv
+          source ./.venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov fiftyone loguru
+          pip install -r ./jobs/oversea/requirements.txt
+        if: steps.cache-venv.outputs.cache-hit != 'true'
 
-      # Run tests and generate coverage report
-      - name: Run tests and generate coverage report
+      # Step 5: Run tests with pytest and coverage
+      - name: 🧪 Run tests with pytest
+        shell: bash
         run: |
-          pytest --cov=seametrics --cov-report=xml
+          source ./.venv/bin/activate
+          pytest --cov=jobs --cov-report=xml
+        env:
+          CI: true  # Required for pytest to run in CI mode
 
-      # SonarCloud Scan
-      - name: SonarCloud Scan
+      # Step 6: SonarCloud scan
+      - name: 🔎 SonarQube Cloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Required for PR analysis
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
