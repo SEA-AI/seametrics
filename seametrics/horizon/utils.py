@@ -263,8 +263,8 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
                     if (not hasattr(det, "mask")) or (det.mask is None):
                         raise ValueError("Non-segmentation dataset.")
                     horizon = get_horizon_from_water(det["mask"])
-                    horizon[0][1] += det.bounding_box
-                    horizon[1][1] += det.bounding_box
+                    horizon[0][1] += det.bounding_box[1]
+                    horizon[1][1] += det.bounding_box[1]
                     # TODO: xaxis correection??
         horizons.append(horizon)
 
