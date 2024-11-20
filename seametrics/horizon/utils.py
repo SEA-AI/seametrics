@@ -133,17 +133,14 @@ def calculate_horizon_error_across_sequence(slope_error_list,
                                                     vertical_fov_degrees)
         max_midpoint_error_deg = midpoint_to_pitch(max_midpoint_error,
                                                 vertical_fov_degrees)
-
-        average_slope_error_deg = slope_to_roll(average_slope_error)
-        stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
-        max_slope_error_deg = slope_to_roll(max_slope_error)
     else:
         average_midpoint_error_deg = None
         stddev_midpoint_error_deg = None
         max_midpoint_error_deg = None
-        average_slope_error_deg = None
-        stddev_slope_error_deg = None
-        max_slope_error_deg = None
+
+    average_slope_error_deg = slope_to_roll(average_slope_error)
+    stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
+    max_slope_error_deg = slope_to_roll(max_slope_error)
 
     # Create a dictionary to store the results
     sequence_results = {
