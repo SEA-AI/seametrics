@@ -138,7 +138,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
         max_slope_error_deg = slope_to_roll(max_slope_error)
     else:
-        average_midpoint_error = None
+        average_midpoint_error_deg = None
         stddev_midpoint_error_deg = None
         max_midpoint_error_deg = None
         average_slope_error_deg = None
