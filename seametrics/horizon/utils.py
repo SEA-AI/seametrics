@@ -115,8 +115,11 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     # Calculate the number of jumps in the errors
     num_slope_error_jumps = np.sum(
         diff_slope_error > slope_error_jump_threshold)
-    num_midpoint_error_jumps = np.sum(
-        diff_midpoint_error > midpoint_error_jump_threshold)
+    if midpoint_error_jump_threshold is None:
+        num_midpoint_error_jumps = None
+    else:
+        num_midpoint_error_jumps = np.sum(
+            diff_midpoint_error > midpoint_error_jump_threshold)
 
     # Tranform metrics
     average_midpoint_error_px = average_midpoint_error * height

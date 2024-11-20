@@ -1,3 +1,5 @@
+from typing import Union
+
 from seametrics.horizon.utils import *
 
 
@@ -34,7 +36,7 @@ class HorizonMetrics:
     """
 
     def __init__(self,
-                 vertical_fov_degrees,
+                 vertical_fov_degrees: Union[float, int, None],
                  height,
                  roll_threshold=0.5,
                  pitch_threshold=0.1) -> None:
@@ -57,8 +59,11 @@ class HorizonMetrics:
         self.vertical_fov_degrees = vertical_fov_degrees
         self.height = height
         self.slope_threshold = roll_to_slope(roll_threshold)
-        self.midpoint_threshold = pitch_to_midpoint(pitch_threshold,
-                                                    self.vertical_fov_degrees)
+        if self.vertical_fov_degrees is None:
+            self.midpoint_threshold = None
+        else:
+            self.midpoint_threshold = pitch_to_midpoint(pitch_threshold,
+                                                        self.vertical_fov_degrees)
 
     def update(self, predictions, ground_truth_det) -> None:
         """
