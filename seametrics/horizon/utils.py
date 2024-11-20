@@ -230,7 +230,7 @@ def get_horizon_from_water(mask: np.ndarray) -> List[List[float]]:
             where y_1, y_2 € [0,1].
     """
     row, col = np.nonzero(mask)
-    row = row.astype(np.float32)/(mask.shape[0])
+    row = row.astype(np.float32)/ mask.shape[0]
     col = col.astype(np.float32)/ mask.shape[1]
     xs = np.unique(col)
     ys = np.array([min(row[col==x]) for x in xs])
@@ -263,6 +263,9 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
                     if (not hasattr(det, "mask")) or (det.mask is None):
                         raise ValueError("Non-segmentation dataset.")
                     horizon = get_horizon_from_water(det["mask"])
+                    horizon[0][1] += det.bounding_box
+                    horizon[1][1] += det.bounding_box
+                    # TODO: xaxis correection??
         horizons.append(horizon)
 
     return horizons
