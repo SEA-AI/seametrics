@@ -73,8 +73,9 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         Threshold for detecting jumps in slope errors.
     midpoint_error_jump_threshold : float
         Threshold for detecting jumps in midpoint errors.
-    vertical_fov_degrees : float
+    vertical_fov_degrees : float or None
         Vertical field of view in degrees.
+        None if only the pixel metrics are of interest.
     height : int
         Height of the image.
 
@@ -93,6 +94,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         - 'max_midpoint_error_px': The maximum midpoint error in pixels.
         - 'num_slope_error_jumps': The number of jumps in slope errors.
         - 'num_midpoint_error_jumps': The number of jumps in midpoint errors.
+
+        If vertical_fov_degrees is None, all 
     """
 
     average_slope_error = np.mean(slope_error_list)
@@ -120,16 +123,24 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     stddev_midpoint_error_px = stddev_midpoint_error * height
     max_midpoint_error_px = max_midpoint_error * height
 
-    average_midpoint_error_deg = midpoint_to_pitch(average_midpoint_error,
-                                                   vertical_fov_degrees)
-    stddev_midpoint_error_deg = midpoint_to_pitch(stddev_midpoint_error,
-                                                  vertical_fov_degrees)
-    max_midpoint_error_deg = midpoint_to_pitch(max_midpoint_error,
-                                               vertical_fov_degrees)
+    if vertical_fov_degrees is not None:
+        average_midpoint_error_deg = midpoint_to_pitch(average_midpoint_error,
+                                                    vertical_fov_degrees)
+        stddev_midpoint_error_deg = midpoint_to_pitch(stddev_midpoint_error,
+                                                    vertical_fov_degrees)
+        max_midpoint_error_deg = midpoint_to_pitch(max_midpoint_error,
+                                                vertical_fov_degrees)
 
-    average_slope_error_deg = slope_to_roll(average_slope_error)
-    stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
-    max_slope_error_deg = slope_to_roll(max_slope_error)
+        average_slope_error_deg = slope_to_roll(average_slope_error)
+        stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
+        max_slope_error_deg = slope_to_roll(max_slope_error)
+    else:
+        average_midpoint_error = None
+        stddev_midpoint_error_deg = None
+        max_midpoint_error_deg = None
+        average_slope_error_deg = None
+        stddev_slope_error_deg = None
+        max_slope_error_deg = None
 
     # Create a dictionary to store the results
     sequence_results = {
