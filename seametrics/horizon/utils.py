@@ -267,7 +267,9 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
                     full_mask = np.zeros((h, w))
                     x = int(det["bounding_box"][0] * w)
                     y = int(det["bounding_box"][1] * h)
-                    full_mask[y:, x:] = np.array(mask_water)
+                    w_b = int(det["bounding_box"][2] * w)
+                    h_b = int(det["bounding_box"][3] * h)
+                    full_mask[y:(y+h_b), x:(x+w_b):] = np.array(mask_water)
                     horizon = get_horizon_from_water(full_mask)
         horizons.append(horizon)
 
