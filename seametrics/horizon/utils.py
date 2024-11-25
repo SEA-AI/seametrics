@@ -214,6 +214,8 @@ def pitch_to_midpoint(pitch, vertical_fov_degrees):
     Returns:
     midpoint: Midpoint of the horizon
     """
+    if vertical_fov_degrees is None:
+        return None
     midpoint = pitch / vertical_fov_degrees
     return midpoint
 
