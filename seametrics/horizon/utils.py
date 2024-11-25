@@ -258,14 +258,17 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
         if hasattr(sample[field], "polylines") and (sample[field].polylines is not None):
             horizon = sample[field].polylines[0].points[0]
         else:
+            h, w = sample.metadata.height, sample.metadata.width
             for det in sample[field].detections:
                 if det.label == "WATER":
                     if (not hasattr(det, "mask")) or (det.mask is None):
                         raise ValueError("Non-segmentation dataset.")
-                    horizon = get_horizon_from_water(det["mask"])
-                    horizon[0][1] += det.bounding_box[1]
-                    horizon[1][1] += det.bounding_box[1]
-                    # TODO: xaxis correection??
+                    mask_water = det["mask"]
+                    full_mask = np.zeros((h, w))
+                    x = int(det["bounding_box"][0] * w)
+                    y = int(det["bounding_box"][1] * h)
+                    full_mask[y:, x:] = np.array(mask_water)
+                    horizon = get_horizon_from_water(full_mask)
         horizons.append(horizon)
 
     return horizons
