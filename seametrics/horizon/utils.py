@@ -257,9 +257,9 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
     horizons = []
     for sample in seq:
         horizon = [[0,0], [1, 0]]
-        if hasattr(sample[field], "polylines") and (sample[field].polylines is not None):
+        if hasattr(sample[field], "polylines") and (sample[field].polylines is not None and len(sample[field].polylines) > 0):
             horizon = sample[field].polylines[0].points[0]
-        else:
+        elif hasattr(sample[field], "detections"):
             h, w = sample.metadata.height, sample.metadata.width
             for det in sample[field].detections:
                 if det.label == "WATER":
