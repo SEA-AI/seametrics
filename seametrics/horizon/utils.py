@@ -256,10 +256,10 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
     """
     horizons = []
     for sample in seq:
-        horizon = [[0,0], [1, 0]]
         if hasattr(sample[field], "polylines") and (sample[field].polylines is not None and len(sample[field].polylines) > 0):
             horizon = sample[field].polylines[0].points[0]
         elif hasattr(sample[field], "detections"):
+            horizon = [[0, 0], [1, 0]] # if no water will be found, horizon should be bottom line
             h, w = sample.metadata.height, sample.metadata.width
             for det in sample[field].detections:
                 if det.label == "WATER":
@@ -273,6 +273,8 @@ def horizon_for_sequence(seq: fo.DatasetView, field: str) -> List[List[List[floa
                     h_b = int(det["bounding_box"][3] * h)
                     full_mask[y:(y+h_b), x:(x+w_b):] = np.array(mask_water)
                     horizon = get_horizon_from_water(full_mask)
+        else:
+            horizon = [[0, 0.5], [1, 0.5]]
         horizons.append(horizon)
 
     return horizons
