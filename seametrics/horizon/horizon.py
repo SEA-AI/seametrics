@@ -59,11 +59,8 @@ class HorizonMetrics:
         self.vertical_fov_degrees = vertical_fov_degrees
         self.height = height
         self.slope_threshold = roll_to_slope(roll_threshold)
-        if self.vertical_fov_degrees is None:
-            self.midpoint_threshold = None
-        else:
-            self.midpoint_threshold = pitch_to_midpoint(pitch_threshold,
-                                                        self.vertical_fov_degrees)
+        self.midpoint_threshold = pitch_to_midpoint(pitch_threshold,
+                                                    self.vertical_fov_degrees)
 
     def update(self, predictions, ground_truth_det) -> None:
         """
