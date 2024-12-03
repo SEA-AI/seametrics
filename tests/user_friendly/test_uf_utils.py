@@ -4,6 +4,7 @@ import fiftyone as fo
 import motmetrics as mm
 import numpy as np
 import pandas as pd
+import pytest
 
 from seametrics.payload import Payload, Resolution, Sequence
 from seametrics.user_friendly.utils import (
@@ -72,6 +73,172 @@ def test_calculate():
     assert (
         result["recognized_0.8"] == 2
     ), f"Expected recognized_0.8 to be 2, got {result['recognized_0.8']}"
+
+
+def test_calculate_empty_inputs_with_exceptions():
+    predictions = []
+    references = []
+
+    # Both empty
+    with pytest.raises(
+        ValueError,
+        match="The predictions should be a 2D array with 7 columns",
+    ):
+        calculate(predictions, references)
+
+    # Empty predictions, non-empty references
+    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
+    with pytest.raises(
+        ValueError,
+        match="The predictions should be a 2D array with 7 columns",
+    ):
+        calculate(predictions, references)
+
+    # Empty references, non-empty predictions
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = []
+    with pytest.raises(
+        ValueError,
+        match="The references should be a 2D array with 6 columns",
+    ):
+        calculate(predictions, references)
+
+
+def test_calculate_invalid_shapes():
+    # Invalid shape for predictions (missing confidence column)
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4]]  # Only 6 columns instead of 7
+    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
+
+    with pytest.raises(
+        ValueError,
+        match="The predictions should be a 2D array with 7 columns",
+    ):
+        calculate(predictions, references)
+
+    # Invalid shape for references (missing width and height)
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = [[1, 1, 0.1, 0.2]]  # Only 4 columns instead of 6
+
+    with pytest.raises(
+        ValueError,
+        match="The references should be a 2D array with 6 columns",
+    ):
+        calculate(predictions, references)
+
+
+def test_calculate_invalid_frame_numbers():
+    # Invalid frame number in predictions (frame number is 0)
+    predictions = [[0, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
+
+    with pytest.raises(
+        ValueError,
+        match="The frame number in the predictions should be a positive integer",
+    ):
+        calculate(predictions, references)
+
+    # Invalid frame number in references (frame number is negative)
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = [[-1, 1, 0.1, 0.2, 0.3, 0.4]]
+
+    with pytest.raises(
+        ValueError,
+        match="The frame number in the references should be a positive integer",
+    ):
+        calculate(predictions, references)
+
+
+def test_calculate_single_data_point():
+    # Matching case
+    predictions = [[1, 1, 0.1, 0.2, 0.2, 0.2, 0.9]]
+    references = [[1, 1, 0.1, 0.2, 0.2, 0.2]]
+    result = calculate(predictions, references)
+
+    assert result["tp"] == 1, "Expected 1 TP for a matching single data point"
+    assert result["fp"] == 0, "No FP expected for a matching single data point"
+    assert result["fn"] == 0, "No FN expected for a matching single data point"
+    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+
+    # Non-matching case
+    predictions = [[1, 1, 0.5, 0.5, 0.2, 0.2, 0.9]]
+    references = [[1, 1, 0.1, 0.2, 0.2, 0.2]]
+    result = calculate(predictions, references)
+
+    assert result["tp"] == 0, "No TP expected for non-matching data points"
+    assert result["fp"] == 1, "Expected 1 FP for non-matching data points"
+    assert result["fn"] == 1, "Expected 1 FN for non-matching data points"
+    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+
+
+def test_calculate_conflicting_ids():
+    predictions = [
+        [1, 1, 0.1, 0.1, 0.2, 0.2, 0.9],
+        [1, 1, 0.3, 0.3, 0.2, 0.2, 0.8],  # Duplicate ID in same frame
+    ]
+    references = [[1, 1, 0.1, 0.1, 0.2, 0.2]]
+
+    result = calculate(predictions, references)
+
+    assert result["tp"] == 1, "Only one TP should be counted for duplicate IDs"
+    assert result["fp"] == 1, "One FP expected due to duplicate ID"
+    assert result["fn"] == 0, "No FN expected as the reference is matched"
+    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+
+
+def test_calculate_mismatched_frames():
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = [[2, 1, 0.1, 0.2, 0.3, 0.4]]  # Different frame
+
+    result = calculate(predictions, references)
+
+    assert result["tp"] == 0, "No TP expected for mismatched frames"
+    assert result["fp"] == 1, "All predictions should be FP for mismatched frames"
+    assert result["fn"] == 1, "All references should be FN for mismatched frames"
+    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+
+
+def test_calculate_empty_predictions_or_references():
+    # Empty predictions
+    predictions = []
+    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
+
+    with pytest.raises(
+        ValueError,
+        match="The predictions should be a 2D array with 7 columns",
+    ):
+        calculate(predictions, references)
+
+    # Empty references
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = []
+
+    with pytest.raises(
+        ValueError,
+        match="The references should be a 2D array with 6 columns",
+    ):
+        calculate(predictions, references)
+
+
+def test_calculate_none_inputs():
+    predictions = None
+    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
+
+    # Test None predictions
+    with pytest.raises(
+        ValueError,
+        match="The predictions should be a 2D array with 7 columns",
+    ):
+        calculate(predictions, references)
+
+    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
+    references = None
+
+    # Test None references
+    with pytest.raises(
+        ValueError,
+        match="The references should be a 2D array with 6 columns",
+    ):
+        calculate(predictions, references)
 
 
 def test_sum_dicts():

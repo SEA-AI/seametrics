@@ -35,13 +35,18 @@ def calculate(
             "The references should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
         )
 
-    if np_predictions.shape[1] != 7:
+    if (
+        np_predictions.size == 0
+        or np_predictions.ndim < 2
+        or np_predictions.shape[1] != 7
+    ):
         raise ValueError(
-            "The predictions should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
+            "The predictions should be a 2D array with 7 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
         )
-    if np_references.shape[1] != 6:
+
+    if np_references.size == 0 or np_references.ndim < 2 or np_references.shape[1] != 6:
         raise ValueError(
-            "The references should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
+            "The references should be a 2D array with 6 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
         )
 
     if np_predictions[:, 0].min() <= 0:
