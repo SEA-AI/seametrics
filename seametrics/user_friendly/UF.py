@@ -5,18 +5,10 @@ class UserFriendlyMetrics:
     """
     Class for computing UserFriendly metrics.
 
-    Parameters
-    ----------
-
-    Attributes
-    ----------
-
     Methods
     -------
-    update(predictions, ground_truth_det)
-        Update the predictions and ground truth detections.
     compute()
-        Compute the UserFriendly metrics across the sequence.
+        Compute the UserFriendly metrics.
 
     """
 
@@ -28,6 +20,16 @@ class UserFriendlyMetrics:
 
         Parameters
         ----------
+        payload : Payload
+            The payload object.
+        max_iou : float
+            The maximum intersection over union (IoU) threshold.
+        filters : dict
+            A dictionary of filters to apply to the data.
+        recognition_thresholds : list
+            A list of recognition thresholds to use.
+        debug : bool
+            Whether to print debug messages.
 
         """
         self.payload = payload
@@ -36,20 +38,8 @@ class UserFriendlyMetrics:
         self.recognition_thresholds = recognition_thresholds
         self.debug = debug
 
-    def update(self, predictions, ground_truth_det) -> None:
-        """
-        Update the predictions and ground truth detections.
-
-        Parameters
-        ----------.
-
-        """
-
-        print("user-friendly-metrics updated")
-
     def _compute(self):
         """Returns the scores"""
-        # TODO: Compute the different scores of the module
         return calculate_from_payload(
             self.payload,
             self.max_iou,
