@@ -1,4 +1,4 @@
-from seametrics.user_friendly.utils import *
+from seametrics.user_friendly.utils import calculate_from_payload
 
 
 class UserFriendlyMetrics:

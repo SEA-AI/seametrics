@@ -1,5 +1,5 @@
-import numpy as np
 import motmetrics as mm
+import numpy as np
 from motmetrics.metrics import events_to_df_map, obj_frequencies, track_ratios
 
 
@@ -269,12 +269,19 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     calculates metrics based on raw metrics
     """
 
-    metrics_dict["precision"] = metrics_dict["tp"] / (
-        metrics_dict["tp"] + metrics_dict["fp"]
-    )
-    metrics_dict["recall"] = metrics_dict["tp"] / (
-        metrics_dict["tp"] + metrics_dict["fn"]
-    )
+    if metrics_dict["tp"] + metrics_dict["fp"] > 0:
+        metrics_dict["precision"] = metrics_dict["tp"] / (
+            metrics_dict["tp"] + metrics_dict["fp"]
+        )
+    else:
+        metrics_dict["precision"] = np.nan
+
+    if metrics_dict["tp"] + metrics_dict["fn"] > 0:
+        metrics_dict["recall"] = metrics_dict["tp"] / (
+            metrics_dict["tp"] + metrics_dict["fn"]
+        )
+    else:
+        metrics_dict["recall"] = np.nan
 
     metrics_dict["f1"] = (
         2
