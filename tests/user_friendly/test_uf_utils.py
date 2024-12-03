@@ -1,6 +1,5 @@
 import math
 
-import fiftyone as fo
 import motmetrics as mm
 import numpy as np
 import pandas as pd
@@ -757,20 +756,26 @@ def test_calculate_from_payload():
         model_config = [2, 1]
 
         mock_detections = [
-            fo.Detection(
-                label="MOTORBOAT",
-                bounding_box=[0.0, 0.0, 0.015625, 0.009765625],
-                index=1,
-            ),
-            fo.Detection(
-                id="6682d49a4cb7459c1be09c52",
-                attributes={},
-                tags=[],
-                label="SPHERICAL_BUOY",
-                bounding_box=[0.603125, 0.591796875, 0.0109375, 0.009765625],
-                confidence=None,
-                index=2,
-            ),
+            {
+                "id": "674f2c83d608ab75c380194c",
+                "attributes": {},
+                "tags": [],
+                "label": "MOTORBOAT",
+                "bounding_box": [0.0, 0.0, 0.015625, 0.009765625],
+                "mask": None,
+                "confidence": None,
+                "index": 1,
+            },
+            {
+                "id": "6682d49a4cb7459c1be09c52",
+                "attributes": {},
+                "tags": [],
+                "label": "SPHERICAL_BUOY",
+                "bounding_box": [0.603125, 0.591796875, 0.0109375, 0.009765625],
+                "mask": None,
+                "confidence": None,
+                "index": 2,
+            },
         ]
 
         payload = Payload(
