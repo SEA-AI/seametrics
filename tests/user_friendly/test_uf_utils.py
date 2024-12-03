@@ -19,6 +19,9 @@ from seametrics.user_friendly.utils import (
 
 
 def test_recognition():
+    """
+    Tests the recognition function
+    """
 
     track_ratios = pd.Series(
         [0.2, 0.4, 0.6, 0.8, 1.0],
@@ -43,6 +46,9 @@ def test_recognition():
 
 
 def test_calculate():
+    """
+    Tests the calculate function with a typical case of valid metrics.
+    """
     predictions = [
         [1, 1, 0.1, 0.2, 0.3, 0.4, 0.9],
         [1, 2, 0.5, 0.6, 0.2, 0.3, 0.8],
@@ -76,6 +82,16 @@ def test_calculate():
 
 
 def test_calculate_empty_inputs_with_exceptions():
+    """
+    Tests the calculate function for cases with empty inputs.
+
+    Ensures that ValueError is raised when:
+    - Both predictions and references are empty.
+    - Predictions are empty but references are non-empty.
+    - References are empty but predictions are non-empty.
+
+    Checks that the appropriate error message is provided for each case.
+    """
     predictions = []
     references = []
 
@@ -106,6 +122,15 @@ def test_calculate_empty_inputs_with_exceptions():
 
 def test_calculate_invalid_shapes():
     # Invalid shape for predictions (missing confidence column)
+    """
+    Tests the calculate function for cases with invalid shapes for predictions and references.
+
+    Ensures that ValueError is raised when:
+    - Predictions are missing the confidence column.
+    - References are missing the width and height columns.
+
+    Checks that the appropriate error message is provided for each case.
+    """
     predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4]]  # Only 6 columns instead of 7
     references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
 
@@ -128,6 +153,15 @@ def test_calculate_invalid_shapes():
 
 def test_calculate_invalid_frame_numbers():
     # Invalid frame number in predictions (frame number is 0)
+    """
+    Tests the calculate function for cases with invalid frame numbers in predictions and references.
+
+    Ensures that ValueError is raised when:
+    - The frame number in the predictions is 0.
+    - The frame number in the references is negative.
+
+    Checks that the appropriate error message is provided for each case.
+    """
     predictions = [[0, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
     references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
 
@@ -150,6 +184,17 @@ def test_calculate_invalid_frame_numbers():
 
 def test_calculate_single_data_point():
     # Matching case
+    """
+    Tests the calculate function with a single data point in both predictions and references.
+
+    Verifies the following scenarios:
+    - Matching case: prediction and reference have the same frame, object ID, and bounding box,
+      expecting a true positive (TP) with no false positives (FP) or false negatives (FN).
+    - Non-matching case: prediction and reference have the same frame and object ID but different bounding boxes,
+      expecting no true positives (TP), one false positive (FP), and one false negative (FN).
+
+    Asserts that the correct number of unique ground truth IDs is detected in both cases.
+    """
     predictions = [[1, 1, 0.1, 0.2, 0.2, 0.2, 0.9]]
     references = [[1, 1, 0.1, 0.2, 0.2, 0.2]]
     result = calculate(predictions, references)
@@ -171,6 +216,11 @@ def test_calculate_single_data_point():
 
 
 def test_calculate_conflicting_ids():
+    """
+    Tests the calculate function with predictions and references that contain duplicate IDs in the same frame.
+
+    Asserts that only one true positive (TP) is counted, and that the duplicate ID is counted as one false positive (FP).
+    """
     predictions = [
         [1, 1, 0.1, 0.1, 0.2, 0.2, 0.9],
         [1, 1, 0.3, 0.3, 0.2, 0.2, 0.8],  # Duplicate ID in same frame
@@ -186,6 +236,12 @@ def test_calculate_conflicting_ids():
 
 
 def test_calculate_mismatched_frames():
+    """
+    Tests the calculate function with predictions and references that have mismatched frames.
+
+    Asserts that no true positives (TP) are counted, and that all predictions are counted as false positives (FP)
+    and all references are counted as false negatives (FN) when the frames do not match.
+    """
     predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
     references = [[2, 1, 0.1, 0.2, 0.3, 0.4]]  # Different frame
 
@@ -199,6 +255,15 @@ def test_calculate_mismatched_frames():
 
 def test_calculate_empty_predictions_or_references():
     # Empty predictions
+    """
+    Tests the calculate function with empty predictions or references.
+
+    Ensures that ValueError is raised when:
+    - Predictions are empty.
+    - References are empty.
+
+    Checks that the appropriate error message is provided for each case.
+    """
     predictions = []
     references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
 
@@ -220,6 +285,15 @@ def test_calculate_empty_predictions_or_references():
 
 
 def test_calculate_none_inputs():
+    """
+    Tests the calculate function with None inputs.
+
+    Ensures that ValueError is raised when:
+    - Predictions are None.
+    - References are None.
+
+    Checks that the appropriate error message is provided for each case.
+    """
     predictions = None
     references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
 
@@ -243,6 +317,17 @@ def test_calculate_none_inputs():
 
 def test_sum_dicts():
     # Test 1: Simple dictionaries with overlapping keys
+    """
+    Tests the sum_dicts function.
+
+    Tests the following cases:
+    1. Simple dictionaries with overlapping keys.
+    2. Missing keys in one dictionary.
+    3. Non-overlapping keys.
+    4. Empty dictionaries.
+    5. One empty dictionary.
+    6. Non-numerical values (should take the non-zero value).
+    """
     dict1 = {"a": 1, "b": 2, "c": {"d": 4, "e": 5}}
     dict2 = {"a": 3, "b": 4, "c": {"d": 6, "f": 7}, "g": 8}
     expected = {"a": 4, "b": 6, "c": {"d": 10, "e": 5, "f": 7}, "g": 8}
@@ -287,6 +372,16 @@ def test_sum_dicts():
 
 def test_build_metrics_template():
     # Test 1: Typical case with multiple models and filters
+    """
+    Tests the build_metrics_template function.
+
+    Tests the following cases:
+    1. Typical case with multiple models and filters.
+    2. Empty models list.
+    3. Empty filters dictionary.
+    4. Single model and single filter with no ranges.
+    5. Large number of models and filters.
+    """
     models = ["model1", "model2"]
     filters = {
         "filter1": [("range1", 1), ("range2", 2)],
@@ -368,6 +463,15 @@ def test_build_metrics_template():
 
 def test_realize_metrics():
     # Test 1: Typical case with valid metrics
+    """
+    Tests the realize_metrics function.
+
+    Tests the following cases:
+    1. Typical case with valid metrics.
+    2. Edge case with zero TP, FP, FN.
+    3. Zero FP but non-zero TP.
+    4. Large num_gt_ids with zero recognized.
+    """
     metrics_dict = {
         "tp": 10,
         "fp": 5,
@@ -483,6 +587,22 @@ def test_realize_metrics():
 
 
 def test_num_gt_ids():
+    """
+    Tests the num_gt_ids function.
+
+    The num_gt_ids function takes a MOTChallenge events DataFrame and returns the number of unique ground truth IDs in the DataFrame.
+
+    The tests cover the following cases:
+    1. Typical case with multiple unique IDs
+    2. Single frame with one GT ID
+    3. Multiple frames, duplicate GT IDs
+    4. High number of frames and IDs (stress test)
+    5. Same GT ID across all frames
+    6. Overlapping and non-overlapping GT IDs
+
+    Each test case runs the num_gt_ids function on a DataFrame created from a MOTChallenge events file and verifies that the output matches the expected number of unique ground truth IDs.
+
+    """
 
     def run_test_case(
         num_frames,
@@ -611,49 +731,68 @@ def test_num_gt_ids():
     )
 
 
-def create_test_payload():
-
-    gt_config = [1, 1]
-    model_config = [2, 1]
-
-    mock_detections = [
-        fo.Detection(
-            label="MOTORBOAT", bounding_box=[0.0, 0.0, 0.015625, 0.009765625], index=1
-        ),
-        fo.Detection(
-            id="6682d49a4cb7459c1be09c52",
-            attributes={},
-            tags=[],
-            label="SPHERICAL_BUOY",
-            bounding_box=[0.603125, 0.591796875, 0.0109375, 0.009765625],
-            confidence=None,
-            index=2,
-        ),
-    ]
-
-    payload = Payload(
-        dataset="dataset",
-        models=["model"],
-        gt_field_name="ground_truth_det",
-        sequences={
-            "sequence_a": Sequence(
-                resolution=Resolution(height=512, width=640),
-                ground_truth_det=[
-                    [mock_detections[i] for i in range(detections)]
-                    for detections in gt_config
-                ],
-                model=[
-                    [mock_detections[i] for i in range(detections)]
-                    for detections in model_config
-                ],
-            )
-        },
-    )
-
-    return payload
-
-
 def test_calculate_from_payload():
+    """
+    Tests the calculate_from_payload function with a single sequence and a few detections.
+
+    The test payload contains a single sequence with two frames. The first frame has one ground
+    truth detection and two model detections. The second frame has one ground truth detection and
+    one model detection.
+
+    The function is called with max_iou=0.5 and recognition_thresholds=[0.3, 0.5, 0.8]. The test
+    asserts that the output contains the correct values for false positives, false negatives,
+    true positives, precision, recall, F1 score, recognition at different thresholds, and the
+    number of ground truth IDs. The test also asserts that these values are correct for both the
+    global metrics and the per-sequence metrics.
+    """
+
+    def create_test_payload():
+        """
+        Creates a test Payload object with a single sequence and a few detections.
+
+        Returns:
+            Payload: A test Payload object.
+        """
+        gt_config = [1, 1]
+        model_config = [2, 1]
+
+        mock_detections = [
+            fo.Detection(
+                label="MOTORBOAT",
+                bounding_box=[0.0, 0.0, 0.015625, 0.009765625],
+                index=1,
+            ),
+            fo.Detection(
+                id="6682d49a4cb7459c1be09c52",
+                attributes={},
+                tags=[],
+                label="SPHERICAL_BUOY",
+                bounding_box=[0.603125, 0.591796875, 0.0109375, 0.009765625],
+                confidence=None,
+                index=2,
+            ),
+        ]
+
+        payload = Payload(
+            dataset="dataset",
+            models=["model"],
+            gt_field_name="ground_truth_det",
+            sequences={
+                "sequence_a": Sequence(
+                    resolution=Resolution(height=512, width=640),
+                    ground_truth_det=[
+                        [mock_detections[i] for i in range(detections)]
+                        for detections in gt_config
+                    ],
+                    model=[
+                        [mock_detections[i] for i in range(detections)]
+                        for detections in model_config
+                    ],
+                )
+            },
+        )
+
+        return payload
 
     payload = create_test_payload()
     max_iou = 0.5
