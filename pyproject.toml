@@ -77,7 +77,6 @@ max-line-length = 88
 extend-ignore = "E203, W503"
 exclude = [
   "notebooks*",
-  "tests*",
   "docs*",
   "build*",
   "dist*",
@@ -93,7 +92,6 @@ disable = """
 """
 exclude = [
   "notebooks*",
-  "tests*",
   "docs*",
   "build*",
   "dist*",
