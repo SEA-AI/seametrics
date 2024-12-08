@@ -8,7 +8,7 @@ def recognition(track_ratios, th=0.5):
     return track_ratios[track_ratios >= th].count()
 
 
-def num_gt_ids(df):
+def unique_obj_count(df):
     """Number of unique gt ids."""
     return df.full["OId"].dropna().unique().shape[0]
 
@@ -78,7 +78,7 @@ def calculate(
 
     df = events_to_df_map(acc.events)
     tr_ratios = track_ratios(df, obj_frequencies(df))
-    unique_gt_ids = num_gt_ids(df)
+    unique_gt_ids = unique_obj_count(df)
 
     namemap = {"num_misses": "fn", "num_false_positives": "fp", "num_detections": "tp"}
 
