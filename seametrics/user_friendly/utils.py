@@ -89,11 +89,11 @@ def calculate(
         else:
             summary[key] = float(summary[key][0])
 
-    summary["num_gt_ids"] = unique_gt_ids
+    summary["unique_obj_count"] = unique_gt_ids
 
     for th in recognition_thresholds:
         recognized = recognition(tr_ratios, th)
-        summary[f"recognized_{th}"] = int(recognized)
+        summary[f"mostly_tracked_count_{th}"] = int(recognized)
 
     return summary
 
@@ -296,8 +296,9 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     )
 
     for th in recognition_thresholds:
-        metrics_dict[f"recognition_{th}"] = (
-            metrics_dict[f"recognized_{th}"] / metrics_dict["num_gt_ids"]
+        metrics_dict[f"mostly_tracked_score_{th}"] = (
+            metrics_dict[f"mostly_tracked_count_{th}"]
+            / metrics_dict["unique_obj_count"]
         )
 
     return metrics_dict
