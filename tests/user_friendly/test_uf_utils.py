@@ -480,8 +480,8 @@ def test_realize_metrics():
         "mostly_tracked_count_0.5": 6,
         "mostly_tracked_count_0.8": 4,
     }
-    mostly_tracked_score_thresholds = [0.3, 0.5, 0.8]
-    result = realize_metrics(metrics_dict, mostly_tracked_score_thresholds)
+    recognition_thresholds = [0.3, 0.5, 0.8]
+    result = realize_metrics(metrics_dict, recognition_thresholds)
 
     assert result["precision"] == 10 / (
         10 + 5
@@ -513,8 +513,8 @@ def test_realize_metrics():
         "mostly_tracked_count_0.5": 0,
         "mostly_tracked_count_0.8": 0,
     }
-    mostly_tracked_score_thresholds = [0.3, 0.5, 0.8]
-    result = realize_metrics(metrics_dict, mostly_tracked_score_thresholds)
+    recognition_thresholds = [0.3, 0.5, 0.8]
+    result = realize_metrics(metrics_dict, recognition_thresholds)
 
     assert np.isnan(
         result["precision"]
@@ -540,8 +540,8 @@ def test_realize_metrics():
         "mostly_tracked_count_0.3": 3,
         "mostly_tracked_count_0.5": 1,
     }
-    mostly_tracked_score_thresholds = [0.3, 0.5]
-    result = realize_metrics(metrics_dict, mostly_tracked_score_thresholds)
+    recognition_thresholds = [0.3, 0.5]
+    result = realize_metrics(metrics_dict, recognition_thresholds)
 
     assert result["precision"] == 5 / (
         5 + 0
@@ -569,8 +569,8 @@ def test_realize_metrics():
         "mostly_tracked_count_0.3": 0,
         "mostly_tracked_count_0.5": 0,
     }
-    mostly_tracked_score_thresholds = [0.3, 0.5]
-    result = realize_metrics(metrics_dict, mostly_tracked_score_thresholds)
+    recognition_thresholds = [0.3, 0.5]
+    result = realize_metrics(metrics_dict, recognition_thresholds)
 
     assert np.isnan(
         result["precision"]
@@ -738,7 +738,7 @@ def test_calculate_from_payload():
     truth detection and two model detections. The second frame has one ground truth detection and
     one model detection.
 
-    The function is called with max_iou=0.5 and mostly_tracked_score_thresholds=[0.3, 0.5, 0.8]. The test
+    The function is called with max_iou=0.5 and recognition_thresholds=[0.3, 0.5, 0.8]. The test
     asserts that the output contains the correct values for false positives, false negatives,
     true positives, precision, recall, F1 score, recognition at different thresholds, and the
     number of ground truth IDs. The test also asserts that these values are correct for both the
@@ -801,13 +801,13 @@ def test_calculate_from_payload():
 
     payload = create_test_payload()
     max_iou = 0.5
-    mostly_tracked_score_thresholds = [0.3, 0.5, 0.8]
+    recognition_thresholds = [0.3, 0.5, 0.8]
     debug = False
 
     output = calculate_from_payload(
         payload=payload,
         max_iou=max_iou,
-        mostly_tracked_score_thresholds=mostly_tracked_score_thresholds,
+        recognition_thresholds=recognition_thresholds,
         debug=debug,
     )
 
