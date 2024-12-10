@@ -10,10 +10,10 @@ from seametrics.user_friendly.utils import (
     build_metrics_template,
     calculate,
     calculate_from_payload,
-    num_gt_ids,
     realize_metrics,
     recognition,
     sum_dicts,
+    unique_obj_count,
 )
 
 
@@ -67,17 +67,17 @@ def test_calculate():
     assert result["fp"] == 0.0, f"Expected fp to be 0.0, got {result['fp']}"
     assert result["fn"] == 0.0, f"Expected fn to be 0.0, got {result['fn']}"
     assert (
-        result["num_gt_ids"] == 2
-    ), f"Expected num_gt_ids to be 2, got {result['num_gt_ids']}"
+        result["unique_obj_count"] == 2
+    ), f"Expected unique_obj_count to be 2, got {result['unique_obj_count']}"
     assert (
-        result["recognized_0.3"] == 2
-    ), f"Expected recognized_0.3 to be 2, got {result['recognized_0.3']}"
+        result["mostly_tracked_count_0.3"] == 2
+    ), f"Expected mostly_tracked_count_0.3 to be 2, got {result['mostly_tracked_count_0.3']}"
     assert (
-        result["recognized_0.5"] == 2
-    ), f"Expected recognized_0.5 to be 2, got {result['recognized_0.5']}"
+        result["mostly_tracked_count_0.5"] == 2
+    ), f"Expected mostly_tracked_count_0.5 to be 2, got {result['mostly_tracked_count_0.5']}"
     assert (
-        result["recognized_0.8"] == 2
-    ), f"Expected recognized_0.8 to be 2, got {result['recognized_0.8']}"
+        result["mostly_tracked_count_0.8"] == 2
+    ), f"Expected mostly_tracked_count_0.8 to be 2, got {result['mostly_tracked_count_0.8']}"
 
 
 def test_calculate_empty_inputs_with_exceptions():
@@ -201,7 +201,7 @@ def test_calculate_single_data_point():
     assert result["tp"] == 1, "Expected 1 TP for a matching single data point"
     assert result["fp"] == 0, "No FP expected for a matching single data point"
     assert result["fn"] == 0, "No FN expected for a matching single data point"
-    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+    assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
     # Non-matching case
     predictions = [[1, 1, 0.5, 0.5, 0.2, 0.2, 0.9]]
@@ -211,7 +211,7 @@ def test_calculate_single_data_point():
     assert result["tp"] == 0, "No TP expected for non-matching data points"
     assert result["fp"] == 1, "Expected 1 FP for non-matching data points"
     assert result["fn"] == 1, "Expected 1 FN for non-matching data points"
-    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+    assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
 
 def test_calculate_conflicting_ids():
@@ -231,7 +231,7 @@ def test_calculate_conflicting_ids():
     assert result["tp"] == 1, "Only one TP should be counted for duplicate IDs"
     assert result["fp"] == 1, "One FP expected due to duplicate ID"
     assert result["fn"] == 0, "No FN expected as the reference is matched"
-    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+    assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
 
 def test_calculate_mismatched_frames():
@@ -249,7 +249,7 @@ def test_calculate_mismatched_frames():
     assert result["tp"] == 0, "No TP expected for mismatched frames"
     assert result["fp"] == 1, "All predictions should be FP for mismatched frames"
     assert result["fn"] == 1, "All references should be FN for mismatched frames"
-    assert result["num_gt_ids"] == 1, "Expected 1 unique GT ID"
+    assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
 
 def test_calculate_empty_predictions_or_references():
@@ -469,16 +469,16 @@ def test_realize_metrics():
     1. Typical case with valid metrics.
     2. Edge case with zero TP, FP, FN.
     3. Zero FP but non-zero TP.
-    4. Large num_gt_ids with zero recognized.
+    4. Large unique_obj_count with zero recognized.
     """
     metrics_dict = {
         "tp": 10,
         "fp": 5,
         "fn": 3,
-        "num_gt_ids": 8,
-        "recognized_0.3": 7,
-        "recognized_0.5": 6,
-        "recognized_0.8": 4,
+        "unique_obj_count": 8,
+        "mostly_tracked_count_0.3": 7,
+        "mostly_tracked_count_0.5": 6,
+        "mostly_tracked_count_0.8": 4,
     }
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
@@ -494,24 +494,24 @@ def test_realize_metrics():
         / (result["precision"] + result["recall"] + 1e-6)
     ), f"Expected f1, got {result['f1']}"
     assert (
-        result["recognition_0.3"] == 7 / 8
-    ), f"Expected recognition_0.3, got {result['recognition_0.3']}"
+        result["mostly_tracked_score_0.3"] == 7 / 8
+    ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
     assert (
-        result["recognition_0.5"] == 6 / 8
-    ), f"Expected recognition_0.5, got {result['recognition_0.5']}"
+        result["mostly_tracked_score_0.5"] == 6 / 8
+    ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
     assert (
-        result["recognition_0.8"] == 4 / 8
-    ), f"Expected recognition_0.8, got {result['recognition_0.8']}"
+        result["mostly_tracked_score_0.8"] == 4 / 8
+    ), f"Expected mostly_tracked_score_0.8, got {result['mostly_tracked_score_0.8']}"
 
     # Test 2: Edge case with zero TP, FP, FN
     metrics_dict = {
         "tp": 0,
         "fp": 0,
         "fn": 0,
-        "num_gt_ids": 1,
-        "recognized_0.3": 0,
-        "recognized_0.5": 0,
-        "recognized_0.8": 0,
+        "unique_obj_count": 1,
+        "mostly_tracked_count_0.3": 0,
+        "mostly_tracked_count_0.5": 0,
+        "mostly_tracked_count_0.8": 0,
     }
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
@@ -522,23 +522,23 @@ def test_realize_metrics():
     assert np.isnan(result["recall"]), f"Expected recall NaN, got {result['recall']}"
     assert np.isnan(result["f1"]), f"Expected f1 NaN, got {result['f1']}"
     assert (
-        result["recognition_0.3"] == 0
-    ), f"Expected recognition_0.3, got {result['recognition_0.3']}"
+        result["mostly_tracked_score_0.3"] == 0
+    ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
     assert (
-        result["recognition_0.5"] == 0
-    ), f"Expected recognition_0.5, got {result['recognition_0.5']}"
+        result["mostly_tracked_score_0.5"] == 0
+    ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
     assert (
-        result["recognition_0.8"] == 0
-    ), f"Expected recognition_0.8, got {result['recognition_0.8']}"
+        result["mostly_tracked_score_0.8"] == 0
+    ), f"Expected mostly_tracked_score_0.8, got {result['mostly_tracked_score_0.8']}"
 
     # Test 3: Zero FP but non-zero TP
     metrics_dict = {
         "tp": 5,
         "fp": 0,
         "fn": 2,
-        "num_gt_ids": 10,
-        "recognized_0.3": 3,
-        "recognized_0.5": 1,
+        "unique_obj_count": 10,
+        "mostly_tracked_count_0.3": 3,
+        "mostly_tracked_count_0.5": 1,
     }
     recognition_thresholds = [0.3, 0.5]
     result = realize_metrics(metrics_dict, recognition_thresholds)
@@ -554,20 +554,20 @@ def test_realize_metrics():
         / (result["precision"] + result["recall"] + 1e-6)
     ), f"Expected f1, got {result['f1']}"
     assert (
-        result["recognition_0.3"] == 3 / 10
-    ), f"Expected recognition_0.3, got {result['recognition_0.3']}"
+        result["mostly_tracked_score_0.3"] == 3 / 10
+    ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
     assert (
-        result["recognition_0.5"] == 1 / 10
-    ), f"Expected recognition_0.5, got {result['recognition_0.5']}"
+        result["mostly_tracked_score_0.5"] == 1 / 10
+    ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
 
-    # Test 4: Large num_gt_ids with zero recognized
+    # Test 4: Large unique_obj_count with zero recognized
     metrics_dict = {
         "tp": 0,
         "fp": 0,
         "fn": 5,
-        "num_gt_ids": 1000,
-        "recognized_0.3": 0,
-        "recognized_0.5": 0,
+        "unique_obj_count": 1000,
+        "mostly_tracked_count_0.3": 0,
+        "mostly_tracked_count_0.5": 0,
     }
     recognition_thresholds = [0.3, 0.5]
     result = realize_metrics(metrics_dict, recognition_thresholds)
@@ -578,18 +578,18 @@ def test_realize_metrics():
     assert result["recall"] == 0, f"Expected recall 0, got {result['recall']}"
     assert np.isnan(result["f1"]), f"Expected f1 NaN, got {result['f1']}"
     assert (
-        result["recognition_0.3"] == 0
-    ), f"Expected recognition_0.3, got {result['recognition_0.3']}"
+        result["mostly_tracked_score_0.3"] == 0
+    ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
     assert (
-        result["recognition_0.5"] == 0
-    ), f"Expected recognition_0.5, got {result['recognition_0.5']}"
+        result["mostly_tracked_score_0.5"] == 0
+    ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
 
 
-def test_num_gt_ids():
+def test_unique_obj_count():
     """
-    Tests the num_gt_ids function.
+    Tests the unique_obj_count function.
 
-    The num_gt_ids function takes a MOTChallenge events DataFrame and returns the number of unique ground truth IDs in the DataFrame.
+    The unique_obj_count function takes a MOTChallenge events DataFrame and returns the number of unique ground truth IDs in the DataFrame.
 
     The tests cover the following cases:
     1. Typical case with multiple unique IDs
@@ -599,7 +599,7 @@ def test_num_gt_ids():
     5. Same GT ID across all frames
     6. Overlapping and non-overlapping GT IDs
 
-    Each test case runs the num_gt_ids function on a DataFrame created from a MOTChallenge events file and verifies that the output matches the expected number of unique ground truth IDs.
+    Each test case runs the unique_obj_count function on a DataFrame created from a MOTChallenge events file and verifies that the output matches the expected number of unique ground truth IDs.
 
     """
 
@@ -621,7 +621,7 @@ def test_num_gt_ids():
             )
 
         df = mm.metrics.events_to_df_map(acc.events)
-        unique_gt_ids = num_gt_ids(df)
+        unique_gt_ids = unique_obj_count(df)
         assert (
             unique_gt_ids == expected_unique_gt_ids
         ), f"{test_case_name} failed: Expected {expected_unique_gt_ids}, got {unique_gt_ids}"
@@ -815,7 +815,9 @@ def test_calculate_from_payload():
     assert global_metrics["fp"] == 1.0, "False positives mismatch"
     assert global_metrics["fn"] == 0.0, "False negatives mismatch"
     assert global_metrics["tp"] == 2.0, "True positives mismatch"
-    assert global_metrics["num_gt_ids"] == 1, "Number of ground truth IDs mismatch"
+    assert (
+        global_metrics["unique_obj_count"] == 1
+    ), "Number of ground truth IDs mismatch"
     assert math.isclose(
         global_metrics["precision"], 0.6666666666666666, rel_tol=1e-9
     ), "Precision mismatch"
@@ -823,18 +825,32 @@ def test_calculate_from_payload():
     assert math.isclose(
         global_metrics["f1"], 0.7999995200002881, rel_tol=1e-9
     ), "F1 score mismatch"
-    assert global_metrics["recognition_0.3"] == 1.0, "Recognition at 0.3 mismatch"
-    assert global_metrics["recognition_0.5"] == 1.0, "Recognition at 0.5 mismatch"
-    assert global_metrics["recognition_0.8"] == 1.0, "Recognition at 0.8 mismatch"
-    assert global_metrics["recognized_0.3"] == 1, "Recognized count at 0.3 mismatch"
-    assert global_metrics["recognized_0.5"] == 1, "Recognized count at 0.5 mismatch"
-    assert global_metrics["recognized_0.8"] == 1, "Recognized count at 0.8 mismatch"
+    assert (
+        global_metrics["mostly_tracked_score_0.3"] == 1.0
+    ), "Recognition at 0.3 mismatch"
+    assert (
+        global_metrics["mostly_tracked_score_0.5"] == 1.0
+    ), "Recognition at 0.5 mismatch"
+    assert (
+        global_metrics["mostly_tracked_score_0.8"] == 1.0
+    ), "Recognition at 0.8 mismatch"
+    assert (
+        global_metrics["mostly_tracked_count_0.3"] == 1
+    ), "Recognized count at 0.3 mismatch"
+    assert (
+        global_metrics["mostly_tracked_count_0.5"] == 1
+    ), "Recognized count at 0.5 mismatch"
+    assert (
+        global_metrics["mostly_tracked_count_0.8"] == 1
+    ), "Recognized count at 0.8 mismatch"
 
     sequence_metrics = output["per_sequence"]["sequence_a"]["model"]["all"]
     assert sequence_metrics["fp"] == 1.0, "Per-sequence false positives mismatch"
     assert sequence_metrics["fn"] == 0.0, "Per-sequence false negatives mismatch"
     assert sequence_metrics["tp"] == 2.0, "Per-sequence true positives mismatch"
-    assert sequence_metrics["num_gt_ids"] == 1, "Per-sequence ground truth IDs mismatch"
+    assert (
+        sequence_metrics["unique_obj_count"] == 1
+    ), "Per-sequence ground truth IDs mismatch"
     assert math.isclose(
         global_metrics["precision"], 0.6666666666666666, rel_tol=1e-9
     ), "Per-sequence Precision mismatch"
@@ -843,20 +859,20 @@ def test_calculate_from_payload():
         global_metrics["f1"], 0.7999995200002881, rel_tol=1e-9
     ), "Per-sequence F1 score mismatch"
     assert (
-        sequence_metrics["recognition_0.3"] == 1.0
+        sequence_metrics["mostly_tracked_score_0.3"] == 1.0
     ), "Per-sequence recognition at 0.3 mismatch"
     assert (
-        sequence_metrics["recognition_0.5"] == 1.0
+        sequence_metrics["mostly_tracked_score_0.5"] == 1.0
     ), "Per-sequence recognition at 0.5 mismatch"
     assert (
-        sequence_metrics["recognition_0.8"] == 1.0
+        sequence_metrics["mostly_tracked_score_0.8"] == 1.0
     ), "Per-sequence recognition at 0.8 mismatch"
     assert (
-        sequence_metrics["recognized_0.3"] == 1
+        sequence_metrics["mostly_tracked_count_0.3"] == 1
     ), "Per-sequence recognized count at 0.3 mismatch"
     assert (
-        sequence_metrics["recognized_0.5"] == 1
+        sequence_metrics["mostly_tracked_count_0.5"] == 1
     ), "Per-sequence recognized count at 0.5 mismatch"
     assert (
-        sequence_metrics["recognized_0.8"] == 1
+        sequence_metrics["mostly_tracked_count_0.8"] == 1
     ), "Per-sequence recognized count at 0.8 mismatch"

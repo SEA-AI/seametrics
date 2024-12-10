@@ -8,7 +8,7 @@ def recognition(track_ratios, th=0.5):
     return track_ratios[track_ratios >= th].count()
 
 
-def num_gt_ids(df):
+def unique_obj_count(df):
     """Number of unique gt ids."""
     return df.full["OId"].dropna().unique().shape[0]
 
@@ -78,7 +78,7 @@ def calculate(
 
     df = events_to_df_map(acc.events)
     tr_ratios = track_ratios(df, obj_frequencies(df))
-    unique_gt_ids = num_gt_ids(df)
+    unique_gt_ids = unique_obj_count(df)
 
     namemap = {"num_misses": "fn", "num_false_positives": "fp", "num_detections": "tp"}
 
@@ -89,11 +89,11 @@ def calculate(
         else:
             summary[key] = float(summary[key][0])
 
-    summary["num_gt_ids"] = unique_gt_ids
+    summary["unique_obj_count"] = unique_gt_ids
 
     for th in recognition_thresholds:
         recognized = recognition(tr_ratios, th)
-        summary[f"recognized_{th}"] = int(recognized)
+        summary[f"mostly_tracked_count_{th}"] = int(recognized)
 
     return summary
 
@@ -296,8 +296,9 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     )
 
     for th in recognition_thresholds:
-        metrics_dict[f"recognition_{th}"] = (
-            metrics_dict[f"recognized_{th}"] / metrics_dict["num_gt_ids"]
+        metrics_dict[f"mostly_tracked_score_{th}"] = (
+            metrics_dict[f"mostly_tracked_count_{th}"]
+            / metrics_dict["unique_obj_count"]
         )
 
     return metrics_dict
