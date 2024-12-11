@@ -114,7 +114,10 @@ class HorizonMetrics:
         detected_gt_count = len(
             self.ground_truth_det) - self.ground_truth_det.count(None)
 
-        detection_rate = detected_horizon_count / detected_gt_count
+        if detected_gt_count == 0:
+            detection_rate = None
+        else:
+            detection_rate = detected_horizon_count / detected_gt_count
         result['detection_rate'] = detection_rate
 
         return result
