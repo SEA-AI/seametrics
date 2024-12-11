@@ -41,6 +41,9 @@ panoptic = [
   "transformers",
   "scipy"
 ]
+horizon =[
+  "scikit-learn"
+]
 
 [project.urls]
 Homepage = "https://github.com/SEA-AI/metrics"
