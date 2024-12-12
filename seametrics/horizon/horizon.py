@@ -111,10 +111,11 @@ class HorizonMetrics:
             self.vertical_fov_degrees, self.height)
 
         # calculate detection rate
-        detected_horizon_count = len(
-            self.predictions) - self.predictions.count(None)
-        detected_gt_count = len(
-            self.ground_truth_det) - self.ground_truth_det.count(None)
+        detected_horizon_count = len(self.predictions) - self.predictions.count(None)
+        detected_gt_count = len(self.ground_truth_det) - self.ground_truth_det.count(None)
+        
+        print("Detected Horizon Count: ", len(self.predictions), self.predictions.count(None), detected_horizon_count)
+        print("Detected GT Count: ", len(self.ground_truth_det), self.ground_truth_det.count(None), detected_gt_count)
 
         if detected_gt_count == 0:
             detection_rate = None
