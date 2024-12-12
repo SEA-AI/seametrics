@@ -120,8 +120,10 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         # Calculate the differences between errors in successive frames
         diff_slope_error = np.abs(np.diff(filtered_slope_error_list))
         # Calculate the number of jumps in the errors
-        num_slope_error_jumps = np.sum(
-            diff_slope_error > slope_error_jump_threshold)
+        if slope_error_jump_threshold:
+            num_slope_error_jumps = np.sum(diff_slope_error > slope_error_jump_threshold)
+        else:
+            num_slope_error_jumps = None
         
         average_slope_error_deg = slope_to_roll(average_slope_error)
         stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
@@ -150,7 +152,10 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         print("diff_midpoint_error: ", diff_midpoint_error)
         print("midpoint_error_jump_threshold: ", midpoint_error_jump_threshold)
         # Calculate the number of jumps in the errors
-        num_midpoint_error_jumps = np.sum(diff_midpoint_error > midpoint_error_jump_threshold)
+        if midpoint_error_jump_threshold:
+            num_midpoint_error_jumps = np.sum(diff_midpoint_error > midpoint_error_jump_threshold)
+        else:
+            num_midpoint_error_jumps = None
         
         # Tranform metrics
         average_midpoint_error_px = average_midpoint_error * height
