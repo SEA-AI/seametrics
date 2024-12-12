@@ -147,10 +147,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         max_midpoint_error = np.max(filtered_midpoint_error_list)
 
         # Calculate the differences between errors in successive frames
-        print("filtered_midpoint_error_list: ", filtered_midpoint_error_list)
         diff_midpoint_error = np.abs(np.diff(filtered_midpoint_error_list))
-        print("diff_midpoint_error: ", diff_midpoint_error)
-        print("midpoint_error_jump_threshold: ", midpoint_error_jump_threshold)
         # Calculate the number of jumps in the errors
         if midpoint_error_jump_threshold:
             num_midpoint_error_jumps = np.sum(diff_midpoint_error > midpoint_error_jump_threshold)
