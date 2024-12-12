@@ -97,50 +97,69 @@ def calculate_horizon_error_across_sequence(slope_error_list,
 
         If vertical_fov_degrees is None, all 
     """
+    #check if slope_error_list and midpoint_error_list are full of Nones
+    all_slope_errors_none = all(x is None for x in slope_error_list)
+    all_midpoint_errors_none = all(x is None for x in midpoint_error_list)
 
-    average_slope_error = np.mean(slope_error_list)
-    average_midpoint_error = np.mean(midpoint_error_list)
+    filtered_slope_error_list = [x for x in slope_error_list if x is not None]
+    filtered_midpoint_error_list = [x for x in midpoint_error_list if x is not None]
 
-    stddev_slope_error = np.std(slope_error_list)
-    stddev_midpoint_error = np.std(midpoint_error_list)
+    if all_slope_errors_none:
+        average_slope_error = None
+        stddev_slope_error = None
+        max_slope_error = None
+        num_slope_error_jumps = None
+        average_slope_error_deg = None
+        stddev_slope_error_deg = None
+        max_slope_error_deg = None
+    else:
+        average_slope_error = np.mean(filtered_slope_error_list)
+        stddev_slope_error = np.std(filtered_slope_error_list)
+        max_slope_error = np.max(filtered_slope_error_list)
 
-    # Calculate the maximum errors
-    max_slope_error = np.max(slope_error_list)
-    max_midpoint_error = np.max(midpoint_error_list)
+        # Calculate the differences between errors in successive frames
+        diff_slope_error = np.abs(np.diff(filtered_slope_error_list))
+        # Calculate the number of jumps in the errors
+        num_slope_error_jumps = np.sum(
+            diff_slope_error > slope_error_jump_threshold)
+        
+        average_slope_error_deg = slope_to_roll(average_slope_error)
+        stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
+        max_slope_error_deg = slope_to_roll(max_slope_error)
 
-    # Calculate the differences between errors in successive frames
-    diff_slope_error = np.abs(np.diff(slope_error_list))
-    diff_midpoint_error = np.abs(np.diff(midpoint_error_list))
 
-    # Calculate the number of jumps in the errors
-    num_slope_error_jumps = np.sum(
-        diff_slope_error > slope_error_jump_threshold)
-    if midpoint_error_jump_threshold is None:
+    if all_midpoint_errors_none:
+        average_midpoint_error = None
+        stddev_midpoint_error = None
+        max_midpoint_error = None
         num_midpoint_error_jumps = None
     else:
+        average_midpoint_error = np.mean(filtered_midpoint_error_list)
+        stddev_midpoint_error = np.std(filtered_midpoint_error_list)
+        max_midpoint_error = np.max(filtered_midpoint_error_list)
+
+        # Calculate the differences between errors in successive frames
+        diff_midpoint_error = np.abs(np.diff(filtered_midpoint_error_list))
+        # Calculate the number of jumps in the errors
         num_midpoint_error_jumps = np.sum(
             diff_midpoint_error > midpoint_error_jump_threshold)
+        
+        # Tranform metrics
+        average_midpoint_error_px = average_midpoint_error * height
+        stddev_midpoint_error_px = stddev_midpoint_error * height
+        max_midpoint_error_px = max_midpoint_error * height
 
-    # Tranform metrics
-    average_midpoint_error_px = average_midpoint_error * height
-    stddev_midpoint_error_px = stddev_midpoint_error * height
-    max_midpoint_error_px = max_midpoint_error * height
-
-    if vertical_fov_degrees is not None:
-        average_midpoint_error_deg = midpoint_to_pitch(average_midpoint_error,
+        if vertical_fov_degrees is not None:
+            average_midpoint_error_deg = midpoint_to_pitch(average_midpoint_error,
+                                                        vertical_fov_degrees)
+            stddev_midpoint_error_deg = midpoint_to_pitch(stddev_midpoint_error,
+                                                        vertical_fov_degrees)
+            max_midpoint_error_deg = midpoint_to_pitch(max_midpoint_error,
                                                     vertical_fov_degrees)
-        stddev_midpoint_error_deg = midpoint_to_pitch(stddev_midpoint_error,
-                                                    vertical_fov_degrees)
-        max_midpoint_error_deg = midpoint_to_pitch(max_midpoint_error,
-                                                vertical_fov_degrees)
-    else:
-        average_midpoint_error_deg = None
-        stddev_midpoint_error_deg = None
-        max_midpoint_error_deg = None
-
-    average_slope_error_deg = slope_to_roll(average_slope_error)
-    stddev_slope_error_deg = slope_to_roll(stddev_slope_error)
-    max_slope_error_deg = slope_to_roll(max_slope_error)
+        else:
+            average_midpoint_error_deg = None
+            stddev_midpoint_error_deg = None
+            max_midpoint_error_deg = None
 
     # Create a dictionary to store the results
     sequence_results = {
