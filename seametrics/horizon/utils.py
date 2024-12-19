@@ -117,6 +117,12 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         stddev_slope_error = np.std(filtered_slope_error_list)
         max_slope_error = np.max(filtered_slope_error_list)
 
+        slope_hist = np.histogram(
+            filtered_slope_error_list,
+            bins=int(180/10)+1,
+            range=(0, 180)
+        )
+
         # Calculate the differences between errors in successive frames
         diff_slope_error = np.abs(np.diff(filtered_slope_error_list))
         # Calculate the number of jumps in the errors
@@ -145,6 +151,12 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         average_midpoint_error = np.mean(filtered_midpoint_error_list)
         stddev_midpoint_error = np.std(filtered_midpoint_error_list)
         max_midpoint_error = np.max(filtered_midpoint_error_list)
+
+        midpoint_hist = np.histogram(
+            filtered_midpoint_error_list,
+            bins=int(512/20)+1,
+            range=(0, 512)
+        )
 
         # Calculate the differences between errors in successive frames
         diff_midpoint_error = np.abs(np.diff(filtered_midpoint_error_list))
@@ -176,6 +188,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         'average_slope_error': average_slope_error_deg,
         'average_midpoint_error': average_midpoint_error_deg,
         'average_midpoint_error_px': average_midpoint_error_px,
+        'midpoint_hist': midpoint_hist,
+        'slope_hist': slope_hist,
         'stddev_slope_error': stddev_slope_error_deg,
         'stddev_midpoint_error': stddev_midpoint_error_deg,
         'stddev_midpoint_error_px': stddev_midpoint_error_px,
