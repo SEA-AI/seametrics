@@ -1,0 +1,60 @@
+name: Build
+on:
+  push:
+    branches:
+      - develop
+  
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonarcloud:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Check out code
+      - name: 🛎️ Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better relevancy of analysis
+
+      # Step 2: Set up Python
+      - name: 🐍 Setup Python
+        id: setup-python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.9"
+
+      # Step 3: Cache the virtual environment
+      - name: 📦 Cache venv
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: ./.venv
+          key: ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
+
+      # Step 4: Install dependencies in a virtual environment
+      - name: 🦾 Install dependencies
+        shell: bash
+        run: |
+          python -m venv ./.venv
+          source ./.venv/bin/activate
+          python -m pip install --upgrade pip wheel
+          pip install ".[test, fiftyone, panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+
+      # Step 5: Run tests and generate coverage report
+      - name: 🧪 Run tests and generate coverage report
+        shell: bash
+        run: |
+          source .venv/bin/activate
+          pytest --cov=seametrics --cov-report=xml
+
+      # Step 6: SonarCloud scan
+      - name: 🔎 SonarQube Cloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Required for PR analysis
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

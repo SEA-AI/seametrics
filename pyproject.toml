@@ -41,6 +41,9 @@ panoptic = [
   "transformers",
   "scipy"
 ]
+horizon =[
+  "scikit-learn"
+]
 
 [project.urls]
 Homepage = "https://github.com/SEA-AI/metrics"
@@ -77,7 +80,6 @@ max-line-length = 88
 extend-ignore = "E203, W503"
 exclude = [
   "notebooks*",
-  "tests*",
   "docs*",
   "build*",
   "dist*",
@@ -93,7 +95,6 @@ disable = """
 """
 exclude = [
   "notebooks*",
-  "tests*",
   "docs*",
   "build*",
   "dist*",

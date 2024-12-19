@@ -1,3 +1,5 @@
+from typing import Union
+
 from seametrics.horizon.utils import *
 
 
@@ -34,7 +36,7 @@ class HorizonMetrics:
     """
 
     def __init__(self,
-                 vertical_fov_degrees,
+                 vertical_fov_degrees: Union[float, int, None],
                  height,
                  roll_threshold=0.5,
                  pitch_threshold=0.1) -> None:
@@ -57,8 +59,10 @@ class HorizonMetrics:
         self.vertical_fov_degrees = vertical_fov_degrees
         self.height = height
         self.slope_threshold = roll_to_slope(roll_threshold)
+        print("Slope Threshold: ", self.slope_threshold)
         self.midpoint_threshold = pitch_to_midpoint(pitch_threshold,
                                                     self.vertical_fov_degrees)
+        print("Midpoint Threshold: ", self.midpoint_threshold)
 
     def update(self, predictions, ground_truth_det) -> None:
         """
@@ -107,12 +111,13 @@ class HorizonMetrics:
             self.vertical_fov_degrees, self.height)
 
         # calculate detection rate
-        detected_horizon_count = len(
-            self.predictions) - self.predictions.count(None)
-        detected_gt_count = len(
-            self.ground_truth_det) - self.ground_truth_det.count(None)
+        detected_horizon_count = len(self.predictions) - self.predictions.count(None)
+        detected_gt_count = len(self.ground_truth_det) - self.ground_truth_det.count(None)
 
-        detection_rate = detected_horizon_count / detected_gt_count
+        if detected_gt_count == 0:
+            detection_rate = None
+        else:
+            detection_rate = detected_horizon_count / detected_gt_count
         result['detection_rate'] = detection_rate
 
         return result
