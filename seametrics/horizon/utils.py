@@ -119,7 +119,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
 
         slope_hist = np.histogram(
             filtered_slope_error_list,
-            bins=180/10,
+            bins=int(180/10),
             range=(0, 180)
         )
 
