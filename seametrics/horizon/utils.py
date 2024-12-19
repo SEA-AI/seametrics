@@ -154,8 +154,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
 
         midpoint_hist = np.histogram(
             filtered_midpoint_error_list,
-            bins=int(512/20),
-            range=(0, 512)
+            bins=int(640/20),
+            range=(0, 640)
         )
 
         # Calculate the differences between errors in successive frames
