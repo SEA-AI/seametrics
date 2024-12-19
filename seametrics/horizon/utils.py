@@ -120,7 +120,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         print(filtered_slope_error_list)
 
         slope_hist = np.histogram(
-            filtered_slope_error_list,
+            [slope_to_roll(slope_err) for slope_err in filtered_slope_error_list],
             bins=np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
         )
 
@@ -154,7 +154,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         max_midpoint_error = np.max(filtered_midpoint_error_list)
 
         midpoint_hist = np.histogram(
-            filtered_midpoint_error_list,
+            [mp*height for mp in filtered_midpoint_error_list],
             bins=np.concatenate((np.arange(start=0,stop=3,step=0.5), np.arange(start=3,stop=5,step=1), [5, 10, 20, 100, 250, 400, 640]))
         )
 
