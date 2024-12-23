@@ -112,6 +112,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         average_slope_error_deg = None
         stddev_slope_error_deg = None
         max_slope_error_deg = None
+        slope_hist = (None, None)
     else:
         average_slope_error = np.mean(filtered_slope_error_list)
         stddev_slope_error = np.std(filtered_slope_error_list)
@@ -148,6 +149,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         average_midpoint_error_px = None
         stddev_midpoint_error_px = None
         max_midpoint_error_px = None
+        midpoint_hist = (None, None)
     else:
         average_midpoint_error = np.mean(filtered_midpoint_error_list)
         stddev_midpoint_error = np.std(filtered_midpoint_error_list)
