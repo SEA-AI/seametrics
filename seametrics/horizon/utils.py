@@ -112,10 +112,18 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         average_slope_error_deg = None
         stddev_slope_error_deg = None
         max_slope_error_deg = None
+        slope_hist = (None, None)
     else:
         average_slope_error = np.mean(filtered_slope_error_list)
         stddev_slope_error = np.std(filtered_slope_error_list)
         max_slope_error = np.max(filtered_slope_error_list)
+
+        print(filtered_slope_error_list)
+
+        slope_hist = np.histogram(
+            [slope_to_roll(slope_err) for slope_err in filtered_slope_error_list],
+            bins=np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
+        )
 
         # Calculate the differences between errors in successive frames
         diff_slope_error = np.abs(np.diff(filtered_slope_error_list))
@@ -141,10 +149,16 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         average_midpoint_error_px = None
         stddev_midpoint_error_px = None
         max_midpoint_error_px = None
+        midpoint_hist = (None, None)
     else:
         average_midpoint_error = np.mean(filtered_midpoint_error_list)
         stddev_midpoint_error = np.std(filtered_midpoint_error_list)
         max_midpoint_error = np.max(filtered_midpoint_error_list)
+
+        midpoint_hist = np.histogram(
+            [mp*height for mp in filtered_midpoint_error_list],
+            bins=np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
+        )
 
         # Calculate the differences between errors in successive frames
         diff_midpoint_error = np.abs(np.diff(filtered_midpoint_error_list))
@@ -176,6 +190,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         'average_slope_error': average_slope_error_deg,
         'average_midpoint_error': average_midpoint_error_deg,
         'average_midpoint_error_px': average_midpoint_error_px,
+        'midpoint_hist': midpoint_hist,
+        'slope_hist': slope_hist,
         'stddev_slope_error': stddev_slope_error_deg,
         'stddev_midpoint_error': stddev_midpoint_error_deg,
         'stddev_midpoint_error_px': stddev_midpoint_error_px,
