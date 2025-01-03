@@ -569,9 +569,10 @@ class PrecisionRecallF1Support:
 
     def _get_classes(self) -> List:
         """Return a list of unique classes found in ground truth and detection data."""
-        all_labels = np.concatenate(self.detection_labels + self.groundtruth_labels)
-        unique_classes = np.unique(all_labels)
-        return unique_classes.tolist()
+        if len(self.detection_labels) > 0 or len(self.groundtruth_labels) > 0:
+            all_labels = np.concatenate(self.detection_labels + self.groundtruth_labels)
+            return np.unique(all_labels).tolist()
+        return []
 
     def _get_coco_format(
         self,
