@@ -1,22 +1,8 @@
-from typing import Type
-import pytest
 import numpy as np
-from seametrics.detection.np.pr_rec_f1 import PrecisionRecallF1Support as PRF1Np
+from seametrics.detection import PrecisionRecallF1Support
 
-backends = [PRF1Np]
-
-# Try importing the torchmetrics-based backend
-try:
-    from seametrics.detection.tm.pr_rec_f1 import PrecisionRecallF1Support as PRF1Tm
-
-    backends.append(PRF1Tm)
-except ImportError:
-    print("TorchMetrics not installed, skipping corresponding tests.")
-
-
-@pytest.mark.parametrize("MetricClass", backends)
-def test_no_images_with_default_args(MetricClass: Type[PRF1Np]):
-    metric = MetricClass()
+def test_no_images_with_default_args():
+    metric = PrecisionRecallF1Support()
     preds = []
     target = []
     metric.update(preds, target)
@@ -37,9 +23,8 @@ def test_no_images_with_default_args(MetricClass: Type[PRF1Np]):
         assert val["nImgs"] == 0
 
 
-@pytest.mark.parametrize("MetricClass", backends)
-def test_no_preds_and_target_with_default_args(MetricClass: Type[PRF1Np]):
-    metric = MetricClass()
+def test_no_preds_and_target_with_default_args():
+    metric = PrecisionRecallF1Support()
     preds = [
         dict(
             boxes=np.array([]),
@@ -71,9 +56,8 @@ def test_no_preds_and_target_with_default_args(MetricClass: Type[PRF1Np]):
         assert val["nImgs"] == 1
 
 
-@pytest.mark.parametrize("MetricClass", backends)
-def test_empty_gt_false_pred_with_default_args(MetricClass: Type[PRF1Np]):
-    metric = MetricClass()
+def test_empty_gt_false_pred_with_default_args():
+    metric = PrecisionRecallF1Support()
     preds = [
         dict(
             boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
@@ -105,9 +89,8 @@ def test_empty_gt_false_pred_with_default_args(MetricClass: Type[PRF1Np]):
         assert val["nImgs"] == 1
 
 
-@pytest.mark.parametrize("MetricClass", backends)
-def test_empty_pred_missed_gt_with_default_args(MetricClass: Type[PRF1Np]):
-    metric = MetricClass()
+def test_empty_pred_missed_gt_with_default_args():
+    metric = PrecisionRecallF1Support()
     preds = [
         dict(
             boxes=np.array([]),
