@@ -112,8 +112,6 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         stddev_slope_error = np.std(filtered_slope_error_list)
         max_slope_error = np.max(filtered_slope_error_list)
 
-        print(filtered_slope_error_list)
-
         slope_hist = np.histogram(
             [slope_to_roll(slope_err) for slope_err in filtered_slope_error_list],
             bins=np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
