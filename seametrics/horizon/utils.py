@@ -152,11 +152,6 @@ def calculate_horizon_error_across_sequence(slope_error_list,
             bins=np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
         )
 
-        midpoint_hist = np.histogram(
-            [mp*height for mp in filtered_midpoint_error_list],
-            bins=np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
-        )
-
         # Calculate the differences between errors in successive frames
         diff_midpoint_error = np.abs(np.diff(filtered_midpoint_error_list))
         # Calculate the number of jumps in the errors
