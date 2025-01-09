@@ -1,1 +1,0 @@
-from seametrics.horizon.utils import horizon_for_sequence
