@@ -88,10 +88,10 @@ def fo_upload(
     """
     Upload detection metrics to a FiftyOne dataset. A new field is created
     for each model in the dataset. The field name is "{field_prefix}_{model_name}",
-    and queryable ex: "{field_prefix}_{model_name}.{metric_name}.{area_range}{'f1'}".
+    and queryable ex: "{field_prefix}_{model_name}.{metric_name}.{area_range}.{'f1/precision/recall...'}".
     Note: this function is compatible with the Polymetrics tool.
 
-    The metrics should be of the following form:
+    The metrics field should be a dictionary of the following form:
     {
         "model_name": {
             "overall": {
