@@ -82,13 +82,12 @@ def fo_upload(
     dataset_name: str,
     metrics: Dict[str, Dict],
     metric_name: str,
-    description: Dict[str, Any],
-    field_prefix: str = "metrics",
+    description: Dict[str, Any] = None,
 ) -> None:
     """
     Upload detection metrics to a FiftyOne dataset. A new field is created
-    for each model in the dataset. The field name is "{field_prefix}_{model_name}",
-    and queryable ex: "{field_prefix}_{model_name}.{metric_name}.{area_range}.{'f1/precision/recall...'}".
+    for each model in the dataset. The field name is "polymetrics",
+    and queryable ex: "{polymetrics}.{model_name}.{metric_name}.{area_range}.{'f1/precision/recall...'}".
     Note: this function is compatible with the Polymetrics tool.
 
     The metrics field should be a dictionary of the following form:
@@ -116,10 +115,8 @@ def fo_upload(
             A dictionary containing metrics for multiple models and their sequences.
         metric_name (str):
             The base name for the metrics field.
-        description (dict):
-            A dictionary containing the run configuration of the metric.
-        field_prefix (str, optional):
-            The field_prefix for the metrics field. Defaults to "metrics".
+        description (dict, optional):
+            A dictionary of the metrics run configuration. This parameter is optional and defaults to `None` if not provided.
 
     Returns:
         None
@@ -141,7 +138,7 @@ def fo_upload(
             )
             continue
 
-        dataset.add_sample_field(f"{field_prefix}_{model_name}", fo.DictField)
+        dataset.add_sample_field("polymetrics", fo.DictField)
 
         for sequence_name, sequence_metrics in per_sequence.items():
             sequence_view = dataset.match(fo.ViewField("sequence") == sequence_name)
@@ -151,9 +148,10 @@ def fo_upload(
 
             # Add metric to each sample
             for sample in sequence_view:
-                sample[f"{field_prefix}_{model_name}"] = {}
-                sample[f"{field_prefix}_{model_name}"][metric_name] = sequence_metrics
-                sample[f"{field_prefix}_{model_name}"][metric_name][
+                sample["polymetrics"] = {}
+                sample["polymetrics"][model_name] = {}
+                sample["polymetrics"][model_name][metric_name] = sequence_metrics
+                sample["polymetrics"][model_name][metric_name][
                     "description"
                 ] = description
                 sample.save()
