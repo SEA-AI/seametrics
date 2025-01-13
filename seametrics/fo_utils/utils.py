@@ -1,6 +1,9 @@
 import logging
+from typing import Any, Dict, List, Literal
+
+import fiftyone as fo
 from deprecated import deprecated
-from typing import List, Dict, Literal
+
 from seametrics.payload.processor import PayloadProcessor
 
 
@@ -73,3 +76,81 @@ def fo_to_payload(
         data_type=data_type,
         excluded_classes=excluded_classes,
     ).payload
+
+
+def fo_upload(
+    dataset_name: str,
+    metrics: Dict[str, Dict],
+    metric_name: str,
+    description: Dict[str, Any] = None,
+) -> None:
+    """
+    Upload detection metrics to a FiftyOne dataset. A new field is created
+    for each model in the dataset. The field name is "polymetrics",
+    and queryable ex: "{polymetrics}.{model_name}.{metric_name}.{area_range}.{'f1/precision/recall...'}".
+    Note: this function is compatible with the Polymetrics tool.
+
+    The metrics field should be a dictionary of the following form:
+    {
+        "model_name": {
+            "overall": {
+            "all": {"tp": ..., "fp": ..., "fn": ..., "f1": ...},
+            ...  # more area ranges
+            },
+            "per_sequence": {
+            "sequence_name": {
+                "all": {...},
+                ...  # more area ranges
+            },
+            ...  # more sequences
+            }
+        },
+        ...  # more models
+    }
+
+    Args:
+        dataset_name (str):
+            The FiftyOne dataset view to update.
+        metrics (dict):
+            A dictionary containing metrics for multiple models and their sequences.
+        metric_name (str):
+            The base name for the metrics field.
+        description (dict, optional):
+            A dictionary of the metrics run configuration. This parameter is optional and defaults to `None` if not provided.
+
+    Returns:
+        None
+    """
+    # Load the dataset
+    dataset = fo.load_dataset(dataset_name)
+
+    if not metrics:
+        logging.warning("metrics is empty. Skipping.")
+        return
+
+    for model_name, model_data in metrics.items():
+
+        per_sequence = model_data.get("per_sequence", {})
+
+        if not per_sequence:
+            logging.warning(
+                f"No per_sequence data found for model {model_name}. Skipping."
+            )
+            continue
+
+        for sequence_name, sequence_metrics in per_sequence.items():
+            sequence_view = dataset.match(fo.ViewField("sequence") == sequence_name)
+
+            if len(sequence_view) == 0:
+                logging.warning(f"Sequence {sequence_name} not found.")
+                continue
+
+            # Add metric to each sample
+            for sample in sequence_view:
+                sample["polymetrics"] = {}
+                sample["polymetrics"][model_name] = {}
+                sample["polymetrics"][model_name][metric_name] = sequence_metrics
+                sample["polymetrics"][model_name][metric_name][
+                    "description"
+                ] = description
+                sample.save()
