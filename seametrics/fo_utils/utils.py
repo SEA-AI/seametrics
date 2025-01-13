@@ -138,13 +138,12 @@ def fo_upload(
             )
             continue
 
-        dataset.add_sample_field("polymetrics", fo.DictField)
-
         for sequence_name, sequence_metrics in per_sequence.items():
             sequence_view = dataset.match(fo.ViewField("sequence") == sequence_name)
 
             if len(sequence_view) == 0:
-                logging.warning(f"Sequence {sequence_name} not found. Skipping.")
+                logging.warning(f"Sequence {sequence_name} not found.")
+                continue
 
             # Add metric to each sample
             for sample in sequence_view:
