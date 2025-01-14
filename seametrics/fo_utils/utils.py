@@ -123,13 +123,14 @@ def fo_upload(
     """
     # Load the dataset
     dataset = fo.load_dataset(dataset_name)
+    # sanity-check to avoid overriding field
+    dataset.add_sample_field("polymetrics", fo.DictField)
 
     if not metrics:
         logging.warning("metrics is empty. Skipping.")
         return
 
     for model_name, model_data in metrics.items():
-
         per_sequence = model_data.get("per_sequence", {})
 
         if not per_sequence:
@@ -147,10 +148,15 @@ def fo_upload(
 
             # Add metric to each sample
             for sample in sequence_view:
-                sample["polymetrics"] = {}
-                sample["polymetrics"][model_name] = {}
-                sample["polymetrics"][model_name][metric_name] = sequence_metrics
-                sample["polymetrics"][model_name][metric_name][
-                    "description"
-                ] = description
+                if model_name not in sample["polymetrics"]:
+                    sample["polymetrics"][model_name] = {}
+
+                if metric_name not in sample["polymetrics"][model_name]:
+                    sample["polymetrics"][model_name][metric_name] = {}
+
+                # Update or add metric details
+                sample["polymetrics"][model_name][metric_name].update(sequence_metrics)
+                sample["polymetrics"][model_name][metric_name]["description"] = (
+                    description
+                )
                 sample.save()
