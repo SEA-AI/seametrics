@@ -73,7 +73,7 @@ def calculate(
 
     mh = mm.metrics.create()
     summary = mh.compute(
-        acc, metrics=["num_misses", "num_false_positives", "num_detections"]
+        acc, metrics=["num_misses", "num_detections"]
     ).to_dict()
 
     df = events_to_df_map(acc.events)
@@ -98,26 +98,79 @@ def calculate(
     return summary
 
 
-def build_metrics_template(models, filters):
+def build_metrics_template(filter):
+    """builds the metrics template"""
     metrics_dict = {}
-    for model in models:
-        metrics_dict[model] = {}
-        metrics_dict[model]["all"] = {}
-        for filter, filter_ranges in filters.items():
-            metrics_dict[model][filter] = {}
-            for filter_range in filter_ranges:
-                filter_range_name = filter_range[0]
-                metrics_dict[model][filter][filter_range_name] = {}
+    for filter_range in filter:
+        filter_range_name = filter_range[0]
+        metrics_dict[filter_range_name] = {}
     return metrics_dict
 
+def get_formated_references(frames, filter):
+    """formats the references for the calculate_from_payload function, based on the filter and its ranges"""
+    
+    filter_name = filter["name"]
+    filter_ranges = filter["ranges"]
+    formated_references = {}
 
-def calculate_from_payload(
-    payload: dict,
-    max_iou: float = 0.5,
-    filters={},
-    recognition_thresholds=[0.3, 0.5, 0.8],
-    debug: bool = False,
-):
+    for filter_range in filter_ranges:
+        filter_range_name = filter_range[0]
+        formated_references[filter_range_name] = []
+
+    for frame_id, frame in enumerate(frames):
+        for detection in frame:
+            index = detection["index"]
+            x, y, w, h = detection["bounding_box"]
+            filter_value = detection[filter_name]
+
+            for filter_range in filter_ranges:
+                filter_range_name, filter_range_limits = (
+                    filter_range[0],
+                    filter_range[1],
+                )
+                if (
+                    filter_value >= filter_range_limits[0]
+                    and filter_value <= filter_range_limits[1]
+                ):
+                    formated_references[filter_range_name].append(
+                        [frame_id + 1, index, x, y, w, h]
+                    )
+
+    return formated_references
+
+def get_formated_predictions(frames):
+    """formats the predictions for the calculate_from_payload function"""
+    formated_predictions = []
+    for frame_id, frame in enumerate(frames):
+        for detection in frame:
+            index = detection["index"]
+            x, y, w, h = detection["bounding_box"]
+            confidence = 1
+            formated_predictions.append(
+                [frame_id + 1, index, x, y, w, h, confidence]
+            )
+
+    return formated_predictions
+
+def calculate_from_payload(payload: dict,
+                        max_iou: float = 0.5, 
+                        filter={"name": "area", 
+                                "ranges": [("all", [0, 1e5**2])]},
+                        recognition_thresholds=[0.3, 0.5, 0.8], 
+                        debug: bool = False):
+    """
+    Filter in the form of:
+    {
+    "name": "area"
+    "ranges": [("all", [0, 1e5**2]), ("small", [0**2, 6**2]), ("medium", [6**2, 12**2]), ("large", [12**2, 1e5**2])]
+    }
+
+    Receives a payload and returns the metrics
+    """
+    
+    filter_name = filter["name"]
+    filter_ranges = filter["ranges"]
+    output = {}
 
     if not isinstance(payload, dict):
         try:
@@ -134,119 +187,61 @@ def calculate_from_payload(
         print("gt_field_name: ", gt_field_name)
         print("models: ", models)
         print("sequence_list: ", sequence_list)
+    
+    for model in models:
 
-    metrics_per_sequence = {}
-    metrics_global = build_metrics_template(models, filters)
+        metrics_overall = build_metrics_template(filter["ranges"])
+        metrics_per_sequence = {}
+        for sequence in sequence_list:
 
-    for sequence in sequence_list:
-        metrics_per_sequence[sequence] = {}
-        frames = payload["sequences"][sequence][gt_field_name]
+            metrics_per_sequence[sequence] = build_metrics_template(filter["ranges"])
 
-        all_formated_references = {"all": []}
-        for filter, filter_ranges in filters.items():
-            all_formated_references[filter] = {}
-            for filter_range in filter_ranges:
-                filter_range_name = filter_range[0]
-                all_formated_references[filter][filter_range_name] = []
+            frames = payload["sequences"][sequence][gt_field_name]
+            formated_references = get_formated_references(frames, filter)
 
-        for frame_id, frame in enumerate(frames):
-            for detection in frame:
-                index = detection["index"]
-                x, y, w, h = detection["bounding_box"]
-                all_formated_references["all"].append([frame_id + 1, index, x, y, w, h])
-
-                for filter, filter_ranges in filters.items():
-                    filter_value = detection[filter]
-                    for filter_range in filter_ranges:
-                        filter_range_name, filter_range_limits = (
-                            filter_range[0],
-                            filter_range[1],
-                        )
-                        if (
-                            filter_value >= filter_range_limits[0]
-                            and filter_value <= filter_range_limits[1]
-                        ):
-                            all_formated_references[filter][filter_range_name].append(
-                                [frame_id + 1, index, x, y, w, h]
-                            )
-
-        metrics_per_sequence[sequence] = build_metrics_template(models, filters)
-
-        for model in models:
             frames = payload["sequences"][sequence][model]
-            formated_predictions = []
-
-            for frame_id, frame in enumerate(frames):
-                for detection in frame:
-                    index = detection["index"]
-                    x, y, w, h = detection["bounding_box"]
-                    confidence = 1
-                    formated_predictions.append(
-                        [frame_id + 1, index, x, y, w, h, confidence]
-                    )
-
-            if debug:
-                print("sequence/model: ", sequence, model)
-                print("formated_predictions: ", formated_predictions)
-                print("formated_references: ", all_formated_references)
+            formated_predictions = get_formated_predictions(frames)
 
             if len(formated_predictions) == 0:
-                metrics_per_sequence[sequence][model] = "Model had no predictions."
-            elif len(all_formated_references["all"]) == 0:
-                metrics_per_sequence[sequence][model] = "No ground truth."
-
+                metrics_per_sequence[sequence] = "Model had no predictions."
             else:
 
-                sequence_metrics = calculate(
-                    formated_predictions,
-                    all_formated_references["all"],
-                    max_iou=max_iou,
-                    recognition_thresholds=recognition_thresholds,
-                )
-                sequence_metrics = realize_metrics(
-                    sequence_metrics, recognition_thresholds
-                )
-                metrics_per_sequence[sequence][model]["all"] = sequence_metrics
+                for filter_range in filter_ranges:
+                    
+                    filter_range_name = filter_range[0]
+                    if len(formated_references[filter_range_name]) == 0:
+                        metrics_per_sequence[sequence][filter_range_name] = "No ground truth."
+                        continue
 
-                metrics_global[model]["all"] = sum_dicts(
-                    metrics_global[model]["all"], sequence_metrics
-                )
-                metrics_global[model]["all"] = realize_metrics(
-                    metrics_global[model]["all"], recognition_thresholds
-                )
+                    sequence_metrics = calculate(
+                        formated_predictions,
+                        formated_references[filter_range_name],
+                        max_iou=max_iou,
+                        recognition_thresholds=recognition_thresholds,
+                    )
 
-                for filter, filter_ranges in filters.items():
+                    metrics_per_sequence[sequence][filter_range_name] = realize_metrics(
+                        sequence_metrics,
+                        recognition_thresholds,
+                    )
 
-                    for filter_range in filter_ranges:
+                    metrics_overall[filter_range_name] = sum_dicts(
+                        metrics_overall[filter_range_name],
+                        metrics_per_sequence[sequence][filter_range_name],
+                    )
 
-                        filter_range_name = filter_range[0]
-                        sequence_metrics = calculate(
-                            formated_predictions,
-                            all_formated_references[filter][filter_range_name],
-                            max_iou=max_iou,
-                            recognition_thresholds=recognition_thresholds,
-                        )
-                        sequence_metrics = realize_metrics(
-                            sequence_metrics, recognition_thresholds
-                        )
-                        metrics_per_sequence[sequence][model][filter][
-                            filter_range_name
-                        ] = sequence_metrics
-
-                        metrics_global[model][filter][filter_range_name] = sum_dicts(
-                            metrics_global[model][filter][filter_range_name],
-                            sequence_metrics,
-                        )
-                        metrics_global[model][filter][filter_range_name] = (
-                            realize_metrics(
-                                metrics_global[model][filter][filter_range_name],
-                                recognition_thresholds,
-                            )
-                        )
-
-    output = {"global": metrics_global, "per_sequence": metrics_per_sequence}
+                    metrics_overall[filter_range_name] = realize_metrics(
+                        metrics_overall[filter_range_name],
+                        recognition_thresholds,
+                    )
+                
+        output[model] = {
+            "per_sequence": metrics_per_sequence,
+            "overall": metrics_overall,
+        }
 
     return output
+            
 
 
 def sum_dicts(dict1, dict2):
@@ -274,26 +269,12 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     calculates metrics based on raw metrics
     """
 
-    if metrics_dict["tp"] + metrics_dict["fp"] > 0:
-        metrics_dict["precision"] = metrics_dict["tp"] / (
-            metrics_dict["tp"] + metrics_dict["fp"]
-        )
-    else:
-        metrics_dict["precision"] = np.nan
-
     if metrics_dict["tp"] + metrics_dict["fn"] > 0:
         metrics_dict["recall"] = metrics_dict["tp"] / (
             metrics_dict["tp"] + metrics_dict["fn"]
         )
     else:
         metrics_dict["recall"] = np.nan
-
-    metrics_dict["f1"] = (
-        2
-        * metrics_dict["precision"]
-        * metrics_dict["recall"]
-        / (metrics_dict["precision"] + metrics_dict["recall"] + 1e-6)
-    )
 
     for th in recognition_thresholds:
         metrics_dict[f"mostly_tracked_score_{th}"] = (
