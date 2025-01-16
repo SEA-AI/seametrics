@@ -16,6 +16,7 @@ from seametrics.user_friendly.utils import (
     unique_obj_count,
 )
 
+from pprint import pprint
 
 def test_recognition():
     """
@@ -656,17 +657,17 @@ def test_calculate_from_payload():
         Returns:
             Payload: A test Payload object.
         """
-        gt_config = [1, 1]
+        gt_config = [2, 2]
         model_config = [2, 1]
 
-        mock_detections = [
+        mock_detections_a = [
             {
                 "id": "674f2c83d608ab75c380194c",
                 "attributes": {},
                 "tags": [],
                 "label": "MOTORBOAT",
                 "bounding_box": [0.0, 0.0, 0.015625, 0.009765625],
-                "area": 0.015625*640*0.009765625*512,
+                "area": 50,
                 "mask": None,
                 "confidence": None,
                 "index": 1,
@@ -677,7 +678,32 @@ def test_calculate_from_payload():
                 "tags": [],
                 "label": "SPHERICAL_BUOY",
                 "bounding_box": [0.603125, 0.591796875, 0.0109375, 0.009765625],
-                "area": 0.015625*640*0.009765625*512,
+                "area": 30,
+                "mask": None,
+                "confidence": None,
+                "index": 2,
+            },
+        ]
+
+        mock_detections_b = [
+            {
+                "id": "674f2c83d608ab75c380194c",
+                "attributes": {},
+                "tags": [],
+                "label": "MOTORBOAT",
+                "bounding_box": [0.0, 0.0, 0.015625, 0.009765625],
+                "area": 50,
+                "mask": None,
+                "confidence": None,
+                "index": 1,
+            },
+            {
+                "id": "6682d49a4cb7459c1be09c52",
+                "attributes": {},
+                "tags": [],
+                "label": "SPHERICAL_BUOY",
+                "bounding_box": [0.603125, 0.591796875, 0.001765625, 0.009765625],
+                "area": 30,
                 "mask": None,
                 "confidence": None,
                 "index": 2,
@@ -692,14 +718,25 @@ def test_calculate_from_payload():
                 "sequence_a": Sequence(
                     resolution=Resolution(height=512, width=640),
                     ground_truth_det=[
-                        [mock_detections[i] for i in range(detections)]
-                        for detections in gt_config
+                        [mock_detections_a[i] for i in range(n_detections)]
+                        for n_detections in gt_config
                     ],
                     model=[
-                        [mock_detections[i] for i in range(detections)]
-                        for detections in model_config
+                        [mock_detections_a[i] for i in range(n_detections)]
+                        for n_detections in model_config
                     ],
-                )
+                ),
+                "sequence_b": Sequence(
+                    resolution=Resolution(height=512, width=640),
+                    ground_truth_det=[
+                        [mock_detections_b[i] for i in range(n_detections)]
+                        for n_detections in gt_config
+                    ],
+                    model=[
+                        [mock_detections_b[i] for i in range(n_detections)]
+                        for n_detections in model_config
+                    ],
+                ),        
             },
         )
 
@@ -713,21 +750,19 @@ def test_calculate_from_payload():
     output = calculate_from_payload(
         payload=payload,
         filter={"name": "area", 
-        "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]},
+                "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]},
         max_iou=max_iou,
         recognition_thresholds=recognition_thresholds,
         debug=debug,
     )
-
-    print(output["model"]["overall"]["small"])
-    print(output["model"]["overall"]["all"])
+    
     global_metrics = output["model"]["overall"]["all"]
-    assert global_metrics["fn"] == 0.0, "False negatives mismatch"
-    assert global_metrics["tp"] == 2.0, "True positives mismatch"
+    assert global_metrics["fn"] == 2.0, "False negatives mismatch"
+    assert global_metrics["tp"] == 6.0, "True positives mismatch"
     assert (
-        global_metrics["unique_obj_count"] == 1
+        global_metrics["unique_obj_count"] == 4
     ), "Number of ground truth IDs mismatch"
-    assert global_metrics["recall"] == 1.0, "Recall mismatch"
+    assert math.isclose(global_metrics["recall"], 0.75, rel_tol=0.00001), "Recall mismatch"
     assert (
         global_metrics["mostly_tracked_score_0.3"] == 1.0
     ), "Recognition at 0.3 mismatch"
@@ -735,25 +770,25 @@ def test_calculate_from_payload():
         global_metrics["mostly_tracked_score_0.5"] == 1.0
     ), "Recognition at 0.5 mismatch"
     assert (
-        global_metrics["mostly_tracked_score_0.8"] == 1.0
+        global_metrics["mostly_tracked_score_0.8"] == 0.5
     ), "Recognition at 0.8 mismatch"
     assert (
-        global_metrics["mostly_tracked_count_0.3"] == 1
+        global_metrics["mostly_tracked_count_0.3"] == 4
     ), "Recognized count at 0.3 mismatch"
     assert (
-        global_metrics["mostly_tracked_count_0.5"] == 1
+        global_metrics["mostly_tracked_count_0.5"] == 4
     ), "Recognized count at 0.5 mismatch"
     assert (
-        global_metrics["mostly_tracked_count_0.8"] == 1
+        global_metrics["mostly_tracked_count_0.8"] == 2
     ), "Recognized count at 0.8 mismatch"
 
     sequence_metrics = output["model"]["per_sequence"]["sequence_a"]["all"]
-    assert sequence_metrics["fn"] == 0.0, "Per-sequence false negatives mismatch"
-    assert sequence_metrics["tp"] == 2.0, "Per-sequence true positives mismatch"
+    assert sequence_metrics["fn"] == 1.0, "Per-sequence false negatives mismatch"
+    assert sequence_metrics["tp"] == 3.0, "Per-sequence true positives mismatch"
     assert (
-        sequence_metrics["unique_obj_count"] == 1
+        sequence_metrics["unique_obj_count"] == 2
     ), "Per-sequence ground truth IDs mismatch"
-    assert sequence_metrics["recall"] == 1.0, "Per-sequence recall mismatch"
+    assert math.isclose(sequence_metrics["recall"], 0.75, rel_tol=0.00001), "Per-sequence recall mismatch"
     assert (
         sequence_metrics["mostly_tracked_score_0.3"] == 1.0
     ), "Per-sequence recognition at 0.3 mismatch"
@@ -761,13 +796,13 @@ def test_calculate_from_payload():
         sequence_metrics["mostly_tracked_score_0.5"] == 1.0
     ), "Per-sequence recognition at 0.5 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_score_0.8"] == 1.0
+        sequence_metrics["mostly_tracked_score_0.8"] == 0.5
     ), "Per-sequence recognition at 0.8 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_count_0.3"] == 1
+        sequence_metrics["mostly_tracked_count_0.3"] == 2
     ), "Per-sequence recognized count at 0.3 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_count_0.5"] == 1
+        sequence_metrics["mostly_tracked_count_0.5"] == 2
     ), "Per-sequence recognized count at 0.5 mismatch"
     assert (
         sequence_metrics["mostly_tracked_count_0.8"] == 1
