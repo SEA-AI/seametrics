@@ -205,7 +205,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         'num_midpoint_error_jumps': num_midpoint_error_jumps,
         'tp_over_thresholds': tp_over_thresholds,
         'predicted_samples': predicted_samples,
-        'samples': len(all_slope_errors_none)
+        'samples': len(slope_error_list)
     }
 
     return sequence_results
