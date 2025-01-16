@@ -98,6 +98,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     filtered_slope_error_list = [x for x in slope_error_list if x is not None]
     filtered_midpoint_error_list = [x for x in midpoint_error_list if x is not None]
 
+    predicted_samples = min(len(filtered_midpoint_error_list), len(filtered_slope_error_list))
+
     if all_slope_errors_none:
         average_slope_error = None
         stddev_slope_error = None
@@ -112,10 +114,10 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         stddev_slope_error = np.std(filtered_slope_error_list)
         max_slope_error = np.max(filtered_slope_error_list)
 
-        slope_hist = np.histogram(
-            [slope_to_roll(slope_err) for slope_err in filtered_slope_error_list],
-            bins=np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
-        )
+        roll = [slope_to_roll(slope_err) for slope_err in filtered_slope_error_list]
+        roll_bins = np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
+
+        slope_hist = np.histogram(roll, bins=roll_bins)
 
         # Calculate the differences between errors in successive frames
         diff_slope_error = np.abs(np.diff(filtered_slope_error_list))
@@ -147,10 +149,9 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         stddev_midpoint_error = np.std(filtered_midpoint_error_list)
         max_midpoint_error = np.max(filtered_midpoint_error_list)
 
-        midpoint_hist = np.histogram(
-            [mp*height for mp in filtered_midpoint_error_list],
-            bins=np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
-        )
+        mp_bins = np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
+        mp_abs = [mp*height for mp in filtered_midpoint_error_list]
+        midpoint_hist = np.histogram(mp_abs, bins=mp_bins)
 
         # Calculate the differences between errors in successive frames
         diff_midpoint_error = np.abs(np.diff(filtered_midpoint_error_list))
@@ -176,6 +177,16 @@ def calculate_horizon_error_across_sequence(slope_error_list,
             average_midpoint_error_deg = None
             stddev_midpoint_error_deg = None
             max_midpoint_error_deg = None
+    
+    if not (all_midpoint_errors_none or all_slope_errors_none):
+        tp_over_thresholds = np.array(
+            [
+                [
+                    ((mp_abs <= mpth) & (roll <= rth)).sum() for mpth in mp_bins
+                ] for rth in roll_bins
+            ])
+    else:
+        tp_over_thresholds = np.zeros((len(roll_bins), len(mp_bins)))
 
     # Create a dictionary to store the results
     sequence_results = {
@@ -191,7 +202,10 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         'max_midpoint_error': max_midpoint_error_deg,
         'max_midpoint_error_px': max_midpoint_error_px,
         'num_slope_error_jumps': num_slope_error_jumps,
-        'num_midpoint_error_jumps': num_midpoint_error_jumps
+        'num_midpoint_error_jumps': num_midpoint_error_jumps,
+        'tp_over_thresholds': tp_over_thresholds,
+        'predicted_samples': predicted_samples,
+        'samples': len(all_slope_errors_none)
     }
 
     return sequence_results
