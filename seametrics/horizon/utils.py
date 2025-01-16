@@ -99,6 +99,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
     filtered_midpoint_error_list = [x for x in midpoint_error_list if x is not None]
 
     predicted_samples = min(len(filtered_midpoint_error_list), len(filtered_slope_error_list))
+    mp_bins = np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
+    roll_bins = np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
 
     if all_slope_errors_none:
         average_slope_error = None
@@ -115,7 +117,6 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         max_slope_error = np.max(filtered_slope_error_list)
 
         roll = [slope_to_roll(slope_err) for slope_err in filtered_slope_error_list]
-        roll_bins = np.concatenate((np.arange(start=0,stop=3,step=0.1), np.arange(start=3,stop=5,step=0.2), [5, 10, 20, 100, 180]))
 
         slope_hist = np.histogram(roll, bins=roll_bins)
 
@@ -149,7 +150,6 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         stddev_midpoint_error = np.std(filtered_midpoint_error_list)
         max_midpoint_error = np.max(filtered_midpoint_error_list)
 
-        mp_bins = np.concatenate((np.arange(start=0,stop=10,step=1), [10, 15, 20, 50, 100, 250, 400, 640]))
         mp_abs = [mp*height for mp in filtered_midpoint_error_list]
         midpoint_hist = np.histogram(mp_abs, bins=mp_bins)
 
