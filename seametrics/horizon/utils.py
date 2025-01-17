@@ -182,8 +182,8 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         tp_over_thresholds = np.array(
             [
                 [
-                    ((mp_abs <= mpth) & (roll <= rth)).sum() for mpth in mp_bins
-                ] for rth in roll_bins
+                    ((mp_abs <= mpth) & (roll <= rth)).sum() for mpth in mp_bins[1:]
+                ] for rth in roll_bins[1:]
             ])
     else:
         tp_over_thresholds = np.zeros((len(roll_bins), len(mp_bins)))
