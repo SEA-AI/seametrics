@@ -118,6 +118,9 @@ class HorizonMetrics:
             detection_rate = None
         else:
             detection_rate = detected_horizon_count / detected_gt_count
+
         result['detection_rate'] = detection_rate
+        result['predicted_samples'] = detected_horizon_count,
+        result['samples'] = detected_gt_count
 
         return result
