@@ -203,7 +203,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
         'max_midpoint_error_px': max_midpoint_error_px,
         'num_slope_error_jumps': num_slope_error_jumps,
         'num_midpoint_error_jumps': num_midpoint_error_jumps,
-        'tp_over_thresholds': tp_over_thresholds
+        'tp_over_thresholds': tp_over_thresholds.astype(np.int64)
     }
 
     return sequence_results
