@@ -186,7 +186,7 @@ def calculate_horizon_error_across_sequence(slope_error_list,
                 ] for rth in roll_bins[1:]
             ])
     else:
-        tp_over_thresholds = np.zeros((len(roll_bins), len(mp_bins)))
+        tp_over_thresholds = np.zeros((len(roll_bins)-1, len(mp_bins)-1))
 
     # Create a dictionary to store the results
     sequence_results = {
