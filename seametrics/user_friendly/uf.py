@@ -1,6 +1,5 @@
 from seametrics.user_friendly.utils import calculate_from_payload
 
-
 class UserFriendlyMetrics:
     """
     Class for computing UserFriendly metrics.
