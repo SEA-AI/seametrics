@@ -78,6 +78,24 @@ def fo_to_payload(
     ).payload
 
 
+def _update_sample_metrics(
+    sample, model_name: str, metric_name: str, sequence_metrics: Dict, description: Dict
+) -> None:
+    """Helper function to update metrics for a single sample."""
+    if sample["polymetrics"] is None:
+        sample["polymetrics"] = {}
+
+    if model_name not in sample["polymetrics"]:
+        sample["polymetrics"][model_name] = {}
+
+    if metric_name not in sample["polymetrics"][model_name]:
+        sample["polymetrics"][model_name][metric_name] = {}
+
+    sample["polymetrics"][model_name][metric_name].update(sequence_metrics)
+    sample["polymetrics"][model_name][metric_name]["description"] = description
+    sample.save()
+
+
 def fo_upload(
     dataset_name: str,
     metrics: Dict[str, Dict],
@@ -121,9 +139,7 @@ def fo_upload(
     Returns:
         None
     """
-    # Load the dataset
     dataset = fo.load_dataset(dataset_name)
-    # sanity-check to avoid overriding field
     dataset.add_sample_field("polymetrics", fo.DictField)
 
     if not metrics:
@@ -132,7 +148,6 @@ def fo_upload(
 
     for model_name, model_data in metrics.items():
         per_sequence = model_data.get("per_sequence", {})
-
         if not per_sequence:
             logging.warning(
                 f"No per_sequence data found for model {model_name}. Skipping."
@@ -141,22 +156,11 @@ def fo_upload(
 
         for sequence_name, sequence_metrics in per_sequence.items():
             sequence_view = dataset.match(fo.ViewField("sequence") == sequence_name)
-
             if len(sequence_view) == 0:
                 logging.warning(f"Sequence {sequence_name} not found.")
-                continue
+                return
 
-            # Add metric to each sample
             for sample in sequence_view:
-                if model_name not in sample["polymetrics"]:
-                    sample["polymetrics"][model_name] = {}
-
-                if metric_name not in sample["polymetrics"][model_name]:
-                    sample["polymetrics"][model_name][metric_name] = {}
-
-                # Update or add metric details
-                sample["polymetrics"][model_name][metric_name].update(sequence_metrics)
-                sample["polymetrics"][model_name][metric_name]["description"] = (
-                    description
+                _update_sample_metrics(
+                    sample, model_name, metric_name, sequence_metrics, description
                 )
-                sample.save()
