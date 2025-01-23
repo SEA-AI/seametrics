@@ -131,7 +131,7 @@ The metric includes the following performance metrics for horizon prediction:
 - **samples**: Counts the total number of samples which were used in the metrics calculation.
 
 ## Additional Info
-Normalizing the `tp_over_thresholds** by the total number of frames, or the total number of frames for which a horizon was predicted, gives the percentage of true positives. It can be visualized with the following code (for more info, see [ml-ops repo](https://github.com/SEA-AI/ml-ops/blob/50241c9ec1fed731e8cf45cf385f45dcc0c294de/scripts/horizon_metrics/utils.py#L24C1-L53C15)):
+Normalizing the `tp_over_thresholds` by the total number of frames, or the total number of frames for which a horizon was predicted, gives the percentage of true positives. It can be visualized with the following code (for more info, see [ml-ops repo](https://github.com/SEA-AI/ml-ops/blob/50241c9ec1fed731e8cf45cf385f45dcc0c294de/scripts/horizon_metrics/utils.py#L24C1-L53C15)):
 
 
 ```python
