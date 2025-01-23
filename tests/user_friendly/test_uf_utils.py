@@ -16,6 +16,7 @@ from seametrics.user_friendly.utils import (
     unique_obj_count,
 )
 
+from pprint import pprint
 
 def test_recognition():
     """
@@ -60,11 +61,9 @@ def test_calculate():
     result = calculate(predictions, references)
 
     assert "tp" in result
-    assert "fp" in result
     assert "fn" in result
 
     assert result["tp"] == 2.0, f"Expected tp to be 2.0, got {result['tp']}"
-    assert result["fp"] == 0.0, f"Expected fp to be 0.0, got {result['fp']}"
     assert result["fn"] == 0.0, f"Expected fn to be 0.0, got {result['fn']}"
     assert (
         result["unique_obj_count"] == 2
@@ -199,7 +198,6 @@ def test_calculate_single_data_point():
     result = calculate(predictions, references)
 
     assert result["tp"] == 1, "Expected 1 TP for a matching single data point"
-    assert result["fp"] == 0, "No FP expected for a matching single data point"
     assert result["fn"] == 0, "No FN expected for a matching single data point"
     assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
@@ -209,7 +207,6 @@ def test_calculate_single_data_point():
     result = calculate(predictions, references)
 
     assert result["tp"] == 0, "No TP expected for non-matching data points"
-    assert result["fp"] == 1, "Expected 1 FP for non-matching data points"
     assert result["fn"] == 1, "Expected 1 FN for non-matching data points"
     assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
@@ -229,7 +226,6 @@ def test_calculate_conflicting_ids():
     result = calculate(predictions, references)
 
     assert result["tp"] == 1, "Only one TP should be counted for duplicate IDs"
-    assert result["fp"] == 1, "One FP expected due to duplicate ID"
     assert result["fn"] == 0, "No FN expected as the reference is matched"
     assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
@@ -247,7 +243,6 @@ def test_calculate_mismatched_frames():
     result = calculate(predictions, references)
 
     assert result["tp"] == 0, "No TP expected for mismatched frames"
-    assert result["fp"] == 1, "All predictions should be FP for mismatched frames"
     assert result["fn"] == 1, "All references should be FN for mismatched frames"
     assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
@@ -381,83 +376,23 @@ def test_build_metrics_template():
     4. Single model and single filter with no ranges.
     5. Large number of models and filters.
     """
-    models = ["model1", "model2"]
-    filters = {
-        "filter1": [("range1", 1), ("range2", 2)],
-        "filter2": [("range3", 3)],
-    }
+
+    filter_input = {"name": "area", 
+            "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]}
+    
     expected = {
-        "model1": {
             "all": {},
-            "filter1": {
-                "range1": {},
-                "range2": {},
-            },
-            "filter2": {
-                "range3": {},
-            },
-        },
-        "model2": {
-            "all": {},
-            "filter1": {
-                "range1": {},
-                "range2": {},
-            },
-            "filter2": {
-                "range3": {},
-            },
-        },
-    }
-    result = build_metrics_template(models, filters)
+            "small": {}}
+    
+    result = build_metrics_template(filter_input["ranges"])
     assert result == expected, f"Test 1 failed: {result}"
 
-    # Test 2: Empty models list
-    models = []
-    filters = {
-        "filter1": [("range1", 1)],
-    }
+    # Test 2: Empty filter
+    filter_input = {"name": "area",
+            "ranges": []}
     expected = {}
-    result = build_metrics_template(models, filters)
+    result = build_metrics_template(filter_input["ranges"])
     assert result == expected, f"Test 2 failed: {result}"
-
-    # Test 3: Empty filters dictionary
-    models = ["model1"]
-    filters = {}
-    expected = {
-        "model1": {
-            "all": {},
-        },
-    }
-    result = build_metrics_template(models, filters)
-    assert result == expected, f"Test 3 failed: {result}"
-
-    # Test 4: Single model and single filter with no ranges
-    models = ["model1"]
-    filters = {"filter1": []}
-    expected = {
-        "model1": {
-            "all": {},
-            "filter1": {},
-        },
-    }
-    result = build_metrics_template(models, filters)
-    assert result == expected, f"Test 4 failed: {result}"
-
-    # Test 5: Large number of models and filters
-    models = [f"model{i}" for i in range(5)]
-    filters = {f"filter{j}": [(f"range{k}", k) for k in range(3)] for j in range(3)}
-    result = build_metrics_template(models, filters)
-    for model in models:
-        assert model in result, f"Model {model} missing in result"
-        assert "all" in result[model], f"'all' missing for model {model}"
-        for filter_name, filter_ranges in filters.items():
-            assert (
-                filter_name in result[model]
-            ), f"Filter {filter_name} missing for model {model}"
-            for filter_range in filter_ranges:
-                assert (
-                    filter_range[0] in result[model][filter_name]
-                ), f"Range {filter_range[0]} missing for filter {filter_name} in model {model}"
 
 
 def test_realize_metrics():
@@ -473,7 +408,6 @@ def test_realize_metrics():
     """
     metrics_dict = {
         "tp": 10,
-        "fp": 5,
         "fn": 3,
         "unique_obj_count": 8,
         "mostly_tracked_count_0.3": 7,
@@ -483,16 +417,7 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert result["precision"] == 10 / (
-        10 + 5
-    ), f"Expected precision, got {result['precision']}"
     assert result["recall"] == 10 / (10 + 3), f"Expected recall, got {result['recall']}"
-    assert result["f1"] == (
-        2
-        * result["precision"]
-        * result["recall"]
-        / (result["precision"] + result["recall"] + 1e-6)
-    ), f"Expected f1, got {result['f1']}"
     assert (
         result["mostly_tracked_score_0.3"] == 7 / 8
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
@@ -506,7 +431,6 @@ def test_realize_metrics():
     # Test 2: Edge case with zero TP, FP, FN
     metrics_dict = {
         "tp": 0,
-        "fp": 0,
         "fn": 0,
         "unique_obj_count": 1,
         "mostly_tracked_count_0.3": 0,
@@ -516,11 +440,7 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert np.isnan(
-        result["precision"]
-    ), f"Expected precision NaN, got {result['precision']}"
     assert np.isnan(result["recall"]), f"Expected recall NaN, got {result['recall']}"
-    assert np.isnan(result["f1"]), f"Expected f1 NaN, got {result['f1']}"
     assert (
         result["mostly_tracked_score_0.3"] == 0
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
@@ -534,7 +454,6 @@ def test_realize_metrics():
     # Test 3: Zero FP but non-zero TP
     metrics_dict = {
         "tp": 5,
-        "fp": 0,
         "fn": 2,
         "unique_obj_count": 10,
         "mostly_tracked_count_0.3": 3,
@@ -543,16 +462,7 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert result["precision"] == 5 / (
-        5 + 0
-    ), f"Expected precision, got {result['precision']}"
     assert result["recall"] == 5 / (5 + 2), f"Expected recall, got {result['recall']}"
-    assert result["f1"] == (
-        2
-        * result["precision"]
-        * result["recall"]
-        / (result["precision"] + result["recall"] + 1e-6)
-    ), f"Expected f1, got {result['f1']}"
     assert (
         result["mostly_tracked_score_0.3"] == 3 / 10
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
@@ -563,7 +473,6 @@ def test_realize_metrics():
     # Test 4: Large unique_obj_count with zero recognized
     metrics_dict = {
         "tp": 0,
-        "fp": 0,
         "fn": 5,
         "unique_obj_count": 1000,
         "mostly_tracked_count_0.3": 0,
@@ -572,11 +481,7 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert np.isnan(
-        result["precision"]
-    ), f"Expected precision NaN, got {result['precision']}"
     assert result["recall"] == 0, f"Expected recall 0, got {result['recall']}"
-    assert np.isnan(result["f1"]), f"Expected f1 NaN, got {result['f1']}"
     assert (
         result["mostly_tracked_score_0.3"] == 0
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
@@ -752,16 +657,17 @@ def test_calculate_from_payload():
         Returns:
             Payload: A test Payload object.
         """
-        gt_config = [1, 1]
+        gt_config = [2, 2]
         model_config = [2, 1]
 
-        mock_detections = [
+        mock_detections_a = [
             {
                 "id": "674f2c83d608ab75c380194c",
                 "attributes": {},
                 "tags": [],
                 "label": "MOTORBOAT",
                 "bounding_box": [0.0, 0.0, 0.015625, 0.009765625],
+                "area": 50,
                 "mask": None,
                 "confidence": None,
                 "index": 1,
@@ -772,6 +678,32 @@ def test_calculate_from_payload():
                 "tags": [],
                 "label": "SPHERICAL_BUOY",
                 "bounding_box": [0.603125, 0.591796875, 0.0109375, 0.009765625],
+                "area": 30,
+                "mask": None,
+                "confidence": None,
+                "index": 2,
+            },
+        ]
+
+        mock_detections_b = [
+            {
+                "id": "674f2c83d608ab75c380194c",
+                "attributes": {},
+                "tags": [],
+                "label": "MOTORBOAT",
+                "bounding_box": [0.0, 0.0, 0.015625, 0.009765625],
+                "area": 50,
+                "mask": None,
+                "confidence": None,
+                "index": 1,
+            },
+            {
+                "id": "6682d49a4cb7459c1be09c52",
+                "attributes": {},
+                "tags": [],
+                "label": "SPHERICAL_BUOY",
+                "bounding_box": [0.603125, 0.591796875, 0.001765625, 0.009765625],
+                "area": 30,
                 "mask": None,
                 "confidence": None,
                 "index": 2,
@@ -786,14 +718,25 @@ def test_calculate_from_payload():
                 "sequence_a": Sequence(
                     resolution=Resolution(height=512, width=640),
                     ground_truth_det=[
-                        [mock_detections[i] for i in range(detections)]
-                        for detections in gt_config
+                        [mock_detections_a[i] for i in range(n_detections)]
+                        for n_detections in gt_config
                     ],
                     model=[
-                        [mock_detections[i] for i in range(detections)]
-                        for detections in model_config
+                        [mock_detections_a[i] for i in range(n_detections)]
+                        for n_detections in model_config
                     ],
-                )
+                ),
+                "sequence_b": Sequence(
+                    resolution=Resolution(height=512, width=640),
+                    ground_truth_det=[
+                        [mock_detections_b[i] for i in range(n_detections)]
+                        for n_detections in gt_config
+                    ],
+                    model=[
+                        [mock_detections_b[i] for i in range(n_detections)]
+                        for n_detections in model_config
+                    ],
+                ),        
             },
         )
 
@@ -806,25 +749,20 @@ def test_calculate_from_payload():
 
     output = calculate_from_payload(
         payload=payload,
+        filter={"name": "area", 
+                "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]},
         max_iou=max_iou,
         recognition_thresholds=recognition_thresholds,
         debug=debug,
     )
-
-    global_metrics = output["global"]["model"]["all"]
-    assert global_metrics["fp"] == 1.0, "False positives mismatch"
-    assert global_metrics["fn"] == 0.0, "False negatives mismatch"
-    assert global_metrics["tp"] == 2.0, "True positives mismatch"
+    
+    global_metrics = output["model"]["overall"]["all"]
+    assert global_metrics["fn"] == 2.0, "False negatives mismatch"
+    assert global_metrics["tp"] == 6.0, "True positives mismatch"
     assert (
-        global_metrics["unique_obj_count"] == 1
+        global_metrics["unique_obj_count"] == 4
     ), "Number of ground truth IDs mismatch"
-    assert math.isclose(
-        global_metrics["precision"], 0.6666666666666666, rel_tol=1e-9
-    ), "Precision mismatch"
-    assert global_metrics["recall"] == 1.0, "Recall mismatch"
-    assert math.isclose(
-        global_metrics["f1"], 0.7999995200002881, rel_tol=1e-9
-    ), "F1 score mismatch"
+    assert math.isclose(global_metrics["recall"], 0.75, rel_tol=0.00001), "Recall mismatch"
     assert (
         global_metrics["mostly_tracked_score_0.3"] == 1.0
     ), "Recognition at 0.3 mismatch"
@@ -832,32 +770,25 @@ def test_calculate_from_payload():
         global_metrics["mostly_tracked_score_0.5"] == 1.0
     ), "Recognition at 0.5 mismatch"
     assert (
-        global_metrics["mostly_tracked_score_0.8"] == 1.0
+        global_metrics["mostly_tracked_score_0.8"] == 0.5
     ), "Recognition at 0.8 mismatch"
     assert (
-        global_metrics["mostly_tracked_count_0.3"] == 1
+        global_metrics["mostly_tracked_count_0.3"] == 4
     ), "Recognized count at 0.3 mismatch"
     assert (
-        global_metrics["mostly_tracked_count_0.5"] == 1
+        global_metrics["mostly_tracked_count_0.5"] == 4
     ), "Recognized count at 0.5 mismatch"
     assert (
-        global_metrics["mostly_tracked_count_0.8"] == 1
+        global_metrics["mostly_tracked_count_0.8"] == 2
     ), "Recognized count at 0.8 mismatch"
 
-    sequence_metrics = output["per_sequence"]["sequence_a"]["model"]["all"]
-    assert sequence_metrics["fp"] == 1.0, "Per-sequence false positives mismatch"
-    assert sequence_metrics["fn"] == 0.0, "Per-sequence false negatives mismatch"
-    assert sequence_metrics["tp"] == 2.0, "Per-sequence true positives mismatch"
+    sequence_metrics = output["model"]["per_sequence"]["sequence_a"]["all"]
+    assert sequence_metrics["fn"] == 1.0, "Per-sequence false negatives mismatch"
+    assert sequence_metrics["tp"] == 3.0, "Per-sequence true positives mismatch"
     assert (
-        sequence_metrics["unique_obj_count"] == 1
+        sequence_metrics["unique_obj_count"] == 2
     ), "Per-sequence ground truth IDs mismatch"
-    assert math.isclose(
-        global_metrics["precision"], 0.6666666666666666, rel_tol=1e-9
-    ), "Per-sequence Precision mismatch"
-    assert sequence_metrics["recall"] == 1.0, "Per-sequence recall mismatch"
-    assert math.isclose(
-        global_metrics["f1"], 0.7999995200002881, rel_tol=1e-9
-    ), "Per-sequence F1 score mismatch"
+    assert math.isclose(sequence_metrics["recall"], 0.75, rel_tol=0.00001), "Per-sequence recall mismatch"
     assert (
         sequence_metrics["mostly_tracked_score_0.3"] == 1.0
     ), "Per-sequence recognition at 0.3 mismatch"
@@ -865,13 +796,13 @@ def test_calculate_from_payload():
         sequence_metrics["mostly_tracked_score_0.5"] == 1.0
     ), "Per-sequence recognition at 0.5 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_score_0.8"] == 1.0
+        sequence_metrics["mostly_tracked_score_0.8"] == 0.5
     ), "Per-sequence recognition at 0.8 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_count_0.3"] == 1
+        sequence_metrics["mostly_tracked_count_0.3"] == 2
     ), "Per-sequence recognized count at 0.3 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_count_0.5"] == 1
+        sequence_metrics["mostly_tracked_count_0.5"] == 2
     ), "Per-sequence recognized count at 0.5 mismatch"
     assert (
         sequence_metrics["mostly_tracked_count_0.8"] == 1
