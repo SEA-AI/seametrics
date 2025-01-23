@@ -131,7 +131,7 @@ The metric includes the following performance metrics for horizon prediction:
 - **samples**: Counts the total number of samples which were used in the metrics calculation.
 
 ## Additional Info
-Normalizing the `tp_over_thresholds` by the total number of frames, or the total number of frames for which a horizon was predicted, gives the percentage of true positives. It can be visualized with the following code (for more info, see [ml-ops repo](https://github.com/SEA-AI/ml-ops/blob/50241c9ec1fed731e8cf45cf385f45dcc0c294de/scripts/horizon_metrics/utils.py#L24C1-L53C15)):
+Normalizing the `tp_over_thresholds` by the total number of frames, or the total number of frames for which a horizon was predicted, gives the percentage of true positives. It can be visualized with the following code (for more info, see [ml-ops repo](https://github.com/SEA-AI/ml-ops/blob/50241c9ec1fed731e8cf45cf385f45dcc0c294de/scripts/horizon_metrics/utils.py#L24C1-L53C15) or examples in the [W&B horizon_metrics project](https://wandb.ai/sea-ai/horizon_metrics?nw=nwuserseaaimlops)):
 
 
 ```python
@@ -180,7 +180,3 @@ get_tp_thresh_plot_mp(
     sp_bins=res["slope_hist"][1]
 )
 ```
-
-The output will look like this:
-
-<img src="image.png" alt="drawing" width="400"/>
