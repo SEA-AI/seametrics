@@ -12,14 +12,7 @@ def unique_obj_count(df):
     """Number of unique gt ids."""
     return df.full["OId"].dropna().unique().shape[0]
 
-
-def calculate(
-    predictions,
-    references,
-    max_iou: float = 0.5,
-    recognition_thresholds: list = [0.3, 0.5, 0.8],
-):
-    """Returns the scores"""
+def trasform_inputs(predictions, references):
 
     try:
         np_predictions = np.array(predictions) if predictions else np.empty((0, 7))
@@ -58,12 +51,27 @@ def calculate(
                 "The frame number in the references should be a positive integer"
         )
 
+    return np_predictions, np_references
+
+def calculate(
+    predictions,
+    references,
+    max_iou: float = 0.5,
+    recognition_thresholds: list = [0.3, 0.5, 0.8],
+):
+    """Returns the scores"""
+
+    np_predictions, np_references = trasform_inputs(predictions, references)
+    
     reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
     prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
+
+    print(len(predictions), len(references))
     
     num_frames = int(max(reference_frames, prediction_frames))
 
     acc = mm.MOTAccumulator(auto_id=True)
+
     for i in range(1, num_frames + 1):
         preds = np_predictions[np_predictions[:, 0] == i, 1:6]
         refs = np_references[np_references[:, 0] == i, 1:6]
@@ -182,6 +190,7 @@ def calculate_from_payload(payload: dict,
             raise ValueError(
                 "The payload should be a dictionary or a compatible object"
             ) from e
+
     gt_field_name = payload["gt_field_name"]
     models = payload["models"]
     sequence_list = payload["sequence_list"]
@@ -198,12 +207,15 @@ def calculate_from_payload(payload: dict,
         for sequence in sequence_list:
 
             metrics_per_sequence[sequence] = build_metrics_template(filter["ranges"])
-
+            print(payload["sequences"])
             frames = payload["sequences"][sequence][gt_field_name]
             formated_references = get_formated_references(frames, filter)
+            print(formated_references)
+
 
             frames = payload["sequences"][sequence][model]
             formated_predictions = get_formated_predictions(frames)
+            print(formated_predictions)
 
             for filter_range in filter_ranges:
                 
