@@ -115,6 +115,8 @@ The metric includes the following performance metrics for horizon prediction:
 - **average_slope_error**: Measures the average difference in slope between the predicted and ground truth horizon in degree.
 - **average_midpoint_error**: Represents the average difference in midpoint position between the predicted and ground truth horizon.
 - **average_midpoint_error_px**: Represents the average difference in midpoint position between the predicted and ground truth horizon, measured in pixels.
+- **midpoint_hist**: First element are the histogram values of midpoint errors over the frames, second element are the bin values.
+- **slope_hist**: First element are the histogram values of slope errors over the frames, second element are the bin values.
 - **stddev_slope_error**: Indicates the variability of errors in slope between the predicted and ground truth horizon in degree.
 - **stddev_midpoint_error**: Quantifies the variability of errors in midpoint position between the predicted and ground truth horizon in degree.
 - **stddev_midpoint_error_px**: Quantifies the variability of errors in midpoint position between the predicted and ground truth horizon, measured in pixels.
@@ -124,3 +126,57 @@ The metric includes the following performance metrics for horizon prediction:
 - **num_slope_error_jumps**: Calculates the differences between errors in successive frames for the slope. It then counts the number of jumps in these errors by comparing the absolute differences to a specified threshold.
 - **num_midpoint_error_jumps**: Calculates the differences between errors in successive frames for the midpoint. It then counts the number of jumps in these errors by comparing the absolute differences to a specified threshold.
 - **detection_rate**: Measures the proportion of frames in which the horizon is successfully detected out of the total number of frames.
+- **tp_over_thresholds**: A correct horizon has midpoint and slope error smaller or equal than predifined midpoint and error thresholds. This array counts the number of correct horizon predictions over different midpoint and slope error thresholds, e.g., the j-th element in the i-th row in this array is the number of correct horizon predictions for the (i+1)-th `midpoint_hist[1]` bin and (j+1)-th `slope_hist[1]` bin.
+- **predicted_samples**: Counts the number of samples on which a prediction was made.
+- **samples**: Counts the total number of samples which were used in the metrics calculation.
+
+## Additional Info
+Normalizing the `tp_over_thresholds` by the total number of frames, or the total number of frames for which a horizon was predicted, gives the percentage of true positives. It can be visualized with the following code (for more info, see [ml-ops repo](https://github.com/SEA-AI/ml-ops/blob/50241c9ec1fed731e8cf45cf385f45dcc0c294de/scripts/horizon_metrics/utils.py#L24C1-L53C15) or examples in the [W&B horizon_metrics project](https://wandb.ai/sea-ai/horizon_metrics?nw=nwuserseaaimlops)):
+
+
+```python
+def get_tp_thresh_plot_mp(
+        data: np.ndarray,
+        mp_bins: list,
+        s_bins: list
+    ):
+    fig, ax = plt.subplots(figsize=(15, 15))
+    im = ax.imshow(data)
+
+    l_mp = len(mp_bins)-1
+    l_s = len(s_bins)-1
+
+    for y in range(l_s):
+        for x in range(l_mp):
+            ax.text(x, y , '%.2f' % data[y, x],
+                    horizontalalignment='center',
+                    verticalalignment='center',
+                    fontsize=8
+                    )
+    ax.set_xticks(np.arange(l_mp)+0.5, np.round(mp_bins[1:],2))
+    ax.set_yticks(np.arange(l_s)+0.5, np.round(s_bins[1:],2))
+    ax.set_xlim(-0.5, l_mp-0.5)
+    ax.invert_yaxis()
+    ax.set_ylim(-0.5,l_s-0.5)
+
+    cbar = fig.colorbar(im)
+    cbar.set_label("% of true positives")
+    ax.set_xlabel("midpoint threshold")
+    ax.set_ylabel("slope threshold")
+
+    return fig
+
+
+module = evaluate.load("SEA-AI/horizon-metrics", **input_params)
+module.add(
+    predictions=pred,
+    references=gt
+)
+res = module.compute()
+
+get_tp_thresh_plot_mp(
+    data=res["top_over_thresholds"]/res["samples"],
+    mp_bins=res["midpoint_hist"][1],
+    sp_bins=res["slope_hist"][1]
+)
+```
