@@ -12,6 +12,46 @@ def unique_obj_count(df):
     """Number of unique gt ids."""
     return df.full["OId"].dropna().unique().shape[0]
 
+def trasform_inputs(predictions, references):
+
+    try:
+        np_predictions = np.array(predictions) if predictions else np.empty((0, 7))
+    except:
+        raise ValueError(
+            "The predictions should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
+        )
+
+    try:
+        np_references = np.array(references) if references else np.empty((0, 6))
+    except:
+        raise ValueError(
+            "The references should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
+        )
+
+    if (
+        np_predictions.ndim < 2 or np_predictions.shape[1] != 7
+    ):
+        raise ValueError(
+            "The predictions should be a 2D array with 7 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
+        )
+
+    if np_references.ndim < 2 or np_references.shape[1] != 6:
+        raise ValueError(
+            "The references should be a 2D array with 6 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
+        )
+
+    if np_predictions.size > 0:
+        if np_predictions[:, 0].min() <= 0 :
+            raise ValueError(
+                "The frame number in the predictions should be a positive integer"
+        )
+    if np_references.size > 0:
+        if np_references[:, 0].min() <= 0:
+            raise ValueError(
+                "The frame number in the references should be a positive integer"
+        )
+
+    return np_predictions, np_references
 
 def calculate(
     predictions,
@@ -21,46 +61,17 @@ def calculate(
 ):
     """Returns the scores"""
 
-    try:
-        np_predictions = np.array(predictions)
-    except:
-        raise ValueError(
-            "The predictions should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
-        )
+    np_predictions, np_references = trasform_inputs(predictions, references)
+    
+    reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
+    prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
 
-    try:
-        np_references = np.array(references)
-    except:
-        raise ValueError(
-            "The references should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
-        )
-
-    if (
-        np_predictions.size == 0
-        or np_predictions.ndim < 2
-        or np_predictions.shape[1] != 7
-    ):
-        raise ValueError(
-            "The predictions should be a 2D array with 7 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
-        )
-
-    if np_references.size == 0 or np_references.ndim < 2 or np_references.shape[1] != 6:
-        raise ValueError(
-            "The references should be a 2D array with 6 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
-        )
-
-    if np_predictions[:, 0].min() <= 0:
-        raise ValueError(
-            "The frame number in the predictions should be a positive integer"
-        )
-    if np_references[:, 0].min() <= 0:
-        raise ValueError(
-            "The frame number in the references should be a positive integer"
-        )
-
-    num_frames = int(max(np_references[:, 0].max(), np_predictions[:, 0].max()))
+    print(len(predictions), len(references))
+    
+    num_frames = int(max(reference_frames, prediction_frames))
 
     acc = mm.MOTAccumulator(auto_id=True)
+
     for i in range(1, num_frames + 1):
         preds = np_predictions[np_predictions[:, 0] == i, 1:6]
         refs = np_references[np_references[:, 0] == i, 1:6]
@@ -179,6 +190,7 @@ def calculate_from_payload(payload: dict,
             raise ValueError(
                 "The payload should be a dictionary or a compatible object"
             ) from e
+
     gt_field_name = payload["gt_field_name"]
     models = payload["models"]
     sequence_list = payload["sequence_list"]
@@ -195,45 +207,41 @@ def calculate_from_payload(payload: dict,
         for sequence in sequence_list:
 
             metrics_per_sequence[sequence] = build_metrics_template(filter["ranges"])
-
+            print(payload["sequences"])
             frames = payload["sequences"][sequence][gt_field_name]
             formated_references = get_formated_references(frames, filter)
+            print(formated_references)
+
 
             frames = payload["sequences"][sequence][model]
             formated_predictions = get_formated_predictions(frames)
+            print(formated_predictions)
 
-            if len(formated_predictions) == 0:
-                metrics_per_sequence[sequence] = "Model had no predictions."
-            else:
+            for filter_range in filter_ranges:
+                
+                filter_range_name = filter_range[0]
 
-                for filter_range in filter_ranges:
-                    
-                    filter_range_name = filter_range[0]
-                    if len(formated_references[filter_range_name]) == 0:
-                        metrics_per_sequence[sequence][filter_range_name] = "No ground truth."
-                        continue
+                sequence_metrics = calculate(
+                    formated_predictions,
+                    formated_references[filter_range_name],
+                    max_iou=max_iou,
+                    recognition_thresholds=recognition_thresholds,
+                )
 
-                    sequence_metrics = calculate(
-                        formated_predictions,
-                        formated_references[filter_range_name],
-                        max_iou=max_iou,
-                        recognition_thresholds=recognition_thresholds,
-                    )
+                metrics_per_sequence[sequence][filter_range_name] = realize_metrics(
+                    sequence_metrics,
+                    recognition_thresholds,
+                )
 
-                    metrics_per_sequence[sequence][filter_range_name] = realize_metrics(
-                        sequence_metrics,
-                        recognition_thresholds,
-                    )
+                metrics_overall[filter_range_name] = sum_dicts(
+                    metrics_overall[filter_range_name],
+                    metrics_per_sequence[sequence][filter_range_name],
+                )
 
-                    metrics_overall[filter_range_name] = sum_dicts(
-                        metrics_overall[filter_range_name],
-                        metrics_per_sequence[sequence][filter_range_name],
-                    )
-
-                    metrics_overall[filter_range_name] = realize_metrics(
-                        metrics_overall[filter_range_name],
-                        recognition_thresholds,
-                    )
+                metrics_overall[filter_range_name] = realize_metrics(
+                    metrics_overall[filter_range_name],
+                    recognition_thresholds,
+                )
                 
         output[model] = {
             "per_sequence": metrics_per_sequence,
@@ -269,17 +277,14 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     calculates metrics based on raw metrics
     """
 
-    if metrics_dict["tp"] + metrics_dict["fn"] > 0:
-        metrics_dict["recall"] = metrics_dict["tp"] / (
-            metrics_dict["tp"] + metrics_dict["fn"]
-        )
-    else:
-        metrics_dict["recall"] = np.nan
+    metrics_dict["recall"] = metrics_dict["tp"] / (
+        metrics_dict["tp"] + metrics_dict["fn"] + 1e-6
+    )
 
     for th in recognition_thresholds:
         metrics_dict[f"mostly_tracked_score_{th}"] = (
             metrics_dict[f"mostly_tracked_count_{th}"]
-            / metrics_dict["unique_obj_count"]
+            / (metrics_dict["unique_obj_count"]+1e-6)
         )
 
     return metrics_dict

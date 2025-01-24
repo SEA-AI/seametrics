@@ -79,45 +79,6 @@ def test_calculate():
     ), f"Expected mostly_tracked_count_0.8 to be 2, got {result['mostly_tracked_count_0.8']}"
 
 
-def test_calculate_empty_inputs_with_exceptions():
-    """
-    Tests the calculate function for cases with empty inputs.
-
-    Ensures that ValueError is raised when:
-    - Both predictions and references are empty.
-    - Predictions are empty but references are non-empty.
-    - References are empty but predictions are non-empty.
-
-    Checks that the appropriate error message is provided for each case.
-    """
-    predictions = []
-    references = []
-
-    # Both empty
-    with pytest.raises(
-        ValueError,
-        match="The predictions should be a 2D array with 7 columns",
-    ):
-        calculate(predictions, references)
-
-    # Empty predictions, non-empty references
-    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
-    with pytest.raises(
-        ValueError,
-        match="The predictions should be a 2D array with 7 columns",
-    ):
-        calculate(predictions, references)
-
-    # Empty references, non-empty predictions
-    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
-    references = []
-    with pytest.raises(
-        ValueError,
-        match="The references should be a 2D array with 6 columns",
-    ):
-        calculate(predictions, references)
-
-
 def test_calculate_invalid_shapes():
     # Invalid shape for predictions (missing confidence column)
     """
@@ -247,68 +208,6 @@ def test_calculate_mismatched_frames():
     assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
 
-def test_calculate_empty_predictions_or_references():
-    # Empty predictions
-    """
-    Tests the calculate function with empty predictions or references.
-
-    Ensures that ValueError is raised when:
-    - Predictions are empty.
-    - References are empty.
-
-    Checks that the appropriate error message is provided for each case.
-    """
-    predictions = []
-    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
-
-    with pytest.raises(
-        ValueError,
-        match="The predictions should be a 2D array with 7 columns",
-    ):
-        calculate(predictions, references)
-
-    # Empty references
-    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
-    references = []
-
-    with pytest.raises(
-        ValueError,
-        match="The references should be a 2D array with 6 columns",
-    ):
-        calculate(predictions, references)
-
-
-def test_calculate_none_inputs():
-    """
-    Tests the calculate function with None inputs.
-
-    Ensures that ValueError is raised when:
-    - Predictions are None.
-    - References are None.
-
-    Checks that the appropriate error message is provided for each case.
-    """
-    predictions = None
-    references = [[1, 1, 0.1, 0.2, 0.3, 0.4]]
-
-    # Test None predictions
-    with pytest.raises(
-        ValueError,
-        match="The predictions should be a 2D array with 7 columns",
-    ):
-        calculate(predictions, references)
-
-    predictions = [[1, 1, 0.1, 0.2, 0.3, 0.4, 0.9]]
-    references = None
-
-    # Test None references
-    with pytest.raises(
-        ValueError,
-        match="The references should be a 2D array with 6 columns",
-    ):
-        calculate(predictions, references)
-
-
 def test_sum_dicts():
     # Test 1: Simple dictionaries with overlapping keys
     """
@@ -417,15 +316,15 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert result["recall"] == 10 / (10 + 3), f"Expected recall, got {result['recall']}"
+    assert (math.isclose(result["recall"], 10 / (10 + 3), rel_tol=0.00001)), f"Expected recall, got {result['recall']}"
     assert (
-        result["mostly_tracked_score_0.3"] == 7 / 8
+        math.isclose(result["mostly_tracked_score_0.3"], 7/8, rel_tol=0.00001)
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
     assert (
-        result["mostly_tracked_score_0.5"] == 6 / 8
+        math.isclose(result["mostly_tracked_score_0.5"], 6 / 8, rel_tol=0.00001)
     ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
     assert (
-        result["mostly_tracked_score_0.8"] == 4 / 8
+        math.isclose(result["mostly_tracked_score_0.8"], 4 / 8, rel_tol=0.00001)
     ), f"Expected mostly_tracked_score_0.8, got {result['mostly_tracked_score_0.8']}"
 
     # Test 2: Edge case with zero TP, FP, FN
@@ -440,7 +339,9 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert np.isnan(result["recall"]), f"Expected recall NaN, got {result['recall']}"
+    assert (
+        math.isclose(result["recall"], 0, rel_tol=0.00001)
+    ), f"Expected recall NaN, got {result['recall']}"
     assert (
         result["mostly_tracked_score_0.3"] == 0
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
@@ -462,12 +363,14 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert result["recall"] == 5 / (5 + 2), f"Expected recall, got {result['recall']}"
     assert (
-        result["mostly_tracked_score_0.3"] == 3 / 10
+        math.isclose(result["recall"], 5 / (5 + 2), rel_tol=0.00001)
+    ), f"Expected recall, got {result['recall']}"
+    assert (
+        math.isclose(result["mostly_tracked_score_0.3"], 3 / 10, rel_tol=0.00001)
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
     assert (
-        result["mostly_tracked_score_0.5"] == 1 / 10
+        math.isclose(result["mostly_tracked_score_0.5"], 1 / 10, rel_tol=0.00001)
     ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
 
     # Test 4: Large unique_obj_count with zero recognized
@@ -757,6 +660,7 @@ def test_calculate_from_payload():
     )
     
     global_metrics = output["model"]["overall"]["all"]
+    print(global_metrics)
     assert global_metrics["fn"] == 2.0, "False negatives mismatch"
     assert global_metrics["tp"] == 6.0, "True positives mismatch"
     assert (
@@ -764,13 +668,13 @@ def test_calculate_from_payload():
     ), "Number of ground truth IDs mismatch"
     assert math.isclose(global_metrics["recall"], 0.75, rel_tol=0.00001), "Recall mismatch"
     assert (
-        global_metrics["mostly_tracked_score_0.3"] == 1.0
+        math.isclose(global_metrics["mostly_tracked_score_0.3"], 1.0, rel_tol=0.00001)
     ), "Recognition at 0.3 mismatch"
     assert (
-        global_metrics["mostly_tracked_score_0.5"] == 1.0
+        math.isclose(global_metrics["mostly_tracked_score_0.5"], 1.0, rel_tol=0.00001)
     ), "Recognition at 0.5 mismatch"
     assert (
-        global_metrics["mostly_tracked_score_0.8"] == 0.5
+        math.isclose(global_metrics["mostly_tracked_score_0.8"], 0.5, rel_tol=0.00001)
     ), "Recognition at 0.8 mismatch"
     assert (
         global_metrics["mostly_tracked_count_0.3"] == 4
@@ -790,13 +694,13 @@ def test_calculate_from_payload():
     ), "Per-sequence ground truth IDs mismatch"
     assert math.isclose(sequence_metrics["recall"], 0.75, rel_tol=0.00001), "Per-sequence recall mismatch"
     assert (
-        sequence_metrics["mostly_tracked_score_0.3"] == 1.0
+        math.isclose(sequence_metrics["mostly_tracked_score_0.3"], 1.0, rel_tol=0.00001)
     ), "Per-sequence recognition at 0.3 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_score_0.5"] == 1.0
+        math.isclose(sequence_metrics["mostly_tracked_score_0.5"], 1.0, rel_tol=0.00001)
     ), "Per-sequence recognition at 0.5 mismatch"
     assert (
-        sequence_metrics["mostly_tracked_score_0.8"] == 0.5
+        math.isclose(sequence_metrics["mostly_tracked_score_0.8"], 0.5, rel_tol=0.00001)
     ), "Per-sequence recognition at 0.8 mismatch"
     assert (
         sequence_metrics["mostly_tracked_count_0.3"] == 2
