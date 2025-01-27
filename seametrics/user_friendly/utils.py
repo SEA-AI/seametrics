@@ -65,8 +65,6 @@ def calculate(
     
     reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
     prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
-
-    print(len(predictions), len(references))
     
     num_frames = int(max(reference_frames, prediction_frames))
 
@@ -207,15 +205,12 @@ def calculate_from_payload(payload: dict,
         for sequence in sequence_list:
 
             metrics_per_sequence[sequence] = build_metrics_template(filter["ranges"])
-            print(payload["sequences"])
+            
             frames = payload["sequences"][sequence][gt_field_name]
             formated_references = get_formated_references(frames, filter)
-            print(formated_references)
-
 
             frames = payload["sequences"][sequence][model]
             formated_predictions = get_formated_predictions(frames)
-            print(formated_predictions)
 
             for filter_range in filter_ranges:
                 
