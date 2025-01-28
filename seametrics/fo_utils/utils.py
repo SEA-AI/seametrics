@@ -129,13 +129,16 @@ def recursively_change_dots_for_underscore(dict_arg_name="metrics"):
     return decorator
 
 
-def _has_dots(data: Dict[str, Dict]) -> bool:
+def _has_dots(data: Dict) -> bool:
     """Check if any key contains a dot in a dictionary."""
-    return any(
-        "." in key or _has_dots(value)
-        for key, value in data.items()
-        if isinstance(value, dict)
-    )
+    for key, value in data.items():
+        # Check if the current key contains a dot
+        if "." in key:
+            return True
+        # Recursively check nested dictionaries
+        if isinstance(value, dict) and _has_dots(value):
+            return True
+    return False
 
 
 def _replace_dots_in_keys(data: Dict[str, Dict]) -> Dict[str, Dict]:
