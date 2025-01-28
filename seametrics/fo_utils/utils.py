@@ -96,6 +96,45 @@ def _update_sample_metrics(
     sample.save()
 
 
+def recursively_change_dots_for_underscore(func):
+    """Decorator to replace dots in dictionary keys with underscores in the 'metrics' argument."""
+
+    def wrapper(*args, **kwargs):
+        metrics = kwargs.get("metrics", args[1] if len(args) > 1 else None)
+        if metrics and _has_dots(metrics):
+            logging.warning(
+                "Dot (.) found in keys. Replacing with underscores (_) in metrics."
+            )
+            metrics = _replace_dots_in_keys(metrics)
+        if "metrics" in kwargs:
+            kwargs["metrics"] = metrics
+        elif len(args) > 1:
+            args = args[:1] + (metrics,) + args[2:]
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def _has_dots(data: Dict[str, Any]) -> bool:
+    """Check if any key contains a dot in a dictionary."""
+    return any(
+        "." in key or _has_dots(value)
+        for key, value in data.items()
+        if isinstance(value, dict)
+    )
+
+
+def _replace_dots_in_keys(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively replace dots in dictionary keys with underscores."""
+    return {
+        key.replace(".", "_"): (
+            _replace_dots_in_keys(value) if isinstance(value, dict) else value
+        )
+        for key, value in data.items()
+    }
+
+
+@recursively_change_dots_for_underscore
 def fo_upload(
     dataset_name: str,
     metrics: Dict[str, Dict],

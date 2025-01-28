@@ -100,7 +100,7 @@ def calculate(
 
     for th in recognition_thresholds:
         recognized = recognition(tr_ratios, th)
-        summary[f"mostly_tracked_count_{str(th).replace('.', '_')}"] = int(recognized)
+        summary[f"mostly_tracked_count_{th}"] = int(recognized)
 
     return summary
 
@@ -276,9 +276,8 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     )
 
     for th in recognition_thresholds:
-        th_str = str(th).replace(".", "_")
-        metrics_dict[f"mostly_tracked_score_{th_str}"] = metrics_dict[
-            f"mostly_tracked_count_{th_str}"
+        metrics_dict[f"mostly_tracked_score_{th}"] = metrics_dict[
+            f"mostly_tracked_count_{th}"
         ] / (metrics_dict["unique_obj_count"] + 1e-6)
 
     return metrics_dict
