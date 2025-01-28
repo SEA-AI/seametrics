@@ -96,31 +96,40 @@ def _update_sample_metrics(
     sample.save()
 
 
-def recursively_change_dots_for_underscore(func):
-    """Decorator to replace dots in dictionary keys with underscores in the 'metrics' argument."""
+def recursively_change_dots_for_underscore(dict_arg_name="metrics"):
+    """
+    Decorator to replace dots in dictionary keys with underscores
+    in the specified keyword argument.
+    """
 
-    def wrapper(*args, **kwargs):
-        # Extract `metrics` from kwargs or args
-        metrics = kwargs.get("metrics", args[1] if len(args) > 1 else None)
-        if metrics and _has_dots(metrics):
-            logging.warning(
-                "Dot (.) found in keys. Replacing with underscores (_) in metrics."
-            )
-            metrics = _replace_dots_in_keys(metrics)
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Check if the specified keyword argument exists in kwargs
+            if dict_arg_name not in kwargs:
+                logging.info(
+                    "Keyword argument '%s' not found in function call. Skipping modification.",
+                    dict_arg_name,
+                )
+                return func(*args, **kwargs)  # Exit gracefully if not found
 
-        # Update kwargs or rebuild args with modified metrics
-        if "metrics" in kwargs:
-            kwargs["metrics"] = metrics
+            # Get the target data
+            target_data = kwargs[dict_arg_name]
+
+            if target_data and _has_dots(target_data):
+                logging.warning(
+                    "Dot (.) found in keys. Replacing with underscores (_) in '%s'.",
+                    dict_arg_name,
+                )
+                kwargs[dict_arg_name] = _replace_dots_in_keys(target_data)
+
             return func(*args, **kwargs)
-        elif len(args) > 1:
-            new_args = args[:1] + (metrics,) + args[2:]
-            return func(*new_args, **kwargs)
-        return func(*args, **kwargs)
 
-    return wrapper
+        return wrapper
+
+    return decorator
 
 
-def _has_dots(data: Dict[str, Any]) -> bool:
+def _has_dots(data: Dict[str, Dict]) -> bool:
     """Check if any key contains a dot in a dictionary."""
     return any(
         "." in key or _has_dots(value)
@@ -129,7 +138,7 @@ def _has_dots(data: Dict[str, Any]) -> bool:
     )
 
 
-def _replace_dots_in_keys(data: Dict[str, Any]) -> Dict[str, Any]:
+def _replace_dots_in_keys(data: Dict[str, Dict]) -> Dict[str, Dict]:
     """Recursively replace dots in dictionary keys with underscores."""
     return {
         key.replace(".", "_"): (
@@ -139,7 +148,7 @@ def _replace_dots_in_keys(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@recursively_change_dots_for_underscore
+@recursively_change_dots_for_underscore(dict_arg_name="metrics")
 def fo_upload(
     dataset_name: str,
     metrics: Dict[str, Dict],
