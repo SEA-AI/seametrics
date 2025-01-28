@@ -100,16 +100,21 @@ def recursively_change_dots_for_underscore(func):
     """Decorator to replace dots in dictionary keys with underscores in the 'metrics' argument."""
 
     def wrapper(*args, **kwargs):
+        # Extract `metrics` from kwargs or args
         metrics = kwargs.get("metrics", args[1] if len(args) > 1 else None)
         if metrics and _has_dots(metrics):
             logging.warning(
                 "Dot (.) found in keys. Replacing with underscores (_) in metrics."
             )
             metrics = _replace_dots_in_keys(metrics)
+
+        # Update kwargs or rebuild args with modified metrics
         if "metrics" in kwargs:
             kwargs["metrics"] = metrics
+            return func(*args, **kwargs)
         elif len(args) > 1:
-            args = args[:1] + (metrics,) + args[2:]
+            new_args = args[:1] + (metrics,) + args[2:]
+            return func(*new_args, **kwargs)
         return func(*args, **kwargs)
 
     return wrapper
