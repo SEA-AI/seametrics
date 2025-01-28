@@ -12,6 +12,7 @@ def unique_obj_count(df):
     """Number of unique gt ids."""
     return df.full["OId"].dropna().unique().shape[0]
 
+
 def trasform_inputs(predictions, references):
 
     try:
@@ -28,9 +29,7 @@ def trasform_inputs(predictions, references):
             "The references should be a list of np.arrays in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height]"
         )
 
-    if (
-        np_predictions.ndim < 2 or np_predictions.shape[1] != 7
-    ):
+    if np_predictions.ndim < 2 or np_predictions.shape[1] != 7:
         raise ValueError(
             "The predictions should be a 2D array with 7 columns in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence]"
         )
@@ -41,17 +40,18 @@ def trasform_inputs(predictions, references):
         )
 
     if np_predictions.size > 0:
-        if np_predictions[:, 0].min() <= 0 :
+        if np_predictions[:, 0].min() <= 0:
             raise ValueError(
                 "The frame number in the predictions should be a positive integer"
-        )
+            )
     if np_references.size > 0:
         if np_references[:, 0].min() <= 0:
             raise ValueError(
                 "The frame number in the references should be a positive integer"
-        )
+            )
 
     return np_predictions, np_references
+
 
 def calculate(
     predictions,
@@ -62,10 +62,10 @@ def calculate(
     """Returns the scores"""
 
     np_predictions, np_references = trasform_inputs(predictions, references)
-    
+
     reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
     prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
-    
+
     num_frames = int(max(reference_frames, prediction_frames))
 
     acc = mm.MOTAccumulator(auto_id=True)
@@ -81,9 +81,7 @@ def calculate(
         )
 
     mh = mm.metrics.create()
-    summary = mh.compute(
-        acc, metrics=["num_misses", "num_detections"]
-    ).to_dict()
+    summary = mh.compute(acc, metrics=["num_misses", "num_detections"]).to_dict()
 
     df = events_to_df_map(acc.events)
     tr_ratios = track_ratios(df, obj_frequencies(df))
@@ -102,7 +100,7 @@ def calculate(
 
     for th in recognition_thresholds:
         recognized = recognition(tr_ratios, th)
-        summary[f"mostly_tracked_count_{th}"] = int(recognized)
+        summary[f"mostly_tracked_count_{str(th).replace('.', '_')}"] = int(recognized)
 
     return summary
 
@@ -115,9 +113,10 @@ def build_metrics_template(filter):
         metrics_dict[filter_range_name] = {}
     return metrics_dict
 
+
 def get_formated_references(frames, filter):
     """formats the references for the calculate_from_payload function, based on the filter and its ranges"""
-    
+
     filter_name = filter["name"]
     filter_ranges = filter["ranges"]
     formated_references = {}
@@ -147,6 +146,7 @@ def get_formated_references(frames, filter):
 
     return formated_references
 
+
 def get_formated_predictions(frames):
     """formats the predictions for the calculate_from_payload function"""
     formated_predictions = []
@@ -155,18 +155,18 @@ def get_formated_predictions(frames):
             index = detection["index"]
             x, y, w, h = detection["bounding_box"]
             confidence = 1
-            formated_predictions.append(
-                [frame_id + 1, index, x, y, w, h, confidence]
-            )
+            formated_predictions.append([frame_id + 1, index, x, y, w, h, confidence])
 
     return formated_predictions
 
-def calculate_from_payload(payload: dict,
-                        max_iou: float = 0.5, 
-                        filter={"name": "area", 
-                                "ranges": [("all", [0, 1e5**2])]},
-                        recognition_thresholds=[0.3, 0.5, 0.8], 
-                        debug: bool = False):
+
+def calculate_from_payload(
+    payload: dict,
+    max_iou: float = 0.5,
+    filter={"name": "area", "ranges": [("all", [0, 1e5**2])]},
+    recognition_thresholds=[0.3, 0.5, 0.8],
+    debug: bool = False,
+):
     """
     Filter in the form of:
     {
@@ -176,7 +176,7 @@ def calculate_from_payload(payload: dict,
 
     Receives a payload and returns the metrics
     """
-    
+
     filter_name = filter["name"]
     filter_ranges = filter["ranges"]
     output = {}
@@ -197,7 +197,7 @@ def calculate_from_payload(payload: dict,
         print("gt_field_name: ", gt_field_name)
         print("models: ", models)
         print("sequence_list: ", sequence_list)
-    
+
     for model in models:
 
         metrics_overall = build_metrics_template(filter["ranges"])
@@ -205,7 +205,7 @@ def calculate_from_payload(payload: dict,
         for sequence in sequence_list:
 
             metrics_per_sequence[sequence] = build_metrics_template(filter["ranges"])
-            
+
             frames = payload["sequences"][sequence][gt_field_name]
             formated_references = get_formated_references(frames, filter)
 
@@ -213,7 +213,7 @@ def calculate_from_payload(payload: dict,
             formated_predictions = get_formated_predictions(frames)
 
             for filter_range in filter_ranges:
-                
+
                 filter_range_name = filter_range[0]
 
                 sequence_metrics = calculate(
@@ -237,14 +237,13 @@ def calculate_from_payload(payload: dict,
                     metrics_overall[filter_range_name],
                     recognition_thresholds,
                 )
-                
+
         output[model] = {
             "per_sequence": metrics_per_sequence,
             "overall": metrics_overall,
         }
 
     return output
-            
 
 
 def sum_dicts(dict1, dict2):
@@ -277,9 +276,9 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     )
 
     for th in recognition_thresholds:
-        metrics_dict[f"mostly_tracked_score_{th}"] = (
-            metrics_dict[f"mostly_tracked_count_{th}"]
-            / (metrics_dict["unique_obj_count"]+1e-6)
-        )
+        th_str = str(th).replace(".", "_")
+        metrics_dict[f"mostly_tracked_score_{th_str}"] = metrics_dict[
+            f"mostly_tracked_count_{th_str}"
+        ] / (metrics_dict["unique_obj_count"] + 1e-6)
 
     return metrics_dict
