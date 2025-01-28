@@ -96,6 +96,62 @@ def _update_sample_metrics(
     sample.save()
 
 
+def recursively_change_dots_for_underscore(dict_arg_name="metrics"):
+    """
+    Decorator to replace dots in dictionary keys with underscores
+    in the specified keyword argument.
+    """
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Check if the specified keyword argument exists in kwargs
+            if dict_arg_name not in kwargs:
+                logging.info(
+                    "Keyword argument '%s' not found in function call. Skipping modification.",
+                    dict_arg_name,
+                )
+                return func(*args, **kwargs)  # Exit gracefully if not found
+
+            # Get the target data
+            target_data = kwargs[dict_arg_name]
+
+            if target_data and _has_dots(target_data):
+                logging.warning(
+                    "Dot (.) found in keys. Replacing with underscores (_) in '%s'.",
+                    dict_arg_name,
+                )
+                kwargs[dict_arg_name] = _replace_dots_in_keys(target_data)
+
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def _has_dots(data: Dict) -> bool:
+    """Check if any key contains a dot in a dictionary."""
+    for key, value in data.items():
+        # Check if the current key contains a dot
+        if "." in key:
+            return True
+        # Recursively check nested dictionaries
+        if isinstance(value, dict) and _has_dots(value):
+            return True
+    return False
+
+
+def _replace_dots_in_keys(data: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Recursively replace dots in dictionary keys with underscores."""
+    return {
+        key.replace(".", "_"): (
+            _replace_dots_in_keys(value) if isinstance(value, dict) else value
+        )
+        for key, value in data.items()
+    }
+
+
+@recursively_change_dots_for_underscore(dict_arg_name="metrics")
 def fo_upload(
     dataset_name: str,
     metrics: Dict[str, Dict],

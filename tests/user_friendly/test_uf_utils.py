@@ -1,4 +1,5 @@
 import math
+from pprint import pprint
 
 import motmetrics as mm
 import numpy as np
@@ -16,7 +17,6 @@ from seametrics.user_friendly.utils import (
     unique_obj_count,
 )
 
-from pprint import pprint
 
 def test_recognition():
     """
@@ -276,19 +276,18 @@ def test_build_metrics_template():
     5. Large number of models and filters.
     """
 
-    filter_input = {"name": "area", 
-            "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]}
-    
-    expected = {
-            "all": {},
-            "small": {}}
-    
+    filter_input = {
+        "name": "area",
+        "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])],
+    }
+
+    expected = {"all": {}, "small": {}}
+
     result = build_metrics_template(filter_input["ranges"])
     assert result == expected, f"Test 1 failed: {result}"
 
     # Test 2: Empty filter
-    filter_input = {"name": "area",
-            "ranges": []}
+    filter_input = {"name": "area", "ranges": []}
     expected = {}
     result = build_metrics_template(filter_input["ranges"])
     assert result == expected, f"Test 2 failed: {result}"
@@ -316,15 +315,17 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert (math.isclose(result["recall"], 10 / (10 + 3), rel_tol=0.00001)), f"Expected recall, got {result['recall']}"
-    assert (
-        math.isclose(result["mostly_tracked_score_0.3"], 7/8, rel_tol=0.00001)
+    assert math.isclose(
+        result["recall"], 10 / (10 + 3), rel_tol=0.00001
+    ), f"Expected recall, got {result['recall']}"
+    assert math.isclose(
+        result["mostly_tracked_score_0.3"], 7 / 8, rel_tol=0.00001
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
-    assert (
-        math.isclose(result["mostly_tracked_score_0.5"], 6 / 8, rel_tol=0.00001)
+    assert math.isclose(
+        result["mostly_tracked_score_0.5"], 6 / 8, rel_tol=0.00001
     ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
-    assert (
-        math.isclose(result["mostly_tracked_score_0.8"], 4 / 8, rel_tol=0.00001)
+    assert math.isclose(
+        result["mostly_tracked_score_0.8"], 4 / 8, rel_tol=0.00001
     ), f"Expected mostly_tracked_score_0.8, got {result['mostly_tracked_score_0.8']}"
 
     # Test 2: Edge case with zero TP, FP, FN
@@ -339,8 +340,8 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5, 0.8]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert (
-        math.isclose(result["recall"], 0, rel_tol=0.00001)
+    assert math.isclose(
+        result["recall"], 0, rel_tol=0.00001
     ), f"Expected recall NaN, got {result['recall']}"
     assert (
         result["mostly_tracked_score_0.3"] == 0
@@ -363,14 +364,14 @@ def test_realize_metrics():
     recognition_thresholds = [0.3, 0.5]
     result = realize_metrics(metrics_dict, recognition_thresholds)
 
-    assert (
-        math.isclose(result["recall"], 5 / (5 + 2), rel_tol=0.00001)
+    assert math.isclose(
+        result["recall"], 5 / (5 + 2), rel_tol=0.00001
     ), f"Expected recall, got {result['recall']}"
-    assert (
-        math.isclose(result["mostly_tracked_score_0.3"], 3 / 10, rel_tol=0.00001)
+    assert math.isclose(
+        result["mostly_tracked_score_0.3"], 3 / 10, rel_tol=0.00001
     ), f"Expected mostly_tracked_score_0.3, got {result['mostly_tracked_score_0.3']}"
-    assert (
-        math.isclose(result["mostly_tracked_score_0.5"], 1 / 10, rel_tol=0.00001)
+    assert math.isclose(
+        result["mostly_tracked_score_0.5"], 1 / 10, rel_tol=0.00001
     ), f"Expected mostly_tracked_score_0.5, got {result['mostly_tracked_score_0.5']}"
 
     # Test 4: Large unique_obj_count with zero recognized
@@ -639,7 +640,7 @@ def test_calculate_from_payload():
                         [mock_detections_b[i] for i in range(n_detections)]
                         for n_detections in model_config
                     ],
-                ),        
+                ),
             },
         )
 
@@ -652,13 +653,12 @@ def test_calculate_from_payload():
 
     output = calculate_from_payload(
         payload=payload,
-        filter={"name": "area", 
-                "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]},
+        filter={"name": "area", "ranges": [("all", [0, 1e5**2]), ("small", [0, 6**2])]},
         max_iou=max_iou,
         recognition_thresholds=recognition_thresholds,
         debug=debug,
     )
-    
+
     global_metrics = output["model"]["overall"]["all"]
     print(global_metrics)
     assert global_metrics["fn"] == 2.0, "False negatives mismatch"
@@ -666,15 +666,17 @@ def test_calculate_from_payload():
     assert (
         global_metrics["unique_obj_count"] == 4
     ), "Number of ground truth IDs mismatch"
-    assert math.isclose(global_metrics["recall"], 0.75, rel_tol=0.00001), "Recall mismatch"
-    assert (
-        math.isclose(global_metrics["mostly_tracked_score_0.3"], 1.0, rel_tol=0.00001)
+    assert math.isclose(
+        global_metrics["recall"], 0.75, rel_tol=0.00001
+    ), "Recall mismatch"
+    assert math.isclose(
+        global_metrics["mostly_tracked_score_0.3"], 1.0, rel_tol=0.00001
     ), "Recognition at 0.3 mismatch"
-    assert (
-        math.isclose(global_metrics["mostly_tracked_score_0.5"], 1.0, rel_tol=0.00001)
+    assert math.isclose(
+        global_metrics["mostly_tracked_score_0.5"], 1.0, rel_tol=0.00001
     ), "Recognition at 0.5 mismatch"
-    assert (
-        math.isclose(global_metrics["mostly_tracked_score_0.8"], 0.5, rel_tol=0.00001)
+    assert math.isclose(
+        global_metrics["mostly_tracked_score_0.8"], 0.5, rel_tol=0.00001
     ), "Recognition at 0.8 mismatch"
     assert (
         global_metrics["mostly_tracked_count_0.3"] == 4
@@ -692,15 +694,17 @@ def test_calculate_from_payload():
     assert (
         sequence_metrics["unique_obj_count"] == 2
     ), "Per-sequence ground truth IDs mismatch"
-    assert math.isclose(sequence_metrics["recall"], 0.75, rel_tol=0.00001), "Per-sequence recall mismatch"
-    assert (
-        math.isclose(sequence_metrics["mostly_tracked_score_0.3"], 1.0, rel_tol=0.00001)
+    assert math.isclose(
+        sequence_metrics["recall"], 0.75, rel_tol=0.00001
+    ), "Per-sequence recall mismatch"
+    assert math.isclose(
+        sequence_metrics["mostly_tracked_score_0.3"], 1.0, rel_tol=0.00001
     ), "Per-sequence recognition at 0.3 mismatch"
-    assert (
-        math.isclose(sequence_metrics["mostly_tracked_score_0.5"], 1.0, rel_tol=0.00001)
+    assert math.isclose(
+        sequence_metrics["mostly_tracked_score_0.5"], 1.0, rel_tol=0.00001
     ), "Per-sequence recognition at 0.5 mismatch"
-    assert (
-        math.isclose(sequence_metrics["mostly_tracked_score_0.8"], 0.5, rel_tol=0.00001)
+    assert math.isclose(
+        sequence_metrics["mostly_tracked_score_0.8"], 0.5, rel_tol=0.00001
     ), "Per-sequence recognition at 0.8 mismatch"
     assert (
         sequence_metrics["mostly_tracked_count_0.3"] == 2
