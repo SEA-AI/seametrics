@@ -7,11 +7,9 @@ def recognition(track_ratios, th=0.5):
     """Number of objects tracked for at least 20 percent of lifespan."""
     return track_ratios[track_ratios >= th].count()
 
-
 def unique_obj_count(df):
     """Number of unique gt ids."""
     return df.full["OId"].dropna().unique().shape[0]
-
 
 def transform_inputs(predictions, references):
 
@@ -52,17 +50,8 @@ def transform_inputs(predictions, references):
 
     return np_predictions, np_references
 
-
-def calculate(
-    predictions,
-    references,
-    max_iou: float = 1e-10,
-    recognition_thresholds: list = [0.3, 0.5, 0.8],
-):
-    """Returns the scores"""
-
-    np_predictions, np_references = transform_inputs(predictions, references)
-
+def motmetrics_compute(np_predictions, np_references, max_iou: float = 1e-10):
+    
     reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
     prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
 
@@ -82,6 +71,20 @@ def calculate(
 
     mh = mm.metrics.create()
     summary = mh.compute(acc, metrics=["num_misses", "num_detections"]).to_dict()
+
+    return acc, summary
+
+def calculate(
+    predictions,
+    references,
+    max_iou: float = 1e-10,
+    recognition_thresholds: list = [0.3, 0.5, 0.8],
+):
+    """Returns the scores"""
+
+    np_predictions, np_references = transform_inputs(predictions, references)
+
+    acc, summary = motmetrics_compute(np_predictions, np_references, max_iou)
 
     df = events_to_df_map(acc.events)
     tr_ratios = track_ratios(df, obj_frequencies(df))
@@ -166,7 +169,7 @@ def calculate_from_payload(
     filter={"name": "area", "ranges": [("all", [0, 1e5**2])]},
     recognition_thresholds=[0.3, 0.5, 0.8],
     debug: bool = False,
-):
+    ):
     """
     Filter in the form of:
     {
@@ -245,7 +248,6 @@ def calculate_from_payload(
 
     return output
 
-
 def sum_dicts(dict1, dict2):
     """
     Recursively sums the numerical values in two nested dictionaries.
@@ -264,7 +266,6 @@ def sum_dicts(dict1, dict2):
             # If only one dictionary has the key, take the non-zero value
             result[key] = val1 if val1 != 0 else val2
     return result
-
 
 def realize_metrics(metrics_dict, recognition_thresholds):
     """
