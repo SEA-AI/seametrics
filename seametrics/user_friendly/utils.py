@@ -13,7 +13,7 @@ def unique_obj_count(df):
     return df.full["OId"].dropna().unique().shape[0]
 
 
-def trasform_inputs(predictions, references):
+def transform_inputs(predictions, references):
 
     try:
         np_predictions = np.array(predictions) if predictions else np.empty((0, 7))
@@ -56,12 +56,12 @@ def trasform_inputs(predictions, references):
 def calculate(
     predictions,
     references,
-    max_iou: float = 0.5,
+    max_iou: float = 1e-10,
     recognition_thresholds: list = [0.3, 0.5, 0.8],
 ):
     """Returns the scores"""
 
-    np_predictions, np_references = trasform_inputs(predictions, references)
+    np_predictions, np_references = transform_inputs(predictions, references)
 
     reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
     prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
@@ -100,7 +100,7 @@ def calculate(
 
     for th in recognition_thresholds:
         recognized = recognition(tr_ratios, th)
-        summary[f"mostly_tracked_count_{th}"] = int(recognized)
+        summary[f"mostly_tracked_count_{th}".replace(".", "_")] = int(recognized)
 
     return summary
 
@@ -162,7 +162,7 @@ def get_formated_predictions(frames):
 
 def calculate_from_payload(
     payload: dict,
-    max_iou: float = 0.5,
+    max_iou: float = 1e-10,
     filter={"name": "area", "ranges": [("all", [0, 1e5**2])]},
     recognition_thresholds=[0.3, 0.5, 0.8],
     debug: bool = False,
@@ -276,8 +276,8 @@ def realize_metrics(metrics_dict, recognition_thresholds):
     )
 
     for th in recognition_thresholds:
-        metrics_dict[f"mostly_tracked_score_{th}"] = metrics_dict[
-            f"mostly_tracked_count_{th}"
+        metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = metrics_dict[
+            f"mostly_tracked_count_{th}".replace(".", "_")
         ] / (metrics_dict["unique_obj_count"] + 1e-6)
 
     return metrics_dict
