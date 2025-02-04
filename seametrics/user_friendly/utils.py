@@ -1,7 +1,36 @@
 import motmetrics as mm
 import numpy as np
 from motmetrics.metrics import events_to_df_map, obj_frequencies, track_ratios
+from pydantic import BaseModel
 
+class MetricsAcc(BaseModel):
+    recognition_ths: list[float] = [0.3, 0.5, 0.8] 
+    metrics_dict: dict = {}
+
+    def sum(self, metrics_dict):
+        """
+        Sums the metrics
+        """
+        for key in metrics_dict:
+            if key not in self.metrics_dict:
+                self.metrics_dict[key] = 0
+            self.metrics_dict[key] += metrics_dict[key] if 
+
+    def realize_metrics(self):
+        """
+        calculates metrics based on raw metrics
+        """
+
+        self.metrics_dict["recall"] = self.metrics_dict["tp"] / (
+            self.metrics_dict["tp"] + self.metrics_dict["fn"] + 1e-6
+        )
+
+        for th in self.recognition_thresholds:
+            self.metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = self.metrics_dict[
+                f"mostly_tracked_count_{th}".replace(".", "_")
+            ] / (self.metrics_dict["unique_obj_count"] + 1e-6)
+
+        return metrics_dict
 
 def recognition(track_ratios, th=0.5):
     """Number of objects tracked for at least 20 percent of lifespan."""
@@ -108,12 +137,14 @@ def calculate(
     return summary
 
 
-def build_metrics_template(filter):
+def build_metrics_template(filter, recognition_thresholds):
     """builds the metrics template"""
     metrics_dict = {}
     for filter_range in filter:
         filter_range_name = filter_range[0]
-        metrics_dict[filter_range_name] = {}
+        metrics_dict[filter_range_name] = MetricsAcc(
+            recognition_ths=recognition_thresholds
+        )
     return metrics_dict
 
 
@@ -201,21 +232,24 @@ def calculate_from_payload(
         print("models: ", models)
         print("sequence_list: ", sequence_list)
 
+    output = {}
+
     for model in models:
 
-        metrics_overall = build_metrics_template(filter["ranges"])
-        metrics_per_sequence = {}
-        for sequence in sequence_list:
+        metrics_overall = {}
 
-            metrics_per_sequence[sequence] = build_metrics_template(filter["ranges"])
+        for filter_range in filter_ranges:
 
-            frames = payload["sequences"][sequence][gt_field_name]
-            formated_references = get_formated_references(frames, filter)
+            acc = MetricsAcc(recognition_ths=recognition_thresholds)
+            
+            # Iterate over the sequences
+            for sequence in sequence_list:
 
-            frames = payload["sequences"][sequence][model]
-            formated_predictions = get_formated_predictions(frames)
+                frames = payload["sequences"][sequence][gt_field_name]
+                formated_references = get_formated_references(frames, filter)
 
-            for filter_range in filter_ranges:
+                frames = payload["sequences"][sequence][model]
+                formated_predictions = get_formated_predictions(frames)
 
                 filter_range_name = filter_range[0]
 
@@ -226,59 +260,10 @@ def calculate_from_payload(
                     recognition_thresholds=recognition_thresholds,
                 )
 
-                metrics_per_sequence[sequence][filter_range_name] = realize_metrics(
-                    sequence_metrics,
-                    recognition_thresholds,
-                )
+                acc.sum(sequence_metrics)
 
-                metrics_overall[filter_range_name] = sum_dicts(
-                    metrics_overall[filter_range_name],
-                    metrics_per_sequence[sequence][filter_range_name],
-                )
+            metrics_overall[filter_range_name] = acc.realize_metrics()
 
-                metrics_overall[filter_range_name] = realize_metrics(
-                    metrics_overall[filter_range_name],
-                    recognition_thresholds,
-                )
-
-        output[model] = {
-            "per_sequence": metrics_per_sequence,
-            "overall": metrics_overall,
-        }
+        output[model] = metrics_overall
 
     return output
-
-def sum_dicts(dict1, dict2):
-    """
-    Recursively sums the numerical values in two nested dictionaries.
-    """
-    result = {}
-    for key in dict1.keys() | dict2.keys():  # Union of keys from both dictionaries
-        val1 = dict1.get(key, 0)
-        val2 = dict2.get(key, 0)
-        if isinstance(val1, dict) and isinstance(val2, dict):
-            # If both values are dictionaries, recursively sum them
-            result[key] = sum_dicts(val1, val2)
-        elif isinstance(val1, (int, float)) and isinstance(val2, (int, float)):
-            # If both are numbers, sum them
-            result[key] = val1 + val2
-        else:
-            # If only one dictionary has the key, take the non-zero value
-            result[key] = val1 if val1 != 0 else val2
-    return result
-
-def realize_metrics(metrics_dict, recognition_thresholds):
-    """
-    calculates metrics based on raw metrics
-    """
-
-    metrics_dict["recall"] = metrics_dict["tp"] / (
-        metrics_dict["tp"] + metrics_dict["fn"] + 1e-6
-    )
-
-    for th in recognition_thresholds:
-        metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = metrics_dict[
-            f"mostly_tracked_count_{th}".replace(".", "_")
-        ] / (metrics_dict["unique_obj_count"] + 1e-6)
-
-    return metrics_dict
