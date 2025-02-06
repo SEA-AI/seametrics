@@ -91,16 +91,6 @@ def motmetrics_compute(np_predictions, np_references, max_iou: float = 1e-10):
 
     return acc, summary
 
-def build_metrics_template(filter, recognition_thresholds):
-    """builds the metrics template"""
-    metrics_dict = {}
-    for filter_range in filter:
-        filter_range_name = filter_range[0]
-        metrics_dict[filter_range_name] = MetricsAcc(
-            recognition_ths=recognition_thresholds
-        )
-    return metrics_dict
-
 def get_formated_references(frames, filter):
     """formats the references for the calculate_from_payload function, based on the filter and its ranges"""
 
