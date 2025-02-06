@@ -4,30 +4,6 @@ from motmetrics.metrics import events_to_df_map, obj_frequencies, track_ratios
 from pydantic import BaseModel
 from seametrics.payload import Payload, Sequence
 
-def realize_metrics(metrics_dict, recognition_thresholds):
-    """
-    calculates metrics based on raw metrics
-    """
-
-    metrics_dict["recall"] = metrics_dict["tp"] / (
-        metrics_dict["tp"] + metrics_dict["fn"] + 1e-6
-    )
-
-    for th in recognition_thresholds:
-        metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = metrics_dict[
-            f"mostly_tracked_count_{th}".replace(".", "_")
-        ] / (metrics_dict["unique_obj_count"] + 1e-6)
-
-    return metrics_dict
-
-def recognition(track_ratios, th=0.5):
-    """Number of objects tracked for at least 20 percent of lifespan."""
-    return track_ratios[track_ratios >= th].count()
-
-def unique_obj_count(df):
-    """Number of unique gt ids."""
-    return df.full["OId"].dropna().unique().shape[0]
-
 def transform_inputs(predictions, references):
 
     try:
@@ -66,30 +42,6 @@ def transform_inputs(predictions, references):
             )
 
     return np_predictions, np_references
-
-def motmetrics_compute(np_predictions, np_references, max_iou: float = 1e-10):
-    
-    reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
-    prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
-
-    num_frames = int(max(reference_frames, prediction_frames))
-
-    acc = mm.MOTAccumulator(auto_id=True)
-
-    for i in range(1, num_frames + 1):
-        preds = np_predictions[np_predictions[:, 0] == i, 1:6]
-        refs = np_references[np_references[:, 0] == i, 1:6]
-        C = mm.distances.iou_matrix(
-            refs[:, 1:], preds[:, 1:], max_iou=1 - max_iou
-        )  # motmetrics expects iou association threshold to be smaller for stricter association
-        acc.update(
-            refs[:, 0].astype("int").tolist(), preds[:, 0].astype("int").tolist(), C
-        )
-
-    mh = mm.metrics.create()
-    summary = mh.compute(acc, metrics=["num_misses", "num_detections"]).to_dict()
-
-    return acc, summary
 
 def get_formated_references(frames, filter):
     """formats the references for the calculate_from_payload function, based on the filter and its ranges"""
@@ -150,37 +102,127 @@ def payload_to_uf_metrics(
         references.append(formated_references)
 
     return predictions, references
-
-def calculate(
-    predictions,
-    references,
-    max_iou: float = 1e-10,
-    recognition_thresholds: list = [0.3, 0.5, 0.8],
-    ):
-    """Returns the scores"""
-
-    np_predictions, np_references = transform_inputs(predictions, references)
-
-    acc, summary = motmetrics_compute(np_predictions, np_references, max_iou)
-
-    df = events_to_df_map(acc.events)
-    tr_ratios = track_ratios(df, obj_frequencies(df))
-    unique_gt_ids = unique_obj_count(df)
-
-    namemap = {"num_misses": "fn", "num_false_positives": "fp", "num_detections": "tp"}
-
-    for key in list(summary.keys()):
-        if key in namemap:
-            summary[namemap[key]] = float(summary[key][0])
-            summary.pop(key)
-        else:
-            summary[key] = float(summary[key][0])
-
-    summary["unique_obj_count"] = unique_gt_ids
-
-    for th in recognition_thresholds:
-        recognized = recognition(tr_ratios, th)
-        summary[f"mostly_tracked_count_{th}".replace(".", "_")] = int(recognized)
-
-    return summary 
     
+
+class UFM:
+    """
+    Class for computing UserFriendly metrics.
+
+    Methods
+    -------
+    compute()
+        Compute the UserFriendly metrics.
+
+    """
+
+    def __init__(
+        self, 
+        iou_threshold: float = 1e-10, 
+        recognition_thresholds: list = [0.3, 0.5, 0.8],
+    ):
+        """
+        Initialize the UserFriendly class.
+
+        Parameters
+        ----------
+        payload : Payload
+            The payload object.
+        max_iou : float
+            The maximum intersection over union (IoU) threshold.
+        filters : dict
+            A dictionary of filters to apply to the data.
+        recognition_thresholds : list
+            A list of recognition thresholds to use.
+        debug : bool
+            Whether to print debug messages.
+
+        """
+        self.iou_threshold = iou_threshold
+        self.recognition_thresholds = recognition_thresholds
+
+    def motmetrics_compute(
+        self, 
+        np_predictions, 
+        np_references, 
+        iou_threshold: float = 1e-10):
+        
+        reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
+        prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
+
+        num_frames = int(max(reference_frames, prediction_frames))
+
+        acc = mm.MOTAccumulator(auto_id=True)
+
+        for i in range(1, num_frames + 1):
+            preds = np_predictions[np_predictions[:, 0] == i, 1:6]
+            refs = np_references[np_references[:, 0] == i, 1:6]
+            C = mm.distances.iou_matrix(
+                refs[:, 1:], preds[:, 1:], max_iou=1 - iou_threshold
+            )  # motmetrics expects iou association threshold to be smaller for stricter association
+            acc.update(
+                refs[:, 0].astype("int").tolist(), preds[:, 0].astype("int").tolist(), C
+            )
+
+        mh = mm.metrics.create()
+        summary = mh.compute(acc, metrics=["num_misses", "num_detections"]).to_dict()
+
+        return acc, summary
+
+    def calculate(
+        self,
+        predictions,
+        references,
+        ):
+        """Returns the scores"""
+
+        np_predictions, np_references = transform_inputs(predictions, references)
+
+        acc, summary = self.motmetrics_compute(np_predictions, np_references, self.iou_threshold)
+
+        df = events_to_df_map(acc.events)
+        tr_ratios = track_ratios(df, obj_frequencies(df))
+        unique_gt_ids = self.unique_obj_count(df)
+
+        namemap = {"num_misses": "fn", "num_false_positives": "fp", "num_detections": "tp"}
+
+        for key in list(summary.keys()):
+            if key in namemap:
+                summary[namemap[key]] = float(summary[key][0])
+                summary.pop(key)
+            else:
+                summary[key] = float(summary[key][0])
+
+        summary["unique_obj_count"] = unique_gt_ids
+
+        for th in self.recognition_thresholds:
+            recognized = self.recognition(tr_ratios, th)
+            summary[f"mostly_tracked_count_{th}".replace(".", "_")] = int(recognized)
+
+        return summary 
+
+    @staticmethod
+    def realize_metrics(metrics_dict, recognition_thresholds):
+        """
+        calculates metrics based on raw metrics
+        """
+
+        metrics_dict["recall"] = metrics_dict["tp"] / (
+            metrics_dict["tp"] + metrics_dict["fn"] + 1e-6
+        )
+
+        for th in recognition_thresholds:
+            metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = metrics_dict[
+                f"mostly_tracked_count_{th}".replace(".", "_")
+            ] / (metrics_dict["unique_obj_count"] + 1e-6)
+
+        return metrics_dict
+
+    @staticmethod
+    def recognition(track_ratios, th=0.5):
+        """Number of objects tracked for at least 20 percent of lifespan."""
+        return track_ratios[track_ratios >= th].count()
+
+    @staticmethod
+    def unique_obj_count(df):
+        """Number of unique gt ids."""
+        return df.full["OId"].dropna().unique().shape[0]
