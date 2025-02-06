@@ -2,35 +2,23 @@ import motmetrics as mm
 import numpy as np
 from motmetrics.metrics import events_to_df_map, obj_frequencies, track_ratios
 from pydantic import BaseModel
+from seametrics.payload import Payload, Sequence
 
-class MetricsAcc(BaseModel):
-    recognition_ths: list[float] = [0.3, 0.5, 0.8] 
-    metrics_dict: dict = {}
+def realize_metrics(metrics_dict, recognition_thresholds):
+    """
+    calculates metrics based on raw metrics
+    """
 
-    def sum(self, metrics_dict):
-        """
-        Sums the metrics
-        """
-        for key in metrics_dict:
-            if key not in self.metrics_dict:
-                self.metrics_dict[key] = 0
-            self.metrics_dict[key] += metrics_dict[key] if 
+    metrics_dict["recall"] = metrics_dict["tp"] / (
+        metrics_dict["tp"] + metrics_dict["fn"] + 1e-6
+    )
 
-    def realize_metrics(self):
-        """
-        calculates metrics based on raw metrics
-        """
+    for th in recognition_thresholds:
+        metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = metrics_dict[
+            f"mostly_tracked_count_{th}".replace(".", "_")
+        ] / (metrics_dict["unique_obj_count"] + 1e-6)
 
-        self.metrics_dict["recall"] = self.metrics_dict["tp"] / (
-            self.metrics_dict["tp"] + self.metrics_dict["fn"] + 1e-6
-        )
-
-        for th in self.recognition_thresholds:
-            self.metrics_dict[f"mostly_tracked_score_{th}".replace(".", "_")] = self.metrics_dict[
-                f"mostly_tracked_count_{th}".replace(".", "_")
-            ] / (self.metrics_dict["unique_obj_count"] + 1e-6)
-
-        return metrics_dict
+    return metrics_dict
 
 def recognition(track_ratios, th=0.5):
     """Number of objects tracked for at least 20 percent of lifespan."""
@@ -103,40 +91,6 @@ def motmetrics_compute(np_predictions, np_references, max_iou: float = 1e-10):
 
     return acc, summary
 
-def calculate(
-    predictions,
-    references,
-    max_iou: float = 1e-10,
-    recognition_thresholds: list = [0.3, 0.5, 0.8],
-):
-    """Returns the scores"""
-
-    np_predictions, np_references = transform_inputs(predictions, references)
-
-    acc, summary = motmetrics_compute(np_predictions, np_references, max_iou)
-
-    df = events_to_df_map(acc.events)
-    tr_ratios = track_ratios(df, obj_frequencies(df))
-    unique_gt_ids = unique_obj_count(df)
-
-    namemap = {"num_misses": "fn", "num_false_positives": "fp", "num_detections": "tp"}
-
-    for key in list(summary.keys()):
-        if key in namemap:
-            summary[namemap[key]] = float(summary[key][0])
-            summary.pop(key)
-        else:
-            summary[key] = float(summary[key][0])
-
-    summary["unique_obj_count"] = unique_gt_ids
-
-    for th in recognition_thresholds:
-        recognized = recognition(tr_ratios, th)
-        summary[f"mostly_tracked_count_{th}".replace(".", "_")] = int(recognized)
-
-    return summary
-
-
 def build_metrics_template(filter, recognition_thresholds):
     """builds the metrics template"""
     metrics_dict = {}
@@ -146,7 +100,6 @@ def build_metrics_template(filter, recognition_thresholds):
             recognition_ths=recognition_thresholds
         )
     return metrics_dict
-
 
 def get_formated_references(frames, filter):
     """formats the references for the calculate_from_payload function, based on the filter and its ranges"""
@@ -180,7 +133,6 @@ def get_formated_references(frames, filter):
 
     return formated_references
 
-
 def get_formated_predictions(frames):
     """formats the predictions for the calculate_from_payload function"""
     formated_predictions = []
@@ -193,77 +145,52 @@ def get_formated_predictions(frames):
 
     return formated_predictions
 
-
-def calculate_from_payload(
-    payload: dict,
-    max_iou: float = 1e-10,
-    filter={"name": "area", "ranges": [("all", [0, 1e5**2])]},
-    recognition_thresholds=[0.3, 0.5, 0.8],
-    debug: bool = False,
+def payload_to_uf_metrics(
+    payload: Payload,
+    model_name: str = None,
+    filter_dict = {"name": "area", "ranges": [("all", [0, 1e5**2])]},
     ):
-    """
-    Filter in the form of:
-    {
-    "name": "area"
-    "ranges": [("all", [0, 1e5**2]), ("small", [0**2, 6**2]), ("medium", [6**2, 12**2]), ("large", [12**2, 1e5**2])]
-    }
 
-    Receives a payload and returns the metrics
-    """
+    predictions, references = [], []
 
-    filter_name = filter["name"]
-    filter_ranges = filter["ranges"]
-    output = {}
+    for sequence_name, sequence in payload.sequences.items():
+        formated_predictions = get_formated_predictions(sequence[model_name])
+        formated_references = get_formated_references(sequence[payload.gt_field_name], filter_dict)
+        predictions.append(formated_predictions)
+        references.append(formated_references)
 
-    if not isinstance(payload, dict):
-        try:
-            payload = payload.to_dict()
-        except Exception as e:
-            raise ValueError(
-                "The payload should be a dictionary or a compatible object"
-            ) from e
+    return predictions, references
 
-    gt_field_name = payload["gt_field_name"]
-    models = payload["models"]
-    sequence_list = payload["sequence_list"]
+def calculate(
+    predictions,
+    references,
+    max_iou: float = 1e-10,
+    recognition_thresholds: list = [0.3, 0.5, 0.8],
+    ):
+    """Returns the scores"""
 
-    if debug:
-        print("gt_field_name: ", gt_field_name)
-        print("models: ", models)
-        print("sequence_list: ", sequence_list)
+    np_predictions, np_references = transform_inputs(predictions, references)
 
-    output = {}
+    acc, summary = motmetrics_compute(np_predictions, np_references, max_iou)
 
-    for model in models:
+    df = events_to_df_map(acc.events)
+    tr_ratios = track_ratios(df, obj_frequencies(df))
+    unique_gt_ids = unique_obj_count(df)
 
-        metrics_overall = {}
+    namemap = {"num_misses": "fn", "num_false_positives": "fp", "num_detections": "tp"}
 
-        for filter_range in filter_ranges:
+    for key in list(summary.keys()):
+        if key in namemap:
+            summary[namemap[key]] = float(summary[key][0])
+            summary.pop(key)
+        else:
+            summary[key] = float(summary[key][0])
 
-            acc = MetricsAcc(recognition_ths=recognition_thresholds)
-            
-            # Iterate over the sequences
-            for sequence in sequence_list:
+    summary["unique_obj_count"] = unique_gt_ids
 
-                frames = payload["sequences"][sequence][gt_field_name]
-                formated_references = get_formated_references(frames, filter)
+    for th in recognition_thresholds:
+        recognized = recognition(tr_ratios, th)
+        summary[f"mostly_tracked_count_{th}".replace(".", "_")] = int(recognized)
 
-                frames = payload["sequences"][sequence][model]
-                formated_predictions = get_formated_predictions(frames)
-
-                filter_range_name = filter_range[0]
-
-                sequence_metrics = calculate(
-                    formated_predictions,
-                    formated_references[filter_range_name],
-                    max_iou=max_iou,
-                    recognition_thresholds=recognition_thresholds,
-                )
-
-                acc.sum(sequence_metrics)
-
-            metrics_overall[filter_range_name] = acc.realize_metrics()
-
-        output[model] = metrics_overall
-
-    return output
+    return summary 
+    
