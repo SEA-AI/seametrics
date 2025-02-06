@@ -1,7 +1,6 @@
 import motmetrics as mm
 import numpy as np
 from motmetrics.metrics import events_to_df_map, obj_frequencies, track_ratios
-from pydantic import BaseModel
 from seametrics.payload import Payload, Sequence
 
 def transform_inputs(predictions, references):
