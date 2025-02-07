@@ -58,7 +58,7 @@ def multiple_masks_to_single_mask(
     Returns:
         np.ndarray: The single mask image.
     """
-
+    frame_dets = [det for det in frame_dets if det["mask"] is not None]
     single_mask = np.ones((h, w, 2)) * (-1)
     for instance_idx, det in enumerate(
         sorted(frame_dets, key=lambda det: det["mask"].sum(), reverse=True)
