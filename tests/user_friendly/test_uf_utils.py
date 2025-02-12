@@ -8,7 +8,6 @@ import pytest
 
 from seametrics.payload import Payload, Resolution, Sequence
 from seametrics.user_friendly.utils import (
-    transform_inputs,
     get_formated_references,
     get_formated_references,
     payload_to_uf_metrics,

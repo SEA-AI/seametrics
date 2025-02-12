@@ -2,8 +2,19 @@ import motmetrics as mm
 import numpy as np
 from motmetrics.metrics import events_to_df_map, obj_frequencies, track_ratios
 from seametrics.payload import Payload, Sequence
+from typing import Dict, List, Tuple
 
-def transform_inputs(predictions, references):
+def validate_inputs(predictions, references) -> Tuple:
+    """
+    Validate the inputs to the calculate function.
+
+    Parameters:
+        predictions (list): A list of lists in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence].
+        references (list): A list of lists in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height].
+
+    Returns:
+        tuple: A tuple containing the validated predictions and references.
+    """
 
     try:
         np_predictions = np.array(predictions) if predictions else np.empty((0, 7))
@@ -42,8 +53,17 @@ def transform_inputs(predictions, references):
 
     return np_predictions, np_references
 
-def get_formated_references(frames, filter):
-    """formats the references for the calculate_from_payload function, based on the filter and its ranges"""
+def get_formated_references(frames, filter) -> Dict:
+    """
+    Formats the references for the calculate_from_payload function, based on the filter and its ranges
+
+    Parameters:
+        frames (list): A list of lists in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height].
+        filter (dict): A dictionary containing the filter name and its ranges.
+
+    Returns:
+        dict: A dictionary containing the formated references in list of lists format.
+    """
 
     filter_name = filter["name"]
     filter_ranges = filter["ranges"]
@@ -74,8 +94,17 @@ def get_formated_references(frames, filter):
 
     return formated_references
 
-def get_formated_predictions(frames):
-    """formats the predictions for the calculate_from_payload function"""
+def get_formated_predictions(frames) -> List[List]:
+    """
+    Formats the predictions for the calculate_from_payload function
+    
+    Parameters:
+        frames (list): A list of lists of fo.Detection
+
+    Returns:
+        list: A list of lists in the format [frame number, object id, bb_left, bb_top, bb_width, bb_height, confidence].
+
+    """
     formated_predictions = []
     for frame_id, frame in enumerate(frames):
         for detection in frame:
@@ -90,7 +119,17 @@ def payload_to_uf_metrics(
     payload: Payload,
     model_name: str = None,
     filter_dict = {"name": "area", "ranges": [("all", [0, 1e5**2])]},
-    ):
+    ) -> Tuple[List[np.ndarray], List[Dict[str, np.ndarray]]]:
+    """
+    Convert the payload data to UserFriendly metrics format.
+
+    Parameters:
+        payload (dict): The payload data containing sequences, models,
+
+    Returns:
+        tuple: A tuple containing the converted (predictions, references).
+
+    """
 
     predictions, references = [], []
 
@@ -143,7 +182,7 @@ class UFM:
         self, 
         np_predictions, 
         np_references, 
-        iou_threshold: float = 1e-10):
+        iou_threshold: float = 1e-10) -> Tuple[mm.MOTAccumulator, Dict]:
         
         reference_frames = np_references[:, 0].max() if np_references.size > 0 else 0
         prediction_frames = np_predictions[:, 0].max() if np_predictions.size > 0 else 0
@@ -171,10 +210,10 @@ class UFM:
         self,
         predictions,
         references,
-        ):
+        ) -> Dict:
         """Returns the scores"""
 
-        np_predictions, np_references = transform_inputs(predictions, references)
+        np_predictions, np_references = validate_inputs(predictions, references)
 
         acc, summary = self.motmetrics_compute(np_predictions, np_references, self.iou_threshold)
 
@@ -200,7 +239,7 @@ class UFM:
         return summary 
 
     @staticmethod
-    def realize_metrics(metrics_dict, recognition_thresholds):
+    def realize_metrics(metrics_dict, recognition_thresholds) -> Dict:
         """
         calculates metrics based on raw metrics
         """
@@ -217,11 +256,11 @@ class UFM:
         return metrics_dict
 
     @staticmethod
-    def recognition(track_ratios, th=0.5):
+    def recognition(track_ratios, th=0.5) -> int:
         """Number of objects tracked for at least 20 percent of lifespan."""
         return track_ratios[track_ratios >= th].count()
 
     @staticmethod
-    def unique_obj_count(df):
+    def unique_obj_count(df) -> int:
         """Number of unique gt ids."""
         return df.full["OId"].dropna().unique().shape[0]
