@@ -239,7 +239,7 @@ class UFM:
         return summary 
 
     @staticmethod
-    def realize_metrics(metrics_dict, recognition_thresholds) -> Dict:
+    def derive_scores(metrics_dict, recognition_thresholds) -> Dict:
         """
         calculates metrics based on raw metrics
         """

@@ -206,10 +206,10 @@ def test_calculate_mismatched_frames():
     assert result["unique_obj_count"] == 1, "Expected 1 unique GT ID"
 
 
-def test_realize_metrics():
+def test_derive_scores():
     # Test 1: Typical case with valid metrics
     """
-    Tests the realize_metrics function.
+    Tests the derive_scores function.
 
     Tests the following cases:
     1. Typical case with valid metrics.
@@ -226,7 +226,7 @@ def test_realize_metrics():
         "mostly_tracked_count_0_8": 4,
     }
     recognition_thresholds = [0.3, 0.5, 0.8]
-    result = ufm.realize_metrics(metrics_dict, recognition_thresholds)
+    result = ufm.derive_scores(metrics_dict, recognition_thresholds)
 
     assert math.isclose(
         result["recall"], 10 / (10 + 3), rel_tol=0.00001
@@ -251,7 +251,7 @@ def test_realize_metrics():
         "mostly_tracked_count_0_8": 0,
     }
     recognition_thresholds = [0.3, 0.5, 0.8]
-    result = ufm.realize_metrics(metrics_dict, recognition_thresholds)
+    result = ufm.derive_scores(metrics_dict, recognition_thresholds)
 
     assert math.isclose(
         result["recall"], 0, rel_tol=0.00001
@@ -275,7 +275,7 @@ def test_realize_metrics():
         "mostly_tracked_count_0_5": 1,
     }
     recognition_thresholds = [0.3, 0.5]
-    result = ufm.realize_metrics(metrics_dict, recognition_thresholds)
+    result = ufm.derive_scores(metrics_dict, recognition_thresholds)
 
     assert math.isclose(
         result["recall"], 5 / (5 + 2), rel_tol=0.00001
@@ -296,7 +296,7 @@ def test_realize_metrics():
         "mostly_tracked_count_0_5": 0,
     }
     recognition_thresholds = [0.3, 0.5]
-    result = ufm.realize_metrics(metrics_dict, recognition_thresholds)
+    result = ufm.derive_scores(metrics_dict, recognition_thresholds)
 
     assert result["recall"] == 0, f"Expected recall 0, got {result['recall']}"
     assert (
