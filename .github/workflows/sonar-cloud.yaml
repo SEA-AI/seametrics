@@ -52,9 +52,9 @@ jobs:
           source .venv/bin/activate
           pytest --cov=seametrics --cov-report=xml
 
-      # Step 6: SonarCloud scan
+      # Step 6: SonarQube Cloud scan
       - name: 🔎 SonarQube Cloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarqube-scan-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Required for PR analysis
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
