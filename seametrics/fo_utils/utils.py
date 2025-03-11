@@ -151,7 +151,6 @@ def _replace_dots_in_keys(data: Dict[str, Dict]) -> Dict[str, Dict]:
     }
 
 
-@recursively_change_dots_for_underscore(dict_arg_name="metrics")
 def fo_upload(
     dataset_name: str,
     metrics: Dict[str, Dict],
