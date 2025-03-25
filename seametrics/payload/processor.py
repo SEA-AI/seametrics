@@ -174,7 +174,9 @@ class PayloadProcessor:
             relevant_slices = self.get_datatype_slices()
         else:
             relevant_slices = set(self.slices)
-        self.dataset = self.dataset.select_group_slices(relevant_slices)
+
+        if relevant_slices is not None:
+            self.dataset = self.dataset.select_group_slices(relevant_slices)
 
         if self.tags:
             self.dataset = self.dataset.match_tags(self.tags, all=True)
@@ -198,6 +200,9 @@ class PayloadProcessor:
         Raises:
             ValueError: If there is no matching data slice for the data type.
         """
+        if self.dataset.group_slices is None:
+            return None
+        
         thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
