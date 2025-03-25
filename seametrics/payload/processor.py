@@ -29,7 +29,8 @@ class PayloadProcessor:
         slices: List[str] = None,
         tags: List[str] = None,
         start_frame_id: int = None,
-        end_frame_id: int = None
+        end_frame_id: int = None,
+        confidence_threshold: float = 0
     ):
         """
         Initializes a PayloadProcessor object.
@@ -50,8 +51,12 @@ class PayloadProcessor:
                 Defaults to None. If None, a smart selection of available slices takes place.
             tags (List[str], optional): The list of tags to filter the dataset.
                 Defaults to None.
-            start_frame_id (int, optional): The start frame id. Defaults to None.
-            end_frame_id (int, optional): The end frame id. Defaults to None.
+            start_frame_id (int, optional): The start frame id.
+                Defaults to None.
+            end_frame_id (int, optional): The end frame id.
+                Defaults to None.
+            confidence_threshold (float, optional): Confidence threshold to filter the model fields.
+                Defaults to 0.
         """
         self.dataset_name = dataset_name
         self.gt_field = gt_field
@@ -61,6 +66,7 @@ class PayloadProcessor:
         self.data_type = data_type
         self.slices = slices
         self.tags = tags
+        self.confidence_threshold = confidence_threshold
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
         self.validate_input_parameters()
         self.dataset: fo.Dataset = None
@@ -274,10 +280,14 @@ class PayloadProcessor:
         detections = {}
 
         for field_name in self.models + [self.gt_field]:
+            filter_expression = ~(F("label").is_in(self.excluded_classes))
+
+            if field_name != self.gt_field:
+                filter_expression &= F("confidence") > self.confidence_threshold
 
             filter_view = sequence_view.filter_labels(
                 self.get_field_name(sequence_view, field_name),
-                ~F("label").is_in(self.excluded_classes),
+                filter_expression,
                 only_matches=False,
             )
             
