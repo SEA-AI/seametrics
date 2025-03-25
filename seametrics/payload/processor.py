@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Union
 
 import fiftyone as fo
 from fiftyone import ViewField as F
@@ -190,7 +190,7 @@ class PayloadProcessor:
 
         return self.process_sequences()
 
-    def get_datatype_slices(self) -> List[str]:
+    def get_datatype_slices(self) -> Union[List[str], None]:
         """
         Retrieves the relevant slices based on the data type.
 
