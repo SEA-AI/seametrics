@@ -176,6 +176,8 @@ class PayloadProcessor:
             else:
                 relevant_slices = set(self.slices)
 
+            logger.info(f"Using slice: {relevant_slices}")
+
             self.dataset = self.dataset.select_group_slices(relevant_slices)
 
         if self.tags:
@@ -185,8 +187,6 @@ class PayloadProcessor:
             self.dataset = self.dataset.match(F("sequence").is_in(self.sequence_list))
 
         self.sequence_list = self.dataset.distinct("sequence")
-
-        logger.info(f"Using slice: {relevant_slices}")
 
         return self.process_sequences()
 
