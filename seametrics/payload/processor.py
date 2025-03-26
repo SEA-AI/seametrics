@@ -170,12 +170,12 @@ class PayloadProcessor:
         """
         self.print_info()
 
-        if self.slices is None:
-            relevant_slices = self.get_datatype_slices()
-        else:
-            relevant_slices = set(self.slices)
+        if self.dataset.media_type == "group":
+            if not self.slices:
+                relevant_slices = self.get_datatype_slices()
+            else:
+                relevant_slices = set(self.slices)
 
-        if relevant_slices is not None:
             self.dataset = self.dataset.select_group_slices(relevant_slices)
 
         if self.tags:
@@ -190,7 +190,7 @@ class PayloadProcessor:
 
         return self.process_sequences()
 
-    def get_datatype_slices(self) -> Union[List[str], None]:
+    def get_datatype_slices(self) -> List[str]:
         """
         Retrieves the relevant slices based on the data type.
 
@@ -199,10 +199,7 @@ class PayloadProcessor:
 
         Raises:
             ValueError: If there is no matching data slice for the data type.
-        """
-        if self.dataset.group_slices is None:
-            return None
-        
+        """        
         thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
