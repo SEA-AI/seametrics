@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Union
 
 import fiftyone as fo
 from fiftyone import ViewField as F
@@ -170,11 +170,15 @@ class PayloadProcessor:
         """
         self.print_info()
 
-        if self.slices is None:
-            relevant_slices = self.get_datatype_slices()
-        else:
-            relevant_slices = set(self.slices)
-        self.dataset = self.dataset.select_group_slices(relevant_slices)
+        if self.dataset.media_type == "group":
+            if not self.slices:
+                relevant_slices = self.get_datatype_slices()
+            else:
+                relevant_slices = set(self.slices)
+
+            logger.info(f"Using slice: {relevant_slices}")
+
+            self.dataset = self.dataset.select_group_slices(relevant_slices)
 
         if self.tags:
             self.dataset = self.dataset.match_tags(self.tags, all=True)
@@ -183,8 +187,6 @@ class PayloadProcessor:
             self.dataset = self.dataset.match(F("sequence").is_in(self.sequence_list))
 
         self.sequence_list = self.dataset.distinct("sequence")
-
-        logger.info(f"Using slice: {relevant_slices}")
 
         return self.process_sequences()
 
@@ -197,7 +199,7 @@ class PayloadProcessor:
 
         Raises:
             ValueError: If there is no matching data slice for the data type.
-        """
+        """        
         thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
