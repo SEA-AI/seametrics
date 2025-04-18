@@ -379,8 +379,11 @@ class PrecisionRecallF1Support:
             coco_eval.params.maxDets = self.max_detection_thresholds
             coco_eval.params.areaRng = self.area_ranges
             coco_eval.params.areaRngLbl = self.area_ranges_labels
-            coco_eval.params.useCats = 0 if self.class_agnostic else 1
-
+            if self.class_agnostic:
+                coco_eval.params.useCats = 0
+            else:
+                coco_eval.params.useCats = 1
+                coco_eval.params.catIds = np.unique(self.detection_labels + self.groundtruth_labels).tolist()
             coco_eval.evaluate()
             coco_eval.accumulate()
 

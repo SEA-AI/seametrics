@@ -589,51 +589,69 @@ class COCOeval:
                 fpi = fpi[t]
 
             # filter by area and maxDets
-            tp = tp[:, :, aind, mind].squeeze()
-            fp = fp[:, :, aind, mind].squeeze()
-            fn = fn[:, :, aind, mind].squeeze()
-            dup = dup[:, :, aind, mind].squeeze()
-            fpi = fpi[:, :, aind, mind].squeeze()
-
+            tp = tp[:, :, aind, mind]
+            fp = fp[:, :, aind, mind]
+            fn = fn[:, :, aind, mind]
+            dup = dup[:, :, aind, mind]
+            fpi = fpi[:, :, aind, mind]
             # handle case where tp, fp, fn and dup are empty (no gt and no dt),
             # i.e. all are zero or all are -1
             if all([(not np.any(m) or np.all(m==-1)) for m in [tp, fp, fn, dup, fpi]]):
-                tp, fp, fn, dup, fpi = [0] * 5
+                tp, fp, fn, dup, fpi = [np.zeros_like(tp)] * 5 # TODO: why only last of shape
             else:
-                tp, fp, fn, dup, fpi = [e.item() for e in [tp, fp, fn, dup, fpi]]
-
+                tp, fp, fn, dup, fpi = [e for e in [tp, fp, fn, dup, fpi]]
             
             # compute precision, recall, f1
-            pr = -1 if tp + fp == 0 else tp / (tp + fp)
-            rec = -1 if tp + fn == 0 else tp / (tp + fn)
-            if pr == -1 or rec == -1:
-                f1 = -1
-            else:
-                f1 = 0 if pr + rec == 0 else 2 * pr * rec / (pr + rec)
+            pr = tp / (tp + fp)
+            rec = tp / (tp + fn)
+            f1 = 2 * pr * rec / (pr + rec)
+
+            pr[tp + fp == 0] = -1
+            rec[tp + fn == 0] = -1
+            f1[pr == -1] = -1
+            f1[rec == -1] = -1
+            f1[pr + rec == 0] = -1
+
             support = tp + fn
+
+            tp, fp, fn, dup, fpi, pr, rec, f1 = [res.squeeze() for res in [tp, fp, fn, dup, fpi, pr, rec, f1]]
             # print(f"{tp=}, {fp=}, {fn=}, {dup=}, {pr=}, {rec=}, {f1=}, {support=}, {fpi=}")
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
-            metrics_str = f"{tp:>6.0f}, {fp:>6.0f}, {fn:>6.0f}, {dup:>6.0f}, "
-            metrics_str += f"{pr:>5.2f}, {rec:>5.2f}, {f1:>5.2f}, {support:>6.0f}, "
-            metrics_str += f"{fpi:>6.0f}, {nImgs:>6.0f}"
+            metrics_str = f"{tp.sum():>6.0f}, {fp.sum():>6.0f}, {fn.sum():>6.0f}, {dup.sum():>6.0f}, "
+            str_pr, str_rec, str_f1 = pr[pr != -1].mean() if len(pr[pr != -1]) > 0 else 0, \
+                rec[rec != -1].mean() if len(rec[rec != -1]) > 0 != np.nan else 0, \
+                f1[f1 != -1].mean() if len(f1[f1 != -1]) > 0 else 0
+            metrics_str += f"{str_pr:>5.2f}, {str_rec:>5.2f}, {str_f1:>5.2f}, {support.sum():>6.0f}, "
+            metrics_str += f"{fpi.sum():>6.0f}, {nImgs:>6.0f}"
             print(iStr.format(iouStr, areaRng, maxDets, metrics_str))
+
+            if self.params.useCats != 1:
+                tp = int(tp)
+                fp = int(fp)
+                fn = int(fn)
+                dup = int(dup)
+                support = int(support)
+                fpi = int(fpi)
+                pr = float(pr)
+                rec = float(rec)
+                f1 = float(f1)
 
             return {
                 'range': p.areaRng[aind[0]],
                 'iouThr': iouStr,
                 'maxDets': maxDets,
-                'tp': int(tp),
-                'fp': int(fp),
-                'fn': int(fn),
-                'duplicates': int(dup),
+                'tp': tp,
+                'fp': fp,
+                'fn': fn,
+                'duplicates': dup,
                 'precision': pr,
                 'recall': rec,
                 'f1': f1,
-                'support': int(support),
-                'fpi': int(fpi),
+                'support': support,
+                'fpi': fpi,
                 'nImgs': nImgs,
             }
 
