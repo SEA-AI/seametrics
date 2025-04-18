@@ -614,7 +614,7 @@ class COCOeval:
 
             support = tp + fn
 
-            tp, fp, fn, dup, fpi, pr, rec, f1 = [res.squeeze() for res in [tp, fp, fn, dup, fpi, pr, rec, f1]]
+            tp, fp, fn, dup, fpi, pr, rec, f1, support = [res.squeeze() for res in [tp, fp, fn, dup, fpi, pr, rec, f1, support]]
             # print(f"{tp=}, {fp=}, {fn=}, {dup=}, {pr=}, {rec=}, {f1=}, {support=}, {fpi=}")
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
