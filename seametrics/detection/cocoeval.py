@@ -613,6 +613,8 @@ class COCOeval:
             f1[pr + rec == 0] = -1
 
             support = tp + fn
+            support[tp == -1] += 1
+            support[fn == -1] += 1
 
             tp, fp, fn, dup, fpi, pr, rec, f1, support = [res.squeeze() for res in [tp, fp, fn, dup, fpi, pr, rec, f1, support]]
             # print(f"{tp=}, {fp=}, {fn=}, {dup=}, {pr=}, {rec=}, {f1=}, {support=}, {fpi=}")
