@@ -59,7 +59,7 @@ def payload_to_det_metric(
         predictions.extend(payload_sequence_to_det_metrics(sequence[model_name], w, h, label_mapping=label_mapping))
         references.extend(
             payload_sequence_to_det_metrics(
-                sequence[payload.gt_field_name], w, h, is_gt=True
+                sequence[payload.gt_field_name], w, h, is_gt=True, label_mapping=label_mapping
             )
         )
 
