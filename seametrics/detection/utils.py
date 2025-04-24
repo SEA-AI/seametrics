@@ -130,6 +130,9 @@ def frame_dets_to_det_metrics(
 
     for det in fo_dets:
         bbox = det["bounding_box"]
+        if label_mapping and not (det["label"] in label_mapping.keys()):
+            print(f"could not add sample as its label {det['label']} is not contained in label mapping ...")
+            continue
 
         detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
         labels.append(0 if label_mapping is None else label_mapping[det["label"]])
