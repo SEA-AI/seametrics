@@ -348,13 +348,18 @@ class PrecisionRecallF1Support:
         _input_validator(preds, target, iou_type=self.iou_type)
 
         for item in preds:
+            if self.labels:
+                if not set(item["labels"]).issubset(set(self.labels)):
+                    raise ValueError(f"Labels are predefined to be {self.labels}, but you provide unknown labels in {item["labels"]}.")
             detections = self._get_safe_item_values(item)
-
             self.detections.append(detections)
             self.detection_labels.append(item["labels"])
             self.detection_scores.append(item["scores"])
 
         for item in target:
+            if self.labels:
+                if not set(item["labels"]).issubset(set(self.labels)):
+                    raise ValueError(f"Labels are predefined to be {self.labels}, but you provide unknown labels in {item["labels"]}.")
             groundtruths = self._get_safe_item_values(item)
             self.groundtruths.append(groundtruths)
             self.groundtruth_labels.append(item["labels"])
