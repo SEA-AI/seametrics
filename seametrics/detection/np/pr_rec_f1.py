@@ -205,6 +205,7 @@ class PrecisionRecallF1Support:
         area_ranges_labels: Optional[List[str]] = None,
         class_agnostic: bool = True,
         debug: bool = False,
+        labels: List[int] = None,
         **kwargs: Any,
     ) -> None:
 
@@ -291,6 +292,15 @@ class PrecisionRecallF1Support:
         if not isinstance(class_agnostic, bool):
             raise ValueError("Expected argument `class_agnostic` to be a boolean")
         self.class_agnostic = class_agnostic
+
+        if labels is not None:
+            if not isinstance(labels, list):
+                raise ValueError(f"Expected argument `labels` to be a list of integers, but got {labels}")
+        self.labels = labels
+
+        if self.labels is not None:
+            if self.class_agnostic:
+                raise ValueError("Expected labels to be None if argument `class_agnostic` is True.")
 
         if not isinstance(debug, bool):
             raise ValueError("Expected argument `debug` to be a boolean")
@@ -383,7 +393,7 @@ class PrecisionRecallF1Support:
                 coco_eval.params.useCats = 0
             else:
                 coco_eval.params.useCats = 1
-                coco_eval.params.catIds = np.unique(self.detection_labels + self.groundtruth_labels).tolist()
+                coco_eval.params.catIds = np.unique(self.detection_labels + self.groundtruth_labels).tolist() if not self.labels else self.labels
             coco_eval.evaluate()
             coco_eval.accumulate()
 
