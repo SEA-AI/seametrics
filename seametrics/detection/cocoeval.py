@@ -595,11 +595,11 @@ class COCOeval:
             dup = dup[:, :, aind, mind]
             fpi = fpi[:, :, aind, mind]
             # handle case where tp, fp, fn and dup are empty (no gt and no dt),
-            # i.e. all are zero or all are -1
-            if all([(not np.any(m) or np.all(m==-1)) for m in [tp, fp, fn, dup, fpi]]):
-                tp, fp, fn, dup, fpi = [np.zeros_like(tp)] * 5 # TODO: why only last of shape
-            else:
-                tp, fp, fn, dup, fpi = [e for e in [tp, fp, fn, dup, fpi]]
+            tp[tp == -1] = 0
+            fp[fp == -1] = 0
+            fn[fn == -1] = 0
+            dup[dup == -1] = 0
+            fpi[fpi == -1] = 0
             
             # compute precision, recall, f1
             pr = tp / (tp + fp)
@@ -613,8 +613,6 @@ class COCOeval:
             f1[pr + rec == 0] = -1
 
             support = tp + fn
-            support[tp == -1] += 1
-            support[fn == -1] += 1
 
             tp, fp, fn, dup, fpi, pr, rec, f1, support = [res.squeeze() for res in [tp, fp, fn, dup, fpi, pr, rec, f1, support]]
             # print(f"{tp=}, {fp=}, {fn=}, {dup=}, {pr=}, {rec=}, {f1=}, {support=}, {fpi=}")
