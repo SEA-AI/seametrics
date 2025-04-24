@@ -398,7 +398,11 @@ class PrecisionRecallF1Support:
                 coco_eval.params.useCats = 0
             else:
                 coco_eval.params.useCats = 1
-                coco_eval.params.catIds = np.unique(self.detection_labels + self.groundtruth_labels).tolist() if not self.labels else self.labels
+                if not self.labels:
+                    all_labels = np.unique(np.concatenate(self.detection_labels).tolist() + np.concatenate(self.groundtruth_labels).tolist()).tolist()
+                else:
+                    all_labels = self.labels
+                coco_eval.params.catIds = all_labels
             coco_eval.evaluate()
             coco_eval.accumulate()
 
