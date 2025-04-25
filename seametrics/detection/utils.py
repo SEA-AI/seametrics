@@ -1,17 +1,18 @@
-import os
 import contextlib
 import io
+import os
 from typing import Dict, List, Tuple
-from deprecated import deprecated
-from tqdm import tqdm
+
+import fiftyone as fo
 import numpy as np
 import pandas as pd
-import fiftyone as fo
+from deprecated import deprecated
 from fiftyone import ViewField as F
+from tqdm import tqdm
 
-from seametrics.payload import Payload
-from seametrics.detection.np.utils import box_convert
 from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
+from seametrics.detection.np.utils import box_convert
+from seametrics.payload import Payload
 
 if _TORCHMETRICS_AVAILABLE:
     from torch import tensor
@@ -20,22 +21,23 @@ if _TORCHMETRICS_AVAILABLE:
 
 error_code = None
 
+
 def payload_to_det_metric(
     payload: Payload,
     model_name: str = None,
     label_mapping: Dict[str, int] = None,
     class_agnostic: bool = True,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
-    """
-    Convert the payload data to detection metrics format.
+    """Convert the payload data to detection metrics format.
 
     Args:
         payload (Dict): The payload data containing sequences, models,
             and ground truth field name.
         model_name (str, optional): The name of the model. If not provided,
             the first model in the payload will be used.
-        label_mapping (Dict[str, int], optional): Dictionary mapping string labels to numbers, which should be provided if the 
-            detection metrics should be calculated in a class-specific way. Defaults to None.
+        label_mapping (Dict[str, int], optional): Dictionary mapping string labels to
+            numbers, which should be provided if the detection metrics should be
+            calculated in a class-specific way. Defaults to None.
         class_agnostic (bool, optional): Flag indicating if the metrics should be
             calculated in a class-agnostic way. Defaults to True.
 
@@ -45,7 +47,7 @@ def payload_to_det_metric(
     """
     if class_agnostic and label_mapping is not None:
         raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
-    
+
     predictions, references = [], []
 
     if model_name is None:
@@ -56,10 +58,21 @@ def payload_to_det_metric(
             sequence.resolution.width,
             sequence.resolution.height,
         )
-        predictions.extend(payload_sequence_to_det_metrics(sequence[model_name], w, h, label_mapping=label_mapping))
+        predictions.extend(
+            payload_sequence_to_det_metrics(
+                sequence_dets=sequence[model_name],
+                w=w,
+                h=h,
+                label_mapping=label_mapping
+            )
+        )
         references.extend(
             payload_sequence_to_det_metrics(
-                sequence[payload.gt_field_name], w, h, is_gt=True, label_mapping=label_mapping
+                sequence_dets=sequence[payload.gt_field_name],
+                w=w,
+                h=h,
+                is_gt=True,
+                label_mapping=label_mapping
             )
         )
 
@@ -73,9 +86,7 @@ def payload_sequence_to_det_metrics(
     is_gt: bool = False,
     label_mapping: Dict[str, int] = None,
 ) -> List[Dict[str, np.ndarray]]:
-    """
-    Convert a sequence of detections to the format required by the
-    PrecisionRecallF1Support() function of the seametrics library.
+    """Convert a sequence of detections to format of PrecisionRecallF1.
 
     Args:
         sequence_dets (List[List[fo.Detection]]): A list of fiftyone detections.
@@ -83,8 +94,9 @@ def payload_sequence_to_det_metrics(
         h (int): Height in pixels of the image.
         is_gt (bool, optional): Flag indicating if the input data is ground truth.
             Defaults to False.
-        label_mapping (Dict[str, int], optional): Dictionary mapping string labels to numbers, which should be provided if the 
-            detection metrics should be calculated in a class-specific way. Defaults to None.
+        label_mapping (Dict[str, int], optional): Dictionary mapping string labels to
+            numbers, which should be provided if the detection metrics should be
+            calculated in a class-specific way. Defaults to None.
 
     Returns:
         List[Dict[str, np.ndarray]]: A list containing the converted detections.
@@ -92,7 +104,7 @@ def payload_sequence_to_det_metrics(
     output = []
 
     for frame_dets in sequence_dets:
-        frame_dict = frame_dets_to_det_metrics(frame_dets, w, h, is_gt, label_mapping=label_mapping)
+        frame_dict = frame_dets_to_det_metrics(frame_dets, w, h, is_gt, label_mapping)
         output.append(frame_dict)
 
     return output
@@ -105,9 +117,7 @@ def frame_dets_to_det_metrics(
     is_gt: bool = False,
     label_mapping: Dict[str, int] = None,
 ) -> Dict[str, np.ndarray]:
-    """
-    Convert a list of fiftyone detections to the format required by the
-    PrecisionRecallF1Support() function of the seametrics library.
+    """Convert a list of fiftyone detections to format of PrecisionRecallF1.
 
     Args:
         fo_dets (List[fo.Detection]): A list of fiftyone detections.
@@ -115,8 +125,9 @@ def frame_dets_to_det_metrics(
         h (int): Height in pixels of the image.
         is_gt (bool, optional): Flag indicating if the input data is ground truth.
             Defaults to False.
-        label_mapping (Dict[str, int], optional): Dictionary mapping string labels to numbers, which should be provided if the 
-            detection metrics should be calculated in a class-specific way. Defaults to None.
+        label_mapping (Dict[str, int], optional): Dictionary mapping string labels to
+            numbers, which should be provided if the detection metrics should be 
+            calculated in a class-specific way. Defaults to None.
 
     Returns:
         Dict[str, np.ndarray]: A dictionary containing the converted detections.
@@ -130,8 +141,9 @@ def frame_dets_to_det_metrics(
 
     for det in fo_dets:
         bbox = det["bounding_box"]
-        if label_mapping and not (det["label"] in label_mapping.keys()):
-            print(f"could not add sample as its label {det['label']} is not contained in label mapping ...")
+        if label_mapping and det["label"] not in label_mapping:
+            print(f"could not add sample w/ label {det['label']}, \
+                  as label is not in label mapping")
             continue
 
         detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
@@ -142,9 +154,10 @@ def frame_dets_to_det_metrics(
             if "area" in det.field_names:
                 areas.append(det["area"])
             else:
-                areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3]-bbox[1]))
+                areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3] - bbox[1]))
                 if error_code is None:
-                    print("⚠️WARNING: Area not found in ground truth annotation(s), using bbox area instead for these cases.")
+                    print("⚠️WARNING: Area not found in ground truth annotation(s), \
+                          using bbox area instead for these cases.")
                     error_code = 1
     metrics_dict = {
         "boxes": np.array(detections),
@@ -301,8 +314,7 @@ def get_relevant_fields(
     view: fo.DatasetView,
     fields: list,  # fiftyone field names
 ):
-    """
-    Returns a view with only the relevant fields to prevent memory issues.
+    """Returns a view with only the relevant fields to prevent memory issues.
 
     Parameters
     ----------
@@ -311,7 +323,7 @@ def get_relevant_fields(
     fields: list
         List of fiftyone field names. You can use dot notation (embedded.field.name).
 
-    Returns
+    Returns:
     -------
     fo.DatasetView
         Dataset view with only the relevant fields.
@@ -591,12 +603,13 @@ def compute_and_save_sequence_metrics(
 def get_confidence_metric_vals(
     cocoeval: np.ndarray, T: int, R: int, K: int, A: int, M: int
 ):
-    """Get confidence values for plotting:
+    """Get confidence values for plotting.
+
     - recall vs confidence
     - precision vs confidence
-    - f1-score vs confidence
+    - f1-score vs confidence.
 
-    Arguments
+    Arguments:
     ---------
     cocoeval: np.ndarray
         COCOeval object
@@ -611,7 +624,7 @@ def get_confidence_metric_vals(
     M: int
         max dets index
 
-    Returns
+    Returns:
     -------
     dict
         conf: confidence values
@@ -619,7 +632,6 @@ def get_confidence_metric_vals(
         r: recall values
         f1: f1-score values
     """
-
     tpc = cocoeval["TPC"][T, K, A, M]
     fpc = cocoeval["FPC"][T, K, A, M]
     n_gt = cocoeval["TP"][T, K, A, M] + cocoeval["FN"][T, K, A, M]
@@ -639,12 +651,12 @@ def get_confidence_metric_vals(
     # F1-score
     f1 = 2 * p * r / (p + r + eps)
 
-    return dict(conf=x, precision=p, recall=r, f1=f1)
+    return {"conf": x, "precision": p, "recall": r, "f1": f1}
 
 
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
-    """
-    Denormalizes boxes from [0, 1] to [0, img_w] and [0, img_h].
+    """Denormalizes boxes from [0, 1] to [0, img_w] and [0, img_h].
+
     Args:
         boxes (Tensor[N, 4]): boxes which will be denormalized.
         img_w (int): Width of image.

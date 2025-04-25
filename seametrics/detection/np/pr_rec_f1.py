@@ -212,20 +212,23 @@ class PrecisionRecallF1Support:
         allowed_box_formats = ("xyxy", "xywh", "cxcywh")
         if box_format not in allowed_box_formats:
             raise ValueError(
-                f"Expected argument `box_format` to be one of {allowed_box_formats} but got {box_format}"
+                f"Expected argument `box_format` to be one of {allowed_box_formats}"
+                f" but got {box_format}"
             )
         self.box_format = box_format
 
         allowed_iou_types = ("segm", "bbox")
         if iou_type not in allowed_iou_types:
             raise ValueError(
-                f"Expected argument `iou_type` to be one of {allowed_iou_types} but got {iou_type}"
+                f"Expected argument `iou_type` to be one of {allowed_iou_types}"
+                f" but got {iou_type}"
             )
         self.iou_type = iou_type
 
         if iou_thresholds is not None and not isinstance(iou_thresholds, list):
             raise ValueError(
-                f"Expected argument `iou_thresholds` to either be `None` or a list of floats but got {iou_thresholds}"
+                f"Expected argument `iou_thresholds` to be `None` or a list of floats"
+                f" but got {iou_thresholds}"
             )
         self.iou_thresholds = (
             iou_thresholds
@@ -234,7 +237,8 @@ class PrecisionRecallF1Support:
 
         if rec_thresholds is not None and not isinstance(rec_thresholds, list):
             raise ValueError(
-                f"Expected argument `rec_thresholds` to either be `None` or a list of floats but got {rec_thresholds}"
+                f"Expected argument `rec_thresholds` to be `None` or a list of floats"
+                f" but got {rec_thresholds}"
             )
         self.rec_thresholds = (
             rec_thresholds or np.linspace(0.0, 1.00, round(1.00 / 0.01) + 1).tolist()
@@ -244,7 +248,7 @@ class PrecisionRecallF1Support:
             max_detection_thresholds, list
         ):
             raise ValueError(
-                f"Expected argument `max_detection_thresholds` to either be `None` or a list of ints"
+                f"Expected argument `max_detection_thresholds` to be `None` or a list of ints"
                 f" but got {max_detection_thresholds}"
             )
         max_det_thr = np.sort(
@@ -256,23 +260,26 @@ class PrecisionRecallF1Support:
         if area_ranges is not None:
             if not isinstance(area_ranges, list):
                 raise ValueError(
-                    f"Expected argument `area_ranges` to either be `None` or a list of lists but got {area_ranges}"
+                    f"Expected argument `area_ranges` to be `None` or a list of lists"
+                    f" but got {area_ranges}"
                 )
             for area_range in area_ranges:
                 if not isinstance(area_range, list) or len(area_range) != 2:
                     raise ValueError(
-                        f"Expected argument `area_ranges` to be a list of lists of length 2 but got {area_ranges}"
+                        f"Expected argument `area_ranges` to be a list of lists of length 2"
+                        f" but got {area_ranges}"
                     )
         self.area_ranges = area_ranges if area_ranges is not None else [[0**2, 1e5**2]]
 
         if area_ranges_labels is not None:
             if area_ranges is None:
                 raise ValueError(
-                    "Expected argument `area_ranges_labels` to be `None` if `area_ranges` is not provided"
+                    "Expected argument `area_ranges_labels` to be `None`"
+                    " if `area_ranges` is not provided"
                 )
             if not isinstance(area_ranges_labels, list):
                 raise ValueError(
-                    f"Expected argument `area_ranges_labels` to either be `None` or a list of strings"
+                    f"Expected argument `area_ranges_labels` to be `None` or a list of strings"
                     f" but got {area_ranges_labels}"
                 )
             if len(area_ranges_labels) != len(area_ranges):
@@ -284,23 +291,21 @@ class PrecisionRecallF1Support:
             area_ranges_labels if area_ranges_labels is not None else ["all"]
         )
 
-        # if not isinstance(class_metrics, bool):
-        #     raise ValueError(
-        #         "Expected argument `class_metrics` to be a boolean")
-        # self.class_metrics = class_metrics
-
         if not isinstance(class_agnostic, bool):
             raise ValueError("Expected argument `class_agnostic` to be a boolean")
         self.class_agnostic = class_agnostic
 
-        if labels is not None:
-            if not isinstance(labels, list):
-                raise ValueError(f"Expected argument `labels` to be a list of integers, but got {labels}")
+        if labels is not None and not isinstance(labels, list):
+            raise ValueError(
+                f"Expected argument `labels` to be a list of integers,"
+                f" but got {labels}"
+            )
         self.labels = labels
 
-        if self.labels is not None:
-            if self.class_agnostic:
-                raise ValueError("Expected labels to be None if argument `class_agnostic` is True.")
+        if self.labels is not None and self.class_agnostic:
+            raise ValueError(
+                "Expected labels to be None if argument `class_agnostic` is True."
+            )
 
         if not isinstance(debug, bool):
             raise ValueError("Expected argument `debug` to be a boolean")
@@ -313,14 +318,6 @@ class PrecisionRecallF1Support:
         self.groundtruth_labels = []
         self.groundtruth_crowds = []
         self.groundtruth_area = []
-
-        # self.add_state("detections", default=[], dist_reduce_fx=None)
-        # self.add_state("detection_scores", default=[], dist_reduce_fx=None)
-        # self.add_state("detection_labels", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruths", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruth_labels", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruth_crowds", default=[], dist_reduce_fx=None)
-        # self.add_state("groundtruth_area", default=[], dist_reduce_fx=None)
 
     def update(
         self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]
@@ -345,21 +342,15 @@ class PrecisionRecallF1Support:
             ValueError:
                 If any score is not type float and of length 1
         """
-        _input_validator(preds, target, iou_type=self.iou_type)
+        _input_validator(preds, target, iou_type=self.iou_type, labels=self.labels)
 
         for item in preds:
-            if self.labels:
-                if not set(item["labels"]).issubset(set(self.labels)):
-                    raise ValueError(f"Labels are predefined to be {self.labels}, but you provide unknown labels in {item['labels']}.")
             detections = self._get_safe_item_values(item)
             self.detections.append(detections)
             self.detection_labels.append(item["labels"])
             self.detection_scores.append(item["scores"])
 
         for item in target:
-            if self.labels:
-                if not set(item["labels"]).issubset(set(self.labels)):
-                    raise ValueError(f"Labels are predefined to be {self.labels}, but you provide unknown labels in {item['labels']}.")
             groundtruths = self._get_safe_item_values(item)
             self.groundtruths.append(groundtruths)
             self.groundtruth_labels.append(item["labels"])
@@ -399,7 +390,10 @@ class PrecisionRecallF1Support:
             else:
                 coco_eval.params.useCats = 1
                 if not self.labels:
-                    all_labels = np.unique(np.concatenate(self.detection_labels).tolist() + np.concatenate(self.groundtruth_labels).tolist()).tolist()
+                    all_labels = np.unique(
+                        np.concatenate(self.detection_labels).tolist() \
+                            + np.concatenate(self.groundtruth_labels).tolist()
+                        ).tolist()
                 else:
                     all_labels = self.labels
                 coco_eval.params.catIds = all_labels

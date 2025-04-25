@@ -140,7 +140,7 @@ def _fix_empty_arrays(boxes: np.ndarray) -> np.ndarray:
     return boxes
 
 
-def _input_validator(preds, targets, iou_type="bbox"):
+def _input_validator(preds, targets, iou_type="bbox", labels=None):
     """Ensure the correct input format of `preds` and `targets`."""
     if iou_type == "bbox":
         item_val_name = "boxes"
@@ -193,6 +193,11 @@ def _input_validator(preds, targets, iou_type="bbox"):
                 f"Input {item_val_name} and labels of sample {i} in targets have a"
                 f" different length (expected {item[item_val_name].shape[0]} labels, got {item['labels'].shape[0]})"
             )
+        if labels and not set(item["labels"]).issubset(set(labels)):
+            raise ValueError(
+                f"Labels are predefined to be {labels},"
+                f" but you provide unknown labels in {item['labels']}."
+            )
     for i, item in enumerate(preds):
         if not (
             item[item_val_name].shape[0]
@@ -203,4 +208,9 @@ def _input_validator(preds, targets, iou_type="bbox"):
                 f"Input {item_val_name}, labels and scores of sample {i} in predictions have a"
                 f" different length (expected {item[item_val_name].shape[0]} labels and scores,"
                 f" got {item['labels'].shape[0]} labels and {item['scores'].shape[0]})"
+            )
+        if labels and not set(item["labels"]).issubset(set(labels)):
+            raise ValueError(
+                f"Labels are predefined to be {labels},"
+                f" but you provide unknown labels in {item['labels']}."
             )
