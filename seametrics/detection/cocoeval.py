@@ -525,15 +525,15 @@ class COCOeval:
                 areaRng=area_lbl,
                 maxDets=max_dets
             )
-            
+
         return results
 
     def _summarize(self, metric_type='ap', iouThr=None, areaRng='all', maxDets=100):
-        """
-        Helper function to print and obtain metrics of types:
+        """Helper function to print and obtain metrics of types:
+
         - ap: average precision
         - ar: average recall
-        - cf: tp, fp, fn, precision, recall, f1 
+        - cf: tp, fp, fn, precision, recall, f1
         values from COCOeval object
         """
         def _summarize_ap_ar(ap=1, iouThr=None, areaRng='all', maxDets=100):
@@ -562,14 +562,11 @@ class COCOeval:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
                 s = s[:, :, aind, mind]
-            if len(s[s > -1]) == 0:
-                mean_s = -1
-            else:
-                mean_s = np.mean(s[s > -1])
+            mean_s = -1 if len(s[s > -1]) == 0 else np.mean(s[s > -1])
             print(iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s))
             return mean_s
 
-        def _summarize_pr_rec_f1(iouThr=None, areaRng='all', maxDets=100):
+        def _summarize_pr_rec_f1(iouThr=None, areaRng='all', maxDets=100) -> dict:
             aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
             mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
 
@@ -589,60 +586,81 @@ class COCOeval:
                 fpi = fpi[t]
 
             # filter by area and maxDets
-            tp = tp[:, :, aind, mind].squeeze()
-            fp = fp[:, :, aind, mind].squeeze()
-            fn = fn[:, :, aind, mind].squeeze()
-            dup = dup[:, :, aind, mind].squeeze()
-            fpi = fpi[:, :, aind, mind].squeeze()
-
+            tp = tp[:, :, aind, mind]
+            fp = fp[:, :, aind, mind]
+            fn = fn[:, :, aind, mind]
+            dup = dup[:, :, aind, mind]
+            fpi = fpi[:, :, aind, mind]
             # handle case where tp, fp, fn and dup are empty (no gt and no dt),
-            # i.e. all are zero or all are -1
-            if all([(not np.any(m) or np.all(m==-1)) for m in [tp, fp, fn, dup, fpi]]):
-                tp, fp, fn, dup, fpi = [0] * 5
-            else:
-                tp, fp, fn, dup, fpi = [e.item() for e in [tp, fp, fn, dup, fpi]]
+            tp[tp == -1] = 0
+            fp[fp == -1] = 0
+            fn[fn == -1] = 0
+            dup[dup == -1] = 0
+            fpi[fpi == -1] = 0
 
-            
             # compute precision, recall, f1
-            pr = -1 if tp + fp == 0 else tp / (tp + fp)
-            rec = -1 if tp + fn == 0 else tp / (tp + fn)
-            if pr == -1 or rec == -1:
-                f1 = -1
-            else:
-                f1 = 0 if pr + rec == 0 else 2 * pr * rec / (pr + rec)
+            pr = tp / (tp + fp)
+            rec = tp / (tp + fn)
+            f1 = 2 * pr * rec / (pr + rec)
+
+            pr[tp + fp == 0] = -1
+            rec[tp + fn == 0] = -1
+            f1[pr == -1] = -1
+            f1[rec == -1] = -1
+            f1[pr + rec == 0] = -1
+
             support = tp + fn
-            # print(f"{tp=}, {fp=}, {fn=}, {dup=}, {pr=}, {rec=}, {f1=}, {support=}, {fpi=}")
+
+            tp, fp, fn, dup, fpi, pr, rec, f1, support = [
+                res.squeeze() for res in [tp, fp, fn, dup, fpi, pr, rec, f1, support]
+            ]
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
-            metrics_str = f"{tp:>6.0f}, {fp:>6.0f}, {fn:>6.0f}, {dup:>6.0f}, "
-            metrics_str += f"{pr:>5.2f}, {rec:>5.2f}, {f1:>5.2f}, {support:>6.0f}, "
-            metrics_str += f"{fpi:>6.0f}, {nImgs:>6.0f}"
+            metrics_str = f"{tp.sum():>6.0f}, {fp.sum():>6.0f}, {fn.sum():>6.0f}, \
+                {dup.sum():>6.0f}, "
+            str_pr, str_rec, str_f1 = pr[pr != -1].mean() \
+                if len(pr[pr != -1]) > 0 else 0, \
+                rec[rec != -1].mean() if len(rec[rec != -1]) > 0 else 0, \
+                f1[f1 != -1].mean() if len(f1[f1 != -1]) > 0 else 0
+            metrics_str += f"{str_pr:>5.2f}, {str_rec:>5.2f}, {str_f1:>5.2f}, \
+                {support.sum():>6.0f}, "
+            metrics_str += f"{fpi.sum():>6.0f}, {nImgs:>6.0f}"
             print(iStr.format(iouStr, areaRng, maxDets, metrics_str))
+
+            if self.params.useCats != 1:
+                tp = int(tp)
+                fp = int(fp)
+                fn = int(fn)
+                dup = int(dup)
+                support = int(support)
+                fpi = int(fpi)
+                pr = float(pr)
+                rec = float(rec)
+                f1 = float(f1)
 
             return {
                 'range': p.areaRng[aind[0]],
                 'iouThr': iouStr,
                 'maxDets': maxDets,
-                'tp': int(tp),
-                'fp': int(fp),
-                'fn': int(fn),
-                'duplicates': int(dup),
+                'tp': tp,
+                'fp': fp,
+                'fn': fn,
+                'duplicates': dup,
                 'precision': pr,
                 'recall': rec,
                 'f1': f1,
-                'support': int(support),
-                'fpi': int(fpi),
+                'support': support,
+                'fpi': fpi,
                 'nImgs': nImgs,
             }
 
         p = self.params
-        if metric_type in ['ap', 'ar']:
+        if metric_type in {'ap', 'ar'}:
             ap = 1 if metric_type == 'ap' else 0
             return _summarize_ap_ar(ap, iouThr=iouThr, areaRng=areaRng, maxDets=maxDets)
-        
-        # return tp, fp, fn, pr, rec, f1, support, fpi, nImgs
+
         return _summarize_pr_rec_f1(iouThr=iouThr, areaRng=areaRng, maxDets=maxDets)
 
     def __str__(self):
