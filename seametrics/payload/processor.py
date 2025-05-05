@@ -284,7 +284,7 @@ class PayloadProcessor:
         for field_name in self.models + [self.gt_field]:
             filter_expression = ~(F("label").is_in(self.excluded_classes))
 
-            if field_name != self.gt_field:
+            if self.confidence_threshold > 0 and field_name != self.gt_field:
                 filter_expression &= F("confidence") > self.confidence_threshold
 
             filter_view = sequence_view.filter_labels(

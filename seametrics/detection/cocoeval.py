@@ -618,15 +618,20 @@ class COCOeval:
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
-            metrics_str = f"{tp.sum():>6.0f}, {fp.sum():>6.0f}, {fn.sum():>6.0f}, \
-                {dup.sum():>6.0f}, "
-            str_pr, str_rec, str_f1 = pr[pr != -1].mean() \
-                if len(pr[pr != -1]) > 0 else 0, \
-                rec[rec != -1].mean() if len(rec[rec != -1]) > 0 else 0, \
-                f1[f1 != -1].mean() if len(f1[f1 != -1]) > 0 else 0
-            metrics_str += f"{str_pr:>5.2f}, {str_rec:>5.2f}, {str_f1:>5.2f}, \
-                {support.sum():>6.0f}, "
-            metrics_str += f"{fpi.sum():>6.0f}, {nImgs:>6.0f}"
+            if self.params.useCats == 0:
+                metrics_str = f"{tp:>6.0f}, {fp:>6.0f}, {fn:>6.0f}, {dup:>6.0f}, "
+                metrics_str += f"{pr:>5.2f}, {rec:>5.2f}, {f1:>5.2f}, {support:>6.0f}, "
+                metrics_str += f"{fpi:>6.0f}, {nImgs:>6.0f}"
+            else:
+                metrics_str = f"{tp.sum():>6.0f}, {fp.sum():>6.0f}, {fn.sum():>6.0f}, \
+                    {dup.sum():>6.0f}, "
+                str_pr, str_rec, str_f1 = pr[pr != -1].mean() \
+                    if len(pr[pr != -1]) > 0 else 0, \
+                    rec[rec != -1].mean() if len(rec[rec != -1]) > 0 else 0, \
+                    f1[f1 != -1].mean() if len(f1[f1 != -1]) > 0 else 0
+                metrics_str += f"{str_pr:>5.2f}, {str_rec:>5.2f}, {str_f1:>5.2f}, \
+                    {support.sum():>6.0f}, "
+                metrics_str += f"{fpi.sum():>6.0f}, {nImgs:>6.0f}"
             print(iStr.format(iouStr, areaRng, maxDets, metrics_str))
 
             if self.params.useCats != 1:
