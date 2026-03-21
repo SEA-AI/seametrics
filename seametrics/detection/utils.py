@@ -141,6 +141,8 @@ def frame_dets_to_det_metrics(
 
     for det in fo_dets:
         bbox = det["bounding_box"]
+        if not bbox or len(bbox) < 4:
+            continue
         if label_mapping and det["label"] not in label_mapping:
             print(f"could not add sample w/ label {det['label']}, \
                   as label is not in label mapping")
