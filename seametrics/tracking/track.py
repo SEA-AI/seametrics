@@ -27,12 +27,16 @@ class TrackingMetrics:
 
     def compute(self, sequence: str = None) -> dict:
         mh = mm.metrics.create()
-        if sequence not in self.accumulators:
-            raise Exception(f'Unknown sequence: {sequence}')
-
         if sequence is None:
-            summary = mh.compute_many(self.accumulators.values(), metrics=self.metrics, names=self.accumulators.keys(), generate_overall=True)
+            summary = mh.compute_many(
+                list(self.accumulators.values()),
+                metrics=self.metrics,
+                names=list(self.accumulators.keys()),
+                generate_overall=True,
+            )
         else:
+            if sequence not in self.accumulators:
+                raise Exception(f'Unknown sequence: {sequence}')
             summary = mh.compute(self.accumulators[sequence], metrics=self.metrics)
 
         return summary.to_dict()
