@@ -26,7 +26,7 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
 
     def _to_tracker_format(gt_bboxes_per_frame, gt_track_ids_per_frame,
                       dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
-                      img_w: int = 640, img_h: int = 512):
+                      img_w: int, img_h: int):
         """Converts a list of frames with detections (bboxes) to numpy format."""
 
         # Tracker format <frame number>, <object id>, <bb_left>, <bb_top>, <bb_width>, <bb_height>, <confidence>, <x>, <y>, <z>
@@ -106,7 +106,8 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
 
     target, preds = _to_tracker_format(
         gt_bboxes_per_frame, gt_track_ids_per_frame,
-        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame)
+        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
+        img_w=img_w, img_h=img_h)
 
 
 
@@ -282,7 +283,7 @@ def compute_metrics_by_sequence(
     pred_field: str,  # fiftyone field name
     metric_fn: callable,  # metric class
     metric_kwargs: dict,  # kwargs for metric_fn
-    sequence_list: list = [],  # list of sequence names
+    sequence_list: list = None,  # list of sequence names
     ):
 
     sequence_results = {}
@@ -309,37 +310,60 @@ def compute_metrics_by_sequence(
 def compute_all_metrics_by_sequence(
     view: fo.DatasetView,
     gt_field: str,
-    pred_field: str,
+    pred_fields: "str | list",
     metrics: list,  # list of (metric_fn, metric_kwargs) tuples
     sequence_list: list = None,
 ) -> dict:
-    """Run multiple metrics in a single pass over the FiftyOne dataset.
+    """Run multiple metrics across multiple prediction fields in a single pass.
 
     Parameters
     ----------
+    pred_fields:
+        One or more FiftyOne prediction field names. Pass a string for a single
+        model or a list to evaluate multiple models in the same pass.
     metrics:
         List of (metric_fn, metric_kwargs) tuples, e.g.:
         [(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})]
 
     Returns
     -------
-    dict mapping each metric class name to its populated metric instance,
-    e.g. {"TrackingMetrics": <TrackingMetrics>, "HOTAMetrics": <HOTAMetrics>}
-    """
-    if sequence_list is None:
-        sequence_list = get_relevant_fields(view, [gt_field, pred_field, 'sequence']).distinct("sequence")
+    Nested dict: {pred_field: {metric_class_name: metric_instance}}
 
-    instances = {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
+    Example
+    -------
+    results = compute_all_metrics_by_sequence(
+        view=view,
+        gt_field="ground_truth_det",
+        pred_fields=["model_a", "model_b"],
+        metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
+    )
+    mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
+    """
+    if isinstance(pred_fields, str):
+        pred_fields = [pred_fields]
+
+    if sequence_list is None:
+        sequence_list = get_relevant_fields(
+            view, [gt_field, *pred_fields, "sequence"]
+        ).distinct("sequence")
+
+    # Instantiate one set of metric objects per pred_field
+    instances = {
+        pred_field: {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
+        for pred_field in pred_fields
+    }
 
     for sequence_name in sequence_list:
         sequence_view = view.match(F("sequence") == sequence_name)
-        gt, pred = compute_metrics(view=sequence_view, gt_field=gt_field, pred_field=pred_field)
-
-        for instance in instances.values():
-            try:
-                instance.update(gt, pred, sequence_name)
-            except Exception:
-                instance.log_failed_sequence(sequence_name, gt, pred)
+        for pred_field in pred_fields:
+            gt, pred = compute_metrics(
+                view=sequence_view, gt_field=gt_field, pred_field=pred_field
+            )
+            for instance in instances[pred_field].values():
+                try:
+                    instance.update(gt, pred, sequence_name)
+                except Exception:
+                    instance.log_failed_sequence(sequence_name, gt, pred)
 
     return instances
 
@@ -546,11 +570,12 @@ def _box_xyxy_to_cxcywh(boxes):
 def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
     """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
 
-    Detects the metric type from the result keys and applies the appropriate
-    scaling so all values are expressed as percentages (0–100).
+    Detects the metric type from the result keys and applies metric-specific
+    scaling where implemented.
 
-    TrackingMetrics: MOTA scaled ×100, MOTP converted to (1-MOTP)×100.
-    HOTAMetrics: HOTA/DetA/AssA/LocA scaled ×100.
+    TrackingMetrics: only ``mota`` is scaled ×100 and ``motp`` is converted to
+    ``(1 - motp) × 100``; all other returned metrics are left unchanged.
+    HOTAMetrics: all returned metric values (hota, deta, assa, loca) are scaled ×100.
     """
     if sequence_list is None:
         sequence_list = list(metrics.accumulators.keys())

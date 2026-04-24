@@ -65,7 +65,7 @@ class TestPerfectTracking:
 # No predictions
 # ---------------------------------------------------------------------------
 
-class TestNoPredicitions:
+class TestNoPredictions:
     """GT present, pred empty → everything missed."""
 
     def setup_method(self):
@@ -171,8 +171,8 @@ class TestErrorHandling:
         with pytest.raises(Exception, match="Unknown sequence"):
             m.compute("nonexistent")
 
-    def test_empty_metrics_global_returns_dict(self):
-        # compute() with no sequences loaded should still return a dict
+    def test_global_compute_returns_dict(self):
+        # compute() with at least one sequence loaded should return a dict
         m = TrackingMetrics()
         gt = _array(_det(1, 1, 0, 0, 10, 10))
         m.update(gt, gt.copy(), "seq")

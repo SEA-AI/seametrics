@@ -1,5 +1,6 @@
 import numpy as np
 from collections import defaultdict
+from scipy.optimize import linear_sum_assignment
 
 _HOTA_THRESHOLDS = np.arange(0.05, 0.95 + 1e-9, 0.05)  # 19 values: 0.05 … 0.95
 
@@ -22,29 +23,27 @@ def _iou_matrix(gt_boxes: np.ndarray, pred_boxes: np.ndarray) -> np.ndarray:
     return np.where(union > 0, inter / union, 0.0).astype(np.float32)
 
 
-def _greedy_match(iou_mat: np.ndarray, threshold: float):
+def _hungarian_match(iou_mat: np.ndarray, threshold: float):
     """
-    Greedy matching by descending IoU.
+    Optimal one-to-one matching via the Hungarian algorithm.
     Returns (matches, unmatched_gt_indices, unmatched_pred_indices).
     matches is a list of (gt_idx, pred_idx, iou).
+    Pairs whose IoU is below threshold are discarded.
     """
     M, N = iou_mat.shape
     if M == 0 or N == 0:
         return [], list(range(M)), list(range(N))
 
-    order = np.argsort(-iou_mat.ravel())
+    row_ind, col_ind = linear_sum_assignment(-iou_mat)
+
     matched_gt, matched_pr = set(), set()
     matches = []
-
-    for flat_idx in order:
-        iou = iou_mat.ravel()[flat_idx]
-        if iou < threshold:
-            break
-        i, j = divmod(int(flat_idx), N)
-        if i not in matched_gt and j not in matched_pr:
-            matches.append((i, j, float(iou)))
-            matched_gt.add(i)
-            matched_pr.add(j)
+    for r, c in zip(row_ind, col_ind):
+        iou = float(iou_mat[r, c])
+        if iou >= threshold:
+            matches.append((int(r), int(c), iou))
+            matched_gt.add(int(r))
+            matched_pr.add(int(c))
 
     unmatched_gt = [i for i in range(M) if i not in matched_gt]
     unmatched_pr = [j for j in range(N) if j not in matched_pr]
@@ -167,7 +166,7 @@ class HOTAMetrics:
                     n_fn += n_gt
                     continue
 
-                matches, unmatched_gt, unmatched_pr = _greedy_match(iou_mat, alpha)
+                matches, unmatched_gt, unmatched_pr = _hungarian_match(iou_mat, alpha)
                 for gi, pi, iou in matches:
                     tp_list.append((gt_ids[gi], pr_ids[pi], iou))
                 n_fp += len(unmatched_pr)
