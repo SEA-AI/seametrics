@@ -34,7 +34,12 @@ def _hungarian_match(iou_mat: np.ndarray, threshold: float):
     if M == 0 or N == 0:
         return [], list(range(M)), list(range(N))
 
-    row_ind, col_ind = linear_sum_assignment(-iou_mat)
+    # Prioritise maximising the count of valid (iou >= threshold) matches first,
+    # then use IoU as a tie-breaker. A valid pair always beats any invalid pair
+    # because the validity bonus (2.0) exceeds the maximum possible IoU (1.0).
+    valid = (iou_mat >= threshold).astype(float)
+    cost_mat = -(2.0 * valid + iou_mat)
+    row_ind, col_ind = linear_sum_assignment(cost_mat)
 
     matched_gt, matched_pr = set(), set()
     matches = []
@@ -110,15 +115,18 @@ class HOTAMetrics:
         gt, pred = self.accumulators[sequence]
         return self._compute_hota(gt, pred)
 
-    def log_failed_sequence(self, sequence_name: str, gt, pred) -> None:
+    def log_failed_sequence(self, sequence_name: str, gt, pred, exc: Exception = None) -> None:
         if len(gt) == 0 and len(pred) == 0:
-            self.failed_sequences[sequence_name] = "No ground truth and no predictions"
+            reason = "No ground truth and no predictions"
         elif len(gt) == 0:
-            self.failed_sequences[sequence_name] = "No ground truth"
+            reason = "No ground truth"
         elif len(pred) == 0:
-            self.failed_sequences[sequence_name] = "No predictions"
+            reason = "No predictions"
+        elif exc is not None:
+            reason = f"{type(exc).__name__}: {exc}"
         else:
-            self.failed_sequences[sequence_name] = "Missing IDs from GT or Pred"
+            reason = "Unknown error"
+        self.failed_sequences[sequence_name] = reason
 
     # ------------------------------------------------------------------
     # Core computation
@@ -138,6 +146,8 @@ class HOTAMetrics:
             frames.update(pred[:, 0].astype(int).tolist())
 
         frame_cache = []
+        gt_track_frames: dict = defaultdict(int)
+        pred_track_frames: dict = defaultdict(int)
         for frame in sorted(frames):
             gt_f = gt[gt[:, 0] == frame] if len(gt) > 0 else np.empty((0, 7))
             pr_f = pred[pred[:, 0] == frame] if len(pred) > 0 else np.empty((0, 7))
@@ -147,6 +157,10 @@ class HOTAMetrics:
             pr_boxes = pr_f[:, 2:6] if len(pr_f) > 0 else np.empty((0, 4))
             iou_mat = _iou_matrix(gt_boxes, pr_boxes)
             frame_cache.append((gt_ids, pr_ids, iou_mat))
+            for g in gt_ids:
+                gt_track_frames[g] += 1
+            for p in pr_ids:
+                pred_track_frames[p] += 1
 
         hota_vals, deta_vals, assa_vals, loca_vals = [], [], [], []
 
@@ -180,15 +194,13 @@ class HOTAMetrics:
                 assa, loca = 0.0, 0.0
             else:
                 pair_counts: dict = defaultdict(int)
-                gt_counts: dict = defaultdict(int)
-                pr_counts: dict = defaultdict(int)
                 for g, p, _ in tp_list:
                     pair_counts[(g, p)] += 1
-                    gt_counts[g] += 1
-                    pr_counts[p] += 1
 
                 ass_sum = sum(
-                    pair_counts[(g, p)] / (gt_counts[g] + pr_counts[p] - pair_counts[(g, p)])
+                    pair_counts[(g, p)] / (
+                        gt_track_frames[g] + pred_track_frames[p] - pair_counts[(g, p)]
+                    )
                     for g, p, _ in tp_list
                 )
                 assa = ass_sum / n_tp

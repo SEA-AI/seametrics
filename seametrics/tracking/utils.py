@@ -265,8 +265,6 @@ def compute_and_save_sequence_metrics(
                 view=sequence_view,
                 gt_field=gt_field,
                 pred_field=pred_field,
-                metric_fn=metric_fn,
-                metric_kwargs=metric_kwargs,
             )
 
         if debug:
@@ -363,8 +361,8 @@ def compute_all_metrics_by_sequence(
             for instance in instances[pred_field].values():
                 try:
                     instance.update(gt, pred, sequence_name)
-                except Exception:
-                    instance.log_failed_sequence(sequence_name, gt, pred)
+                except Exception as e:
+                    instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
 
     return instances
 
