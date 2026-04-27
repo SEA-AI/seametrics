@@ -125,7 +125,7 @@ class HOTAMetrics:
         elif exc is not None:
             reason = f"{type(exc).__name__}: {exc}"
         else:
-            reason = "Unknown error"
+            reason = "Missing IDs from GT or Pred"
         self.failed_sequences[sequence_name] = reason
 
     # ------------------------------------------------------------------
