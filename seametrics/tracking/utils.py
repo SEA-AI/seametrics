@@ -168,7 +168,7 @@ def compute_metrics(view: fo.DatasetView, # view
                     ):
     """Computes metrics for a given sequence view."""
 
-    view = get_relevant_fields(view, [gt_field, pred_field, "mux"])
+    view = get_relevant_fields(view, [gt_field, pred_field])
 
     sample = view.first()
     img_w = sample["metadata"]["frame_width"]
@@ -184,13 +184,14 @@ def compute_metrics(view: fo.DatasetView, # view
                                      f"{pred_field}.detections.confidence")
     dt_track_ids_per_frame = get_values(view,
                                      f"{pred_field}.detections.index")
-    mux = get_values(view, "mux")
 
-    gt_bboxes_per_frame = [bboxes for (mux_item,bboxes) in zip(mux, gt_bboxes_per_frame) if mux_item]
-    gt_track_ids_per_frame = [track_ids for (mux_item, track_ids)  in zip(mux, gt_track_ids_per_frame) if mux_item]
-    dt_bboxes_per_frame = [bboxes for (mux_item,bboxes) in zip(mux, dt_bboxes_per_frame) if mux_item]
-    dt_scores_per_frame = [scores for (mux_item,scores) in zip(mux, dt_scores_per_frame) if mux_item]
-    dt_track_ids_per_frame = [track_ids for (mux_item,track_ids) in zip(mux, dt_track_ids_per_frame) if mux_item]
+    if view.has_frame_field(f"{pred_field}.keyframe"):
+        keyframes = get_values(view, f"{pred_field}.keyframe")
+        gt_bboxes_per_frame = [bboxes for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame) if kf]
+        gt_track_ids_per_frame = [track_ids for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame) if kf]
+        dt_bboxes_per_frame = [bboxes for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame) if kf]
+        dt_scores_per_frame = [scores for (kf, scores) in zip(keyframes, dt_scores_per_frame) if kf]
+        dt_track_ids_per_frame = [track_ids for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame) if kf]
 
     target, preds = prepare_data_for_det_metrics(
         gt_bboxes_per_frame, gt_track_ids_per_frame,
@@ -198,7 +199,7 @@ def compute_metrics(view: fo.DatasetView, # view
         img_w=img_w, img_h=img_h)
 
     # free memory
-    del gt_bboxes_per_frame, gt_track_ids_per_frame, mux
+    del gt_bboxes_per_frame, gt_track_ids_per_frame
     del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
 
     return target, preds
@@ -371,7 +372,7 @@ def compute_sizes(view: fo.DatasetView,
                     gt_field: str):  # fiftyone field name
         """Computes sizes for a given sequence view."""
 
-        view = get_relevant_fields(view, [gt_field, "mux"])
+        view = get_relevant_fields(view, [gt_field])
         sample = view.first()
         img_w = sample["metadata"]["frame_width"]
         img_h = sample["metadata"]["frame_height"]
@@ -379,11 +380,8 @@ def compute_sizes(view: fo.DatasetView,
                                          f"{gt_field}.detections.bounding_box")
         gt_track_ids_per_frame = get_values(view,
                                             f"{gt_field}.detections.index")
-        
-        #mux = get_values(view, "mux")
-        # gt_bboxes_per_frame = [bboxes for (mux_item,bboxes) in zip(mux, gt_bboxes_per_frame) if mux_item]
-        # gt_track_ids_per_frame = [track_ids for (mux_item, track_ids)  in zip(mux, gt_track_ids_per_frame) if mux_item]
-        b = [(bboxes, t_ids) for (bboxes,t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame) if bboxes is not None and t_ids is not None]
+
+        b = [(bboxes, t_ids) for (bboxes, t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame) if bboxes is not None and t_ids is not None]
         gt_bboxes_per_frame = [bboxes for (bboxes,_) in b]
         gt_track_ids_per_frame = [t_ids for (_,t_ids)  in b]
         objects = []
