@@ -6,8 +6,6 @@ import numpy as np
 import pandas as pd
 import fiftyone as fo
 from fiftyone import ViewField as F
-from tracking import TrackingMetrics
-
 # helper functions
 
 def prepare_data_for_det_metrics(gt_bboxes_per_frame,
@@ -131,6 +129,9 @@ def get_relevant_fields(view: fo.DatasetView,
     fo.DatasetView
         Dataset view with only the relevant fields.
     """
+
+    if view.media_type == 'group':
+        view = view.select_group_slices(view.default_group_slice)
 
     if view.media_type == 'video':
         return view.select_fields([f"frames.{f}" if view.has_frame_field(f) else f
