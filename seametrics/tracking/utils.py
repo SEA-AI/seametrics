@@ -163,11 +163,12 @@ def get_values(view: fo.DatasetView,
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
-def compute_metrics(view: fo.DatasetView, # view
-                    gt_field: str,  # fiftyone field name
-                    pred_field: str  # fiftyone field name
-                    ):
-    """Computes metrics for a given sequence view."""
+def build_detection_inputs(
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_field: str,
+):
+    """Returns (target, preds) numpy arrays for the given sequence view."""
 
     view = get_relevant_fields(view, [gt_field, pred_field])
 
@@ -206,6 +207,19 @@ def compute_metrics(view: fo.DatasetView, # view
     del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
 
     return target, preds
+
+def compute_metrics(
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_field: str,
+    metric_fn: callable,
+    metric_kwargs: dict,
+):
+    """Computes metrics for a given sequence view. Returns the metric.compute() dict."""
+    target, preds = build_detection_inputs(view, gt_field, pred_field)
+    metric = metric_fn(**metric_kwargs)
+    metric.update(preds, target)
+    return metric.compute()
 
 def sequence_results_to_df(sequence_results):
     # save to pandas dataframe
@@ -268,6 +282,8 @@ def compute_and_save_sequence_metrics(
                 view=sequence_view,
                 gt_field=gt_field,
                 pred_field=pred_field,
+                metric_fn=metric_fn,
+                metric_kwargs=metric_kwargs,
             )
 
         if debug:
@@ -295,7 +311,7 @@ def compute_metrics_by_sequence(
         sequence_list = get_relevant_fields(view, [gt_field, pred_field, 'sequence']).distinct("sequence")
     for sequence_name in sequence_list:
         sequence_view = view.match(F("sequence") == sequence_name)
-        sequence_results[sequence_name] = compute_metrics(
+        sequence_results[sequence_name] = build_detection_inputs(
             view=sequence_view,
             gt_field=gt_field,
             pred_field=pred_field
@@ -303,8 +319,10 @@ def compute_metrics_by_sequence(
     for sequence in sequence_results.keys():
         try:
             metric.update(sequence_results[sequence][0], sequence_results[sequence][1], sequence)
-        except Exception as e:
-            metric.log_failed_sequence(sequence, sequence_results[sequence][0], sequence_results[sequence][1])
+        except (ValueError, IndexError) as e:
+            metric.log_failed_sequence(sequence, sequence_results[sequence][0], sequence_results[sequence][1], exc=e)
+        except Exception:
+            raise
 
     return metric
 
@@ -364,14 +382,16 @@ def compute_all_metrics_by_sequence(
     for sequence_name in sequence_list:
         sequence_view = view.match(F("sequence") == sequence_name)
         for pred_field in pred_fields:
-            gt, pred = compute_metrics(
+            gt, pred = build_detection_inputs(
                 view=sequence_view, gt_field=gt_field, pred_field=pred_field
             )
             for instance in instances[pred_field].values():
                 try:
                     instance.update(gt, pred, sequence_name)
-                except Exception as e:
+                except (ValueError, IndexError) as e:
                     instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
+                except Exception:
+                    raise
 
     return instances
 
