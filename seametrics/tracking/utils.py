@@ -172,6 +172,8 @@ def compute_metrics(view: fo.DatasetView, # view
     view = get_relevant_fields(view, [gt_field, pred_field])
 
     sample = view.first()
+    if sample is None:
+        raise ValueError("View is empty — no samples found after field selection.")
     img_w = sample["metadata"]["frame_width"]
     img_h = sample["metadata"]["frame_height"]
 
@@ -373,6 +375,8 @@ def compute_sizes(view: fo.DatasetView,
 
         view = get_relevant_fields(view, [gt_field])
         sample = view.first()
+        if sample is None:
+            raise ValueError("View is empty — no samples found after field selection.")
         img_w = sample["metadata"]["frame_width"]
         img_h = sample["metadata"]["frame_height"]
         gt_bboxes_per_frame = get_values(view,
