@@ -349,7 +349,13 @@ def compute_all_metrics_by_sequence(
             view, [gt_field, *pred_fields, "sequence"]
         ).distinct("sequence")
 
-    # Instantiate one set of metric objects per pred_field
+    metric_names = [fn.__name__ for fn, _ in metrics]
+    if len(metric_names) != len(set(metric_names)):
+        raise ValueError(
+            f"Duplicate metric class names in metrics list: {metric_names}. "
+            "Each metric class may only appear once."
+        )
+
     instances = {
         pred_field: {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
         for pred_field in pred_fields
