@@ -161,14 +161,14 @@ class TestHOTAPartialDetection:
 
 
 class TestHOTAGlobalAggregation:
-    """Global compute() averages per-sequence results."""
+    """Global compute() pools TP/FP/FN counts across sequences (MOT standard)."""
 
     def setup_method(self):
-        # seq1: perfect → HOTA=1
+        # seq1: perfect → 1 TP, 0 FP, 0 FN
         gt1 = _array(_det(1, 1, 0, 0, 10, 10))
         pred1 = gt1.copy()
 
-        # seq2: no predictions → HOTA=0
+        # seq2: no predictions → 0 TP, 0 FP, 1 FN
         gt2 = _array(_det(1, 1, 0, 0, 10, 10))
         pred2 = np.empty((0, 7))
 
@@ -176,9 +176,10 @@ class TestHOTAGlobalAggregation:
         self.m.update(gt1, pred1, "seq1")
         self.m.update(gt2, pred2, "seq2")
 
-    def test_global_hota_is_mean(self):
+    def test_global_hota_pools_counts(self):
+        # Pooled: TP=1, FP=0, FN=1 → DetA=0.5, AssA=1.0 → HOTA=sqrt(0.5)
         r = self.m.compute()  # sequence=None
-        assert r["hota"] == pytest.approx(0.5, abs=1e-6)
+        assert r["hota"] == pytest.approx(0.5 ** 0.5, abs=1e-6)
 
     def test_unknown_sequence_raises(self):
         with pytest.raises(KeyError):
