@@ -96,17 +96,41 @@ class HOTAMetrics:
         Returns
         -------
         dict with keys: hota, deta, assa, loca  (values in [0, 1]) and
-        num_unique_objects (integer count of distinct GT track IDs)
+        num_unique_objects (integer count of distinct GT track IDs).
+        When sequence is None, TP/FP/FN/association counts are pooled across
+        all sequences before computing metrics (MOT standard).
         """
         if sequence is None:
             entries = list(self.accumulators.values())
             if not entries:
                 return {}
-            per_seq = [self._compute_hota(gt, pred) for gt, pred in entries]
-            keys = [k for k in per_seq[0].keys() if k != "num_unique_objects"]
-            result = {k: float(np.nanmean([r[k] for r in per_seq])) for k in keys}
-            result["num_unique_objects"] = sum(r["num_unique_objects"] for r in per_seq)
-            return result
+            # Pool raw arrays across sequences so counts are aggregated before
+            # computing metrics (MOT standard), rather than averaging per-sequence
+            # results which biases toward sequences with fewer objects.
+            # Frame and track IDs are offset per sequence to prevent collisions.
+            gt_parts, pred_parts = [], []
+            frame_off = gt_off = pred_off = 0
+            for gt, pred in entries:
+                max_frame = max(
+                    int(gt[:, 0].max()) if len(gt) > 0 else 0,
+                    int(pred[:, 0].max()) if len(pred) > 0 else 0,
+                )
+                if len(gt) > 0:
+                    g = gt.copy()
+                    g[:, 0] += frame_off
+                    g[:, 1] += gt_off
+                    gt_parts.append(g)
+                    gt_off += int(gt[:, 1].max()) + 1
+                if len(pred) > 0:
+                    p = pred.copy()
+                    p[:, 0] += frame_off
+                    p[:, 1] += pred_off
+                    pred_parts.append(p)
+                    pred_off += int(pred[:, 1].max()) + 1
+                frame_off += max_frame + 1
+            pooled_gt = np.concatenate(gt_parts) if gt_parts else np.empty((0,), dtype=float)
+            pooled_pred = np.concatenate(pred_parts) if pred_parts else np.empty((0,), dtype=float)
+            return self._compute_hota(pooled_gt, pooled_pred)
 
         if sequence not in self.accumulators:
             raise KeyError(f"Unknown sequence: {sequence}")
