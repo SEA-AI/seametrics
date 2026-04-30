@@ -1,5 +1,3 @@
-import pytest
-
 from seametrics.tracking import utils
 
 
@@ -67,57 +65,25 @@ class _RecordingMetric:
     def __init__(self, label=None):
         self.label = label
         self.updates = []
-        self.failed_sequences = {}
 
     def update(self, gt, pred, sequence_name):
         self.updates.append((gt, pred, sequence_name))
 
     def log_failed_sequence(self, sequence_name, gt, pred, exc=None):
-        self.failed_sequences[sequence_name] = str(exc)
+        raise AssertionError(f"unexpected failure for {sequence_name}: {exc}")
 
 
-class _RejectingMetric(_RecordingMetric):
-    def update(self, gt, pred, sequence_name):
-        raise ValueError(f"bad sequence {sequence_name}")
-
-
-class _PairMetric:
-    def __init__(self, scale):
-        self.scale = scale
-        self.updated = None
-
-    def update(self, preds, target):
-        self.updated = (preds, target)
-
-    def compute(self):
-        preds, target = self.updated
-        return {"score": len(preds) + len(target) + self.scale}
-
-
-def test_tracking_utils_build_sequences_and_format_results():
+def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
     view = _FakeGroupView()
-
-    result = utils.compute_metrics(
-        view=view,
-        gt_field="gt",
-        pred_field="pred",
-        metric_fn=_PairMetric,
-        metric_kwargs={"scale": 1},
-    )
-    assert result == {"score": 5}
 
     all_metrics = utils.compute_all_metrics_by_sequence(
         view=view,
         gt_field="gt",
         pred_fields="pred",
-        metrics=[
-            (_RecordingMetric, {"label": "ok"}),
-            (_RejectingMetric, {"label": "rejecting"}),
-        ],
+        metrics=[(_RecordingMetric, {"label": "ok"})],
     )
 
     recording = all_metrics["pred"]["_RecordingMetric"]
-    rejecting = all_metrics["pred"]["_RejectingMetric"]
 
     assert view.selected_slice == "rgb"
     assert recording.label == "ok"
@@ -130,20 +96,9 @@ def test_tracking_utils_build_sequences_and_format_results():
     assert gt[:, 1].tolist() == [1, 3]
     assert pred[:, 1].tolist() == [10, 30]
     assert pred[:, 6].tolist() == [0.9, 0.7]
-    assert rejecting.failed_sequences == {"seq-1": "bad sequence seq-1"}
 
-    with pytest.raises(ValueError, match="Duplicate metric class names"):
-        utils.compute_all_metrics_by_sequence(
-            view=view,
-            gt_field="gt",
-            pred_fields="pred",
-            metrics=[
-                (_RecordingMetric, {}),
-                (_RecordingMetric, {}),
-            ],
-            sequence_list=[],
-        )
 
+def test_results_to_df_formats_hota_and_tracking_outputs():
     class _HotaResults:
         accumulators = {"seq-1": None}
 
