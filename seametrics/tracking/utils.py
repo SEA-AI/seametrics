@@ -612,8 +612,8 @@ def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
         result = metrics.compute(sequence=sequence)
 
         if "hota" in result:
-            # HOTAMetrics: result is {metric: float}
-            row = {k: v * 100 for k, v in result.items()}
+            # HOTAMetrics: scores are in [0,1] and scaled ×100; num_unique_objects is a count
+            row = {k: (v if k == "num_unique_objects" else v * 100) for k, v in result.items()}
         else:
             # TrackingMetrics: result is {metric: {0: value}} (pandas to_dict format)
             row = {k: list(v.values())[0] for k, v in result.items()}

@@ -95,20 +95,18 @@ class HOTAMetrics:
 
         Returns
         -------
-        dict with keys: hota, deta, assa, loca  (values in [0, 1])
+        dict with keys: hota, deta, assa, loca  (values in [0, 1]) and
+        num_unique_objects (integer count of distinct GT track IDs)
         """
         if sequence is None:
-            per_seq = [
-                self._compute_hota(gt, pred)
-                for gt, pred in self.accumulators.values()
-            ]
-            if not per_seq:
+            entries = list(self.accumulators.values())
+            if not entries:
                 return {}
-            keys = per_seq[0].keys()
-            return {
-                k: float(np.nanmean([r[k] for r in per_seq]))
-                for k in keys
-            }
+            per_seq = [self._compute_hota(gt, pred) for gt, pred in entries]
+            keys = [k for k in per_seq[0].keys() if k != "num_unique_objects"]
+            result = {k: float(np.nanmean([r[k] for r in per_seq])) for k in keys}
+            result["num_unique_objects"] = sum(r["num_unique_objects"] for r in per_seq)
+            return result
 
         if sequence not in self.accumulators:
             raise KeyError(f"Unknown sequence: {sequence}")
@@ -133,7 +131,9 @@ class HOTAMetrics:
     # ------------------------------------------------------------------
 
     def _compute_hota(self, gt: np.ndarray, pred: np.ndarray) -> dict:
+        num_unique_objects = int(len(np.unique(gt[:, 1]))) if len(gt) > 0 else 0
         nan_result = {k: float("nan") for k in ["hota", "deta", "assa", "loca"]}
+        nan_result["num_unique_objects"] = num_unique_objects
 
         if len(gt) == 0 and len(pred) == 0:
             return nan_result
@@ -216,4 +216,5 @@ class HOTAMetrics:
             "deta": float(np.mean(deta_vals)),
             "assa": float(np.mean(assa_vals)),
             "loca": float(np.mean(loca_vals)),
+            "num_unique_objects": num_unique_objects,
         }
