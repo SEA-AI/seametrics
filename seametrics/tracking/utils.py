@@ -6,8 +6,6 @@ import numpy as np
 import pandas as pd
 import fiftyone as fo
 from fiftyone import ViewField as F
-from tracking import TrackingMetrics
-
 # helper functions
 
 def prepare_data_for_det_metrics(gt_bboxes_per_frame,
@@ -26,7 +24,7 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
 
     def _to_tracker_format(gt_bboxes_per_frame, gt_track_ids_per_frame,
                       dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
-                      img_w: int = 640, img_h: int = 512):
+                      img_w: int, img_h: int):
         """Converts a list of frames with detections (bboxes) to numpy format."""
 
         # Tracker format <frame number>, <object id>, <bb_left>, <bb_top>, <bb_width>, <bb_height>, <confidence>, <x>, <y>, <z>
@@ -106,7 +104,8 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
 
     target, preds = _to_tracker_format(
         gt_bboxes_per_frame, gt_track_ids_per_frame,
-        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame)
+        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
+        img_w=img_w, img_h=img_h)
 
 
 
@@ -130,6 +129,9 @@ def get_relevant_fields(view: fo.DatasetView,
     fo.DatasetView
         Dataset view with only the relevant fields.
     """
+
+    if view.media_type == 'group':
+        view = view.select_group_slices(view.default_group_slice)
 
     if view.media_type == 'video':
         return view.select_fields([f"frames.{f}" if view.has_frame_field(f) else f
@@ -161,13 +163,21 @@ def get_values(view: fo.DatasetView,
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
-def compute_metrics(view: fo.DatasetView, # view
-                    gt_field: str,  # fiftyone field name
-                    pred_field: str  # fiftyone field name
-                    ):  
-    """Computes metrics for a given sequence view."""
-    
-    view = get_relevant_fields(view, [gt_field, pred_field, "mux"])
+def build_detection_inputs(
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_field: str,
+):
+    """Returns (target, preds) numpy arrays for the given sequence view."""
+
+    view = get_relevant_fields(view, [gt_field, pred_field])
+
+    sample = view.first()
+    if sample is None:
+        raise ValueError("View is empty — no samples found after field selection.")
+    img_w = sample["metadata"]["frame_width"]
+    img_h = sample["metadata"]["frame_height"]
+
     gt_bboxes_per_frame = get_values(view,
                                      f"{gt_field}.detections.bounding_box")
     gt_track_ids_per_frame = get_values(view,
@@ -178,24 +188,38 @@ def compute_metrics(view: fo.DatasetView, # view
                                      f"{pred_field}.detections.confidence")
     dt_track_ids_per_frame = get_values(view,
                                      f"{pred_field}.detections.index")
-    mux = get_values(view, "mux")
-    
 
-    gt_bboxes_per_frame = [bboxes for (mux_item,bboxes) in zip(mux, gt_bboxes_per_frame) if mux_item]
-    gt_track_ids_per_frame = [track_ids for (mux_item, track_ids)  in zip(mux, gt_track_ids_per_frame) if mux_item]
-    dt_bboxes_per_frame = [bboxes for (mux_item,bboxes) in zip(mux, dt_bboxes_per_frame) if mux_item]
-    dt_scores_per_frame = [scores for (mux_item,scores) in zip(mux, dt_scores_per_frame) if mux_item]
-    dt_track_ids_per_frame = [track_ids for (mux_item,track_ids) in zip(mux, dt_track_ids_per_frame) if mux_item]
+    if view.has_frame_field(f"{pred_field}.keyframe"):
+        keyframes = get_values(view, f"{pred_field}.keyframe")
+        gt_bboxes_per_frame = [bboxes for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame) if kf]
+        gt_track_ids_per_frame = [track_ids for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame) if kf]
+        dt_bboxes_per_frame = [bboxes for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame) if kf]
+        dt_scores_per_frame = [scores for (kf, scores) in zip(keyframes, dt_scores_per_frame) if kf]
+        dt_track_ids_per_frame = [track_ids for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame) if kf]
 
     target, preds = prepare_data_for_det_metrics(
         gt_bboxes_per_frame, gt_track_ids_per_frame,
-        dt_bboxes_per_frame, dt_track_ids_per_frame,  dt_scores_per_frame)
+        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
+        img_w=img_w, img_h=img_h)
 
     # free memory
-    del gt_bboxes_per_frame, gt_track_ids_per_frame, mux
+    del gt_bboxes_per_frame, gt_track_ids_per_frame
     del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
 
     return target, preds
+
+def compute_metrics(
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_field: str,
+    metric_fn: callable,
+    metric_kwargs: dict,
+):
+    """Computes metrics for a given sequence view. Returns the metric.compute() dict."""
+    target, preds = build_detection_inputs(view, gt_field, pred_field)
+    metric = metric_fn(**metric_kwargs)
+    metric.update(preds, target)
+    return metric.compute()
 
 def sequence_results_to_df(sequence_results):
     # save to pandas dataframe
@@ -275,20 +299,19 @@ def compute_metrics_by_sequence(
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
     pred_field: str,  # fiftyone field name
-    metric_fn: callable,  # torchmetrics metric
+    metric_fn: callable,  # metric class
     metric_kwargs: dict,  # kwargs for metric_fn
-    sequence_list: list = [], # list of sequence names
+    sequence_list: list = None,  # list of sequence names
     ):
 
     sequence_results = {}
-    
+
     metric = metric_fn(**metric_kwargs)
     if sequence_list is None:
         sequence_list = get_relevant_fields(view, [gt_field, pred_field, 'sequence']).distinct("sequence")
     for sequence_name in sequence_list:
-
         sequence_view = view.match(F("sequence") == sequence_name)
-        sequence_results[sequence_name] = compute_metrics(
+        sequence_results[sequence_name] = build_detection_inputs(
             view=sequence_view,
             gt_field=gt_field,
             pred_field=pred_field
@@ -296,27 +319,98 @@ def compute_metrics_by_sequence(
     for sequence in sequence_results.keys():
         try:
             metric.update(sequence_results[sequence][0], sequence_results[sequence][1], sequence)
-        except Exception as e:
-            metric.log_failed_sequence(sequence, sequence_results[sequence][0], sequence_results[sequence][1])
+        except (ValueError, IndexError) as e:
+            metric.log_failed_sequence(sequence, sequence_results[sequence][0], sequence_results[sequence][1], exc=e)
+        except Exception:
+            raise
 
     return metric
 
+
+def compute_all_metrics_by_sequence(
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_fields: "str | list",
+    metrics: list,  # list of (metric_fn, metric_kwargs) tuples
+    sequence_list: list = None,
+) -> dict:
+    """Run multiple metrics across multiple prediction fields in a single pass.
+
+    Parameters
+    ----------
+    pred_fields:
+        One or more FiftyOne prediction field names. Pass a string for a single
+        model or a list to evaluate multiple models in the same pass.
+    metrics:
+        List of (metric_fn, metric_kwargs) tuples, e.g.:
+        [(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})]
+
+    Returns
+    -------
+    Nested dict: {pred_field: {metric_class_name: metric_instance}}
+
+    Example
+    -------
+    results = compute_all_metrics_by_sequence(
+        view=view,
+        gt_field="ground_truth_det",
+        pred_fields=["model_a", "model_b"],
+        metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
+    )
+    mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
+    """
+    if isinstance(pred_fields, str):
+        pred_fields = [pred_fields]
+
+    if sequence_list is None:
+        sequence_list = get_relevant_fields(
+            view, [gt_field, *pred_fields, "sequence"]
+        ).distinct("sequence")
+
+    metric_names = [fn.__name__ for fn, _ in metrics]
+    if len(metric_names) != len(set(metric_names)):
+        raise ValueError(
+            f"Duplicate metric class names in metrics list: {metric_names}. "
+            "Each metric class may only appear once."
+        )
+
+    instances = {
+        pred_field: {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
+        for pred_field in pred_fields
+    }
+
+    for sequence_name in sequence_list:
+        sequence_view = view.match(F("sequence") == sequence_name)
+        for pred_field in pred_fields:
+            gt, pred = build_detection_inputs(
+                view=sequence_view, gt_field=gt_field, pred_field=pred_field
+            )
+            for instance in instances[pred_field].values():
+                try:
+                    instance.update(gt, pred, sequence_name)
+                except (ValueError, IndexError) as e:
+                    instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
+                except Exception:
+                    raise
+
+    return instances
+
 def compute_sizes(view: fo.DatasetView,
-                    gt_field: str,  # fiftyone field name
-                    img_w: int = 640,
-                    img_h: int = 512):
+                    gt_field: str):  # fiftyone field name
         """Computes sizes for a given sequence view."""
-        
-        view = get_relevant_fields(view, [gt_field, "mux"])
+
+        view = get_relevant_fields(view, [gt_field])
+        sample = view.first()
+        if sample is None:
+            raise ValueError("View is empty — no samples found after field selection.")
+        img_w = sample["metadata"]["frame_width"]
+        img_h = sample["metadata"]["frame_height"]
         gt_bboxes_per_frame = get_values(view,
                                          f"{gt_field}.detections.bounding_box")
         gt_track_ids_per_frame = get_values(view,
                                             f"{gt_field}.detections.index")
-        
-        #mux = get_values(view, "mux")
-        # gt_bboxes_per_frame = [bboxes for (mux_item,bboxes) in zip(mux, gt_bboxes_per_frame) if mux_item]
-        # gt_track_ids_per_frame = [track_ids for (mux_item, track_ids)  in zip(mux, gt_track_ids_per_frame) if mux_item]
-        b = [(bboxes, t_ids) for (bboxes,t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame) if bboxes is not None and t_ids is not None]
+
+        b = [(bboxes, t_ids) for (bboxes, t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame) if bboxes is not None and t_ids is not None]
         gt_bboxes_per_frame = [bboxes for (bboxes,_) in b]
         gt_track_ids_per_frame = [t_ids for (_,t_ids)  in b]
         objects = []
@@ -501,19 +595,41 @@ def _box_xyxy_to_cxcywh(boxes):
     return converted_boxes
 
 def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
-    # if sequence_list is not provided, compute for all sequences
-    df = pd.DataFrame()
+    """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
+
+    Detects the metric type from the result keys and applies metric-specific
+    scaling where implemented.
+
+    TrackingMetrics: only ``mota`` is scaled ×100 and ``motp`` is converted to
+    ``(1 - motp) × 100``; all other returned metrics are left unchanged.
+    HOTAMetrics: all returned metric values (hota, deta, assa, loca) are scaled ×100.
+    """
     if sequence_list is None:
-        sequence_list = metrics.accumulators.keys()
+        sequence_list = list(metrics.accumulators.keys())
+
+    rows = []
     for sequence in sequence_list:
-        summary = metrics.compute(sequence=sequence)
-        row = pd.DataFrame(summary)
-        row['sequence'] = sequence
-        df = pd.concat([df, row])
-    # df.set_index('sequence', inplace=True)
-    df['mota'] = df['mota']*100
-    df['motp'] = (1-df['motp'])*100
-    return df
+        result = metrics.compute(sequence=sequence)
+
+        if "hota" in result:
+            # HOTAMetrics: scores are in [0,1] and scaled ×100; num_unique_objects is a count
+            row = {k: (v if k == "num_unique_objects" else v * 100) for k, v in result.items()}
+        else:
+            # TrackingMetrics: result is {metric: {0: value}} (pandas to_dict format)
+            row = {k: list(v.values())[0] for k, v in result.items()}
+            row["mota"] = row["mota"] * 100
+            row["motp"] = (1 - row["motp"]) * 100
+
+        row["sequence"] = sequence
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def hota_results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
+    """Alias for results_to_df for backward compatibility."""
+    return results_to_df(metrics, sequence_list)
+
 
 def classify_num_objects(x):
     n_objects_ranges_tuples = [

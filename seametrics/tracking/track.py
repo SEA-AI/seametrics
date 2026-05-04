@@ -27,24 +27,31 @@ class TrackingMetrics:
 
     def compute(self, sequence: str = None) -> dict:
         mh = mm.metrics.create()
-        if sequence not in self.accumulators:
-            raise Exception(f'Unknown sequence: {sequence}')
-
         if sequence is None:
-            summary = mh.compute_many(self.accumulators.values(), metrics=self.metrics, names=self.accumulators.keys(), generate_overall=True)
+            summary = mh.compute_many(
+                list(self.accumulators.values()),
+                metrics=self.metrics,
+                names=list(self.accumulators.keys()),
+                generate_overall=True,
+            )
         else:
+            if sequence not in self.accumulators:
+                raise Exception(f'Unknown sequence: {sequence}')
             summary = mh.compute(self.accumulators[sequence], metrics=self.metrics)
 
         return summary.to_dict()
-    def log_failed_sequence(self, sequence_name: str, gt: list, pred: list) -> None:
+    def log_failed_sequence(self, sequence_name: str, gt: list, pred: list, exc: Exception = None) -> None:
         if len(gt) == 0 and len(pred) == 0:
-            self.failed_sequences[sequence_name] = "No ground truth and no predictions"
+            reason = "No ground truth and no predictions"
         elif len(gt) == 0:
-            self.failed_sequences[sequence_name] = "No ground truth"
+            reason = "No ground truth"
         elif len(pred) == 0:
-            self.failed_sequences[sequence_name] = "No predictions"
+            reason = "No predictions"
+        elif exc is not None:
+            reason = f"{type(exc).__name__}: {exc}"
         else:
-            self.failed_sequences[sequence_name] = "Missing IDs from GT or Pred"
+            reason = "Missing IDs from GT or Pred"
+        self.failed_sequences[sequence_name] = reason
 
     def metrics_help(self): 
         print(mm.metrics.create().list_metrics_markdown())

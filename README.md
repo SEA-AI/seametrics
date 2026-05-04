@@ -111,3 +111,55 @@ Where:
 - `nImgs` is the number of images
 
 </details>
+
+<details>
+<summary>Tracking Metrics</summary>
+
+## Tracking Metrics
+
+`TrackingMetrics` wraps [motmetrics](https://github.com/cheind/py-motmetrics) to compute standard MOT scores (MOTA, MOTP, IDF1, …). `HOTAMetrics` implements [HOTA](https://link.springer.com/article/10.1007/s11263-020-01375-2) (Higher Order Tracking Accuracy), which jointly evaluates detection and association quality.
+
+Both classes share the same interface and can be evaluated together in a single dataset pass using `compute_all_metrics_by_sequence`.
+
+```python
+import fiftyone as fo
+from seametrics.tracking import TrackingMetrics, HOTAMetrics
+from seametrics.tracking.utils import compute_all_metrics_by_sequence, results_to_df
+
+dataset = fo.load_dataset("my_dataset")
+view = dataset.load_saved_view("my_view")
+
+results = compute_all_metrics_by_sequence(
+    view=view,
+    gt_field="ground_truth",
+    pred_fields=["model_a", "model_b"],
+    metrics=[
+        (TrackingMetrics, {"max_iou": 0.5}),
+        (HOTAMetrics, {}),
+    ],
+)
+```
+
+Returns a nested dict `{pred_field: {metric_class_name: metric_instance}}`. Convert any entry to a per-sequence DataFrame with `results_to_df`:
+
+```python
+mot_df  = results_to_df(results["model_a"]["TrackingMetrics"])
+hota_df = results_to_df(results["model_a"]["HOTAMetrics"])
+```
+
+`TrackingMetrics` DataFrame columns: `sequence`, `num_frames`, `num_unique_objects`, `mota`, `motp`, `idf1`, `idp`, `idr`, `mostly_tracked`, `partially_tracked`, `mostly_lost`, `num_switches`, `num_false_positives`, `num_misses`, `num_fragmentations`, `precision`, `recall`.
+
+`HOTAMetrics` DataFrame columns: `sequence`, `hota`, `deta`, `assa`, `loca`, `num_unique_objects`. Scores are expressed as percentages (0–100).
+
+`num_unique_objects` is included in both DataFrames so you can compute a track-count-weighted global score:
+
+```python
+weighted_hota = (
+    (hota_df["hota"] * hota_df["num_unique_objects"]).sum()
+    / hota_df["num_unique_objects"].sum()
+)
+```
+
+Failed sequences (empty GT, empty predictions, or unexpected errors) are logged rather than raising, and are accessible via `metric_instance.failed_sequences`.
+
+</details>
