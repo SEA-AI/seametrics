@@ -98,6 +98,92 @@ def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
     assert pred[:, 6].tolist() == [0.9, 0.7]
 
 
+def test_sequence_skipped_when_keyframe_lookup_raises():
+    """_has_keyframes except branch: returns False when values() raises."""
+    failures = []
+
+    class _CapturingMetric:
+        def __init__(self): pass
+        def update(self, gt, pred, seq): raise AssertionError("should not be called")
+        def log_failed_sequence(self, seq, gt, pred, exc=None):
+            failures.append((seq, exc))
+
+    class _ErrorView(_FakeVideoView):
+        def values(self, field):
+            if "keyframe" in field:
+                raise RuntimeError("field not found")
+            return super().values(field)
+
+    utils.compute_all_metrics_by_sequence(
+        view=_ErrorView(),
+        gt_field="gt",
+        pred_fields=["pred"],
+        metrics=[(_CapturingMetric, {})],
+    )
+
+    assert len(failures) == 1
+    seq, exc = failures[0]
+    assert seq == "seq-1"
+    assert "pred" in str(exc)
+
+
+def test_sequence_skipped_when_no_true_keyframes():
+    """_has_keyframes returns False when all keyframe values are False."""
+    failures = []
+
+    class _CapturingMetric:
+        def __init__(self): pass
+        def update(self, gt, pred, seq): raise AssertionError("should not be called")
+        def log_failed_sequence(self, seq, gt, pred, exc=None):
+            failures.append((seq, exc))
+
+    class _NoKeyframeView(_FakeVideoView):
+        def values(self, field):
+            if "keyframe" in field:
+                return [False, False, False]
+            return super().values(field)
+
+    utils.compute_all_metrics_by_sequence(
+        view=_NoKeyframeView(),
+        gt_field="gt",
+        pred_fields=["pred"],
+        metrics=[(_CapturingMetric, {})],
+    )
+
+    assert len(failures) == 1
+    assert failures[0][0] == "seq-1"
+    assert "pred" in str(failures[0][1])
+
+
+def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
+    """When one pred_field lacks keyframes, all pred_fields are logged as failed."""
+    failures = []
+
+    class _CapturingMetric:
+        def __init__(self): pass
+        def update(self, gt, pred, seq): raise AssertionError("should not be called")
+        def log_failed_sequence(self, seq, gt, pred, exc=None):
+            failures.append(seq)
+
+    class _PartialKeyframeView(_FakeVideoView):
+        def values(self, field):
+            if "pred_a.keyframe" in field:
+                return [True, False, True]
+            if "pred_b.keyframe" in field:
+                return [False, False, False]
+            return super().values(field)
+
+    utils.compute_all_metrics_by_sequence(
+        view=_PartialKeyframeView(),
+        gt_field="gt",
+        pred_fields=["pred_a", "pred_b"],
+        metrics=[(_CapturingMetric, {})],
+    )
+
+    assert len(failures) == 2
+    assert all(seq == "seq-1" for seq in failures)
+
+
 def test_results_to_df_formats_hota_and_tracking_outputs():
     class _HotaResults:
         accumulators = {"seq-1": None}
