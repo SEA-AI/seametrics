@@ -378,7 +378,30 @@ def compute_all_metrics_by_sequence(
         for pred_field in pred_fields
     }
 
+    def _has_keyframes(seq_view, pred_field):
+        video_view = (
+            seq_view.select_group_slices(seq_view.default_group_slice)
+            if seq_view.media_type == "group" else seq_view
+        )
+        try:
+            kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
+            return any(kf for kf in kf_vals if kf)
+        except Exception:
+            return False
+
+    valid_sequences = []
     for sequence_name in sequence_list:
+        sequence_view = view.match(F("sequence") == sequence_name)
+        missing = [pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)]
+        if missing:
+            exc = ValueError(f"No keyframe data for: {missing}")
+            for pf in pred_fields:
+                for instance in instances[pf].values():
+                    instance.log_failed_sequence(sequence_name, [], [], exc=exc)
+        else:
+            valid_sequences.append(sequence_name)
+
+    for sequence_name in valid_sequences:
         sequence_view = view.match(F("sequence") == sequence_name)
         for pred_field in pred_fields:
             gt, pred = build_detection_inputs(
