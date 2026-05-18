@@ -1,14 +1,24 @@
 """Utility helpers for building MOT/HOTA metric inputs from FiftyOne views."""
 
+from __future__ import annotations
+
 import contextlib
 import io
 import pathlib
 
-import fiftyone as fo
 import numpy as np
 import pandas as pd
-from fiftyone import ViewField as F
 from tqdm import tqdm
+
+from ._box_utils import box_convert, box_denormalize  # noqa: F401
+
+try:
+    import fiftyone as fo
+    from fiftyone import ViewField as F
+
+    _FIFTYONE_AVAILABLE = True
+except ImportError:
+    _FIFTYONE_AVAILABLE = False
 
 
 def prepare_data_for_det_metrics(  # noqa: C901
@@ -183,8 +193,11 @@ def get_relevant_fields(
         Dataset view with only the relevant fields.
 
     Raises:
+        ImportError: If ``fiftyone`` is not installed.
         ValueError: If the media type of *view* is not ``"video"``.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     if view.media_type == "group":
         view = view.select_group_slices(view.default_group_slice)
 
@@ -210,8 +223,11 @@ def get_values(
         List of values.
 
     Raises:
+        ImportError: If ``fiftyone`` is not installed.
         ValueError: If the media type of *view* is not ``"video"`` or ``"image"``.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     if view.media_type == "video":
         return view.values(f"frames[].{field_name}")
     if view.media_type == "image":
@@ -235,8 +251,11 @@ def build_detection_inputs(
         Tuple of (target, preds) numpy arrays in MOT tracker format.
 
     Raises:
+        ImportError: If ``fiftyone`` is not installed.
         ValueError: If the view contains no samples after field selection.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     view = get_relevant_fields(view, [gt_field, pred_field])
 
     sample = view.first()
@@ -312,7 +331,12 @@ def compute_metrics(
 
     Returns:
         Dictionary returned by ``metric.compute()``.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     target, preds = build_detection_inputs(view, gt_field, pred_field)
     metric = metric_fn(**metric_kwargs)
     metric.update(preds, target)
@@ -392,7 +416,12 @@ def _collect_sequence_results(
 
     Returns:
         Dict mapping sequence name to its ``compute_metrics`` result dict.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     sequence_results = {}
     for sequence_name in tqdm(view.distinct("sequence")):
         with contextlib.redirect_stdout(io.StringIO()) as f:
@@ -434,7 +463,12 @@ def compute_and_save_sequence_metrics(
         csv_suffix: Optional suffix appended to the generated CSV filename.
         debug: When True, print captured stdout for each sequence.
         name_separator: String used to join CSV filename components.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     base = name_separator.join(
         [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
     )
@@ -477,7 +511,12 @@ def compute_metrics_by_sequence(
 
     Returns:
         Fitted metric instance after calling ``update`` on every sequence.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     sequence_results = {}
 
     metric = metric_fn(**metric_kwargs)
@@ -513,7 +552,12 @@ def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
 
     Returns:
         True if at least one keyframe value is truthy; False otherwise.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     video_view = (
         seq_view.select_group_slices(seq_view.default_group_slice)
         if seq_view.media_type == "group"
@@ -545,7 +589,12 @@ def _filter_valid_sequences(
 
     Returns:
         List of sequence names where all prediction fields have keyframe data.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     valid = []
     for sequence_name in tqdm(sequence_list, desc="Validating sequences"):
         sequence_view = view.match(F("sequence") == sequence_name)
@@ -575,7 +624,12 @@ def _run_metric_updates(
         pred_fields: Prediction field names to evaluate.
         gt_field: FiftyOne field name for ground-truth detections.
         instances: Nested dict ``{pred_field: {metric_name: metric_instance}}``.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
         sequence_view = view.match(F("sequence") == sequence_name)
         for pred_field in tqdm(pred_fields, desc="Models", leave=False):
@@ -612,6 +666,10 @@ def compute_all_metrics_by_sequence(
     Returns:
         Nested dict of the form ``{pred_field: {metric_class_name: metric_instance}}``.
 
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
+        ValueError: If duplicate metric class names are found in *metrics*.
+
     Example:
         results = compute_all_metrics_by_sequence(
             view=view,
@@ -621,6 +679,8 @@ def compute_all_metrics_by_sequence(
         )
         mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     if isinstance(pred_fields, str):
         pred_fields = [pred_fields]
 
@@ -661,8 +721,11 @@ def compute_sizes(view: fo.DatasetView, gt_field: str) -> list:
         List of ``[frame_idx, track_id, area]`` entries for every annotated object.
 
     Raises:
+        ImportError: If ``fiftyone`` is not installed.
         ValueError: If the view contains no samples after field selection.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     view = get_relevant_fields(view, [gt_field])
     sample = view.first()
     if sample is None:
@@ -713,7 +776,12 @@ def get_sequence_info(
     Returns:
         Dict mapping each sequence name to the list returned by
         :func:`compute_sizes`.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
     """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
     sequence_info = {}
     sequence_names = get_relevant_fields(view, [gt_field, "sequence"]).distinct(
         "sequence"
@@ -729,6 +797,14 @@ def get_sequence_info(
         )
 
     return sequence_info
+
+
+def _placeholder_removed() -> None:  # replaced below
+    pass  # pragma: no cover
+
+
+def results_to_df_placeholder() -> None:  # remove sentinel
+    pass  # pragma: no cover
 
 
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
