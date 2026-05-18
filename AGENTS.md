@@ -34,15 +34,9 @@ Top-level package `seametrics/` is split by metric family. Each subpackage is in
 
 Optional heavy dependencies (`torch`, `torchmetrics`, `fiftyone`, `transformers`, `cleanlab`) are gated behind extras and import-availability flags. **Never import them unconditionally** from a module that lives outside its dedicated `tm/` / fiftyone subtree — it breaks the base install.
 
-`pythonpath = ["."]` in pytest config means tests import `seametrics` directly from the source tree; there is no editable install step required for the test suite.
-
 ## Working in this repo
 
-- **Correctness > velocity.** This is a metrics repo: a silent off-by-one in an IoU or a denominator change in F1 invalidates experiments downstream. Before changing a metric's math, find the existing test that pins its numeric output and update it intentionally — never "just to make CI green".
-- **Tests must be real.** No mocks that stub the metric under test; no `assert result is not None` placeholders. A new metric or branch needs at least one test with hand-computed expected values (small, inspectable inputs) so a reviewer can verify the math by eye.
-- **Surgical changes.** Don't refactor adjacent code, rename symbols, or "tidy" while fixing a bug — public metric classes are imported by downstream repos and notebooks. If you need to break an API, say so explicitly in the PR.
+- **Tests must be real.** No mocks that stub the metric under test; no `assert result is not None` placeholders. A new metric or branch needs at least one test with hand-computed expected values (small, inspectable inputs) so a reviewer can verify the math by eye. Before changing a metric's math, find the existing test that pins its numeric output and update it intentionally — never "just to make CI green".
 - **Respect the np/tm split.** When adding behavior to a metric, mirror it in both backends or document why only one is supported. Asymmetric backends are a long-term maintenance trap.
 - **Optional-deps discipline.** Guard new imports of `torch`/`fiftyone`/etc. behind the existing `_*_AVAILABLE` flags or a `try/except ImportError` at the package boundary, and add the dep to the right extra in `pyproject.toml`.
-- **Failed-sequence semantics.** In `tracking/`, errors on a single sequence are collected, not raised. Preserve this when extending — downstream callers depend on partial results.
-- **Lint config is intentional.** `ruff.toml` enables a broad ruleset (complexity, pydocstyle google convention, type annotations, NPY, PL, etc.) with deliberate per-file ignores for tests and notebooks. Fix lint findings rather than widening ignores.
-- **Develop against `develop`.** That is the CI target branch and the install default (`pip install git+...@develop`).
+- **Failed-sequence semantics.** In `tracking/`, per-sequence errors are routed to `metric.failed_sequences` via `log_failed_sequence` rather than raised — this is a tested contract (`tests/tracking/test_tracking_metrics.py`). Preserve it when extending.
