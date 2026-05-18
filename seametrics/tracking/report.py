@@ -1,6 +1,7 @@
+"""HTML comparison report builder for tracking metrics."""
+
 import html
 import json
-import os
 import pathlib
 
 import pandas as pd
@@ -29,7 +30,7 @@ _MODEL_COLORS = [
 ]
 
 
-def build_comparison_html(dfs: dict) -> str:
+def build_comparison_html(dfs: dict) -> str:  # noqa: C901, PLR0914, PLR0915
     """Build an interactive HTML report with bar charts and a comparison table.
 
     Parameters
@@ -40,6 +41,15 @@ def build_comparison_html(dfs: dict) -> str:
     """
     if not dfs:
         raise ValueError("dfs must contain at least one element")
+
+    def _h(s: str) -> str:
+        """Escape s for an HTML attribute value or text node."""
+        return html.escape(s)
+
+    def _js(s: str) -> str:
+        """Encode s as a JS string literal safe for use inside an HTML attribute."""
+        return html.escape(json.dumps(s))
+
     pred_fields = list(dfs.keys())
     metric_names = list(next(iter(dfs.values())).keys())
 
@@ -57,7 +67,7 @@ def build_comparison_html(dfs: dict) -> str:
         for m in metric_names
     }
 
-    def _agg(series: pd.Series, col: str):
+    def _agg(series: pd.Series, col: str) -> float:
         """Aggregate a metric series across sequences.
 
         Parameters
@@ -91,16 +101,16 @@ def build_comparison_html(dfs: dict) -> str:
 
     checkboxes_html = "".join(
         f'<label style="margin-right:16px;cursor:pointer;color:{color_map[pf]};">'
-        f'<input type="checkbox" checked onchange="toggleModel({html.escape(json.dumps(pf))})" style="margin-right:4px;">'
-        f"{html.escape(pf)}</label>"
+        f'<input type="checkbox" checked onchange="toggleModel({_js(pf)})" style="margin-right:4px;">'  # noqa: E501
+        f"{_h(pf)}</label>"
         for pf in pred_fields
     )
 
     tab_buttons = "".join(
-        f'<button onclick="showTab({html.escape(json.dumps(mn))})" id="tab-{html.escape(mn)}" '
+        f'<button onclick="showTab({_js(mn)})" id="tab-{_h(mn)}" '
         f'style="margin-right:8px;padding:6px 14px;cursor:pointer;'
-        f'background:{"#e94560" if i == 0 else "#1a1a2e"};color:#fff;border:1px solid #e94560;border-radius:4px;">'
-        f"{html.escape(_DISPLAY_NAME.get(mn, mn))}</button>"
+        f'background:{"#e94560" if i == 0 else "#1a1a2e"};color:#fff;border:1px solid #e94560;border-radius:4px;">'  # noqa: E501
+        f"{_h(_DISPLAY_NAME.get(mn, mn))}</button>"
         for i, mn in enumerate(metric_names)
     )
 
@@ -140,13 +150,13 @@ def build_comparison_html(dfs: dict) -> str:
         for pf in pred_fields
     }
 
-    show_diff = len(pred_fields) >= 2
+    show_diff = len(pred_fields) >= 2  # noqa: PLR2004
     n_regular_cols = len(pred_fields) * sum(len(metric_cols[mn]) for mn in metric_names)
 
     pf_idx = {pf: i for i, pf in enumerate(pred_fields)}
 
     sortable_headers = "".join(
-        f'<th class="sortable" data-label="{html.escape(col)}" data-pf="{pf_idx[pf]}" onclick="sortTable({i + 1})" title="Sort by {html.escape(col)}">{html.escape(col)}</th>'
+        f'<th class="sortable" data-label="{_h(col)}" data-pf="{pf_idx[pf]}" onclick="sortTable({i + 1})" title="Sort by {_h(col)}">{_h(col)}</th>'  # noqa: E501
         for i, (pf, _, col) in enumerate(
             (pf, mn, col)
             for pf in pred_fields
@@ -156,14 +166,14 @@ def build_comparison_html(dfs: dict) -> str:
     )
     if show_diff:
         sortable_headers += "".join(
-            f'<th class="sortable" data-label="Δ {html.escape(col)}" onclick="sortTable({n_regular_cols + i + 1})" title="Sort by Δ {html.escape(col)}">Δ {html.escape(col)}</th>'
+            f'<th class="sortable" data-label="Δ {_h(col)}" onclick="sortTable({n_regular_cols + i + 1})" title="Sort by Δ {_h(col)}">Δ {_h(col)}</th>'  # noqa: E501
             for i, (_, col) in enumerate(
                 (mn, col) for mn in metric_names for col in metric_cols[mn]
             )
         )
 
-    def _val(pf, mn, col, seq):
-        """Look up a single metric value for a specific model, metric, column, and sequence.
+    def _val(pf: str, mn: str, col: str, seq: str) -> float:
+        """Look up a metric value by model, metric group, column, and sequence.
 
         Parameters
         ----------
@@ -185,17 +195,17 @@ def build_comparison_html(dfs: dict) -> str:
 
     table_rows = "".join(
         "<tr><td>"
-        + html.escape(seq)
+        + _h(seq)
         + "</td>"
         + "".join(
-            f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">{"" if pd.isna(v := _val(pf, mn, col, seq)) else f"{v:.2f}"}</td>'
+            f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">{"" if pd.isna(v := _val(pf, mn, col, seq)) else f"{v:.2f}"}</td>'  # noqa: E501
             for pf in pred_fields
             for mn in metric_names
             for col in metric_cols[mn]
         )
         + (
             "".join(
-                f'<td style="text-align:right;" data-diff data-mn="{html.escape(mn)}" data-col="{html.escape(col)}" data-seq="{html.escape(seq)}"></td>'
+                f'<td style="text-align:right;" data-diff data-mn="{_h(mn)}" data-col="{_h(col)}" data-seq="{_h(seq)}"></td>'  # noqa: E501
                 for mn in metric_names
                 for col in metric_cols[mn]
             )
@@ -207,51 +217,50 @@ def build_comparison_html(dfs: dict) -> str:
     )
 
     agg_cells = "".join(
-        f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">{_agg(dfs[pf][mn][col], col):.2f}</td>'
+        f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">{_agg(dfs[pf][mn][col], col):.2f}</td>'  # noqa: E501
         for pf in pred_fields
         for mn in metric_names
         for col in metric_cols[mn]
     )
     if show_diff:
         agg_cells += "".join(
-            f'<td style="text-align:right;" data-diff-mean data-mn="{html.escape(mn)}" data-col="{html.escape(col)}"></td>'
+            f'<td style="text-align:right;" data-diff-mean data-mn="{_h(mn)}" data-col="{_h(col)}"></td>'  # noqa: E501
             for mn in metric_names
             for col in metric_cols[mn]
         )
 
     n_cols_per_model = sum(len(metric_cols[mn]) for mn in metric_names)
     pred_field_headers = "".join(
-        f'<th colspan="{n_cols_per_model}" data-pf="{pf_idx[pf]}" style="border-left:2px solid #e94560;">{html.escape(pf)}</th>'
+        f'<th colspan="{n_cols_per_model}" data-pf="{pf_idx[pf]}" style="border-left:2px solid #e94560;">{_h(pf)}</th>'  # noqa: E501
         for pf in pred_fields
     )
     if show_diff:
-        pred_field_headers += f'<th colspan="{n_cols_per_model}" style="border-left:2px solid #e94560;"><span id="diff-label">Δ</span></th>'
+        pred_field_headers += f'<th colspan="{n_cols_per_model}" style="border-left:2px solid #e94560;"><span id="diff-label">Δ</span></th>'  # noqa: E501
 
     metric_name_headers = "".join(
-        f'<th colspan="{len(metric_cols[mn])}" data-pf="{pf_idx[pf]}" style="border-left:2px solid #0f3460;">{html.escape(_DISPLAY_NAME.get(mn, mn))}</th>'
+        f'<th colspan="{len(metric_cols[mn])}" data-pf="{pf_idx[pf]}" style="border-left:2px solid #0f3460;">{_h(_DISPLAY_NAME.get(mn, mn))}</th>'  # noqa: E501
         for pf in pred_fields
         for mn in metric_names
     )
     if show_diff:
         metric_name_headers += "".join(
-            f'<th colspan="{len(metric_cols[mn])}" style="border-left:2px solid #0f3460;">{html.escape(_DISPLAY_NAME.get(mn, mn))}</th>'
+            f'<th colspan="{len(metric_cols[mn])}" style="border-left:2px solid #0f3460;">{_h(_DISPLAY_NAME.get(mn, mn))}</th>'  # noqa: E501
             for mn in metric_names
         )
 
     diff_controls = ""
     if show_diff:
         opts_a = "".join(
-            f'<option value="{html.escape(pf)}">{html.escape(pf)}</option>'
-            for pf in pred_fields
+            f'<option value="{_h(pf)}">{_h(pf)}</option>' for pf in pred_fields
         )
         opts_b = "".join(
-            f'<option value="{html.escape(pf)}" {"selected" if i == 1 else ""}>{html.escape(pf)}</option>'
+            f'<option value="{_h(pf)}" {"selected" if i == 1 else ""}>{_h(pf)}</option>'
             for i, pf in enumerate(pred_fields)
         )
         diff_controls = (
             '<div style="margin-bottom:10px;font-size:12px;">'
-            f'Compare: <select id="diff-a" class="diff-sel" onchange="updateDiff()">{opts_a}</select>'
-            f'&nbsp;vs&nbsp;<select id="diff-b" class="diff-sel" onchange="updateDiff()">{opts_b}</select>'
+            f'Compare: <select id="diff-a" class="diff-sel" onchange="updateDiff()">{opts_a}</select>'  # noqa: E501
+            f'&nbsp;vs&nbsp;<select id="diff-b" class="diff-sel" onchange="updateDiff()">{opts_b}</select>'  # noqa: E501
             "</div>"
         )
 
@@ -272,8 +281,8 @@ def build_comparison_html(dfs: dict) -> str:
   </table>"""
     )
 
-    template_path = os.path.join(os.path.dirname(__file__), "comparison_report.html")
-    with pathlib.Path(template_path).open("r", encoding="utf-8") as f:
+    template_path = pathlib.Path(__file__).parent / "comparison_report.html"
+    with template_path.open("r", encoding="utf-8") as f:
         template = f.read()
 
     return (

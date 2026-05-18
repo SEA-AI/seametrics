@@ -1,57 +1,63 @@
-import os
+"""Utility helpers for building MOT/HOTA metric inputs from FiftyOne views."""
+
 import contextlib
 import io
-from tqdm import tqdm
+import pathlib
+
+import fiftyone as fo
 import numpy as np
 import pandas as pd
-import fiftyone as fo
 from fiftyone import ViewField as F
-# helper functions
+from tqdm import tqdm
 
 
-def prepare_data_for_det_metrics(
-    gt_bboxes_per_frame,
-    gt_track_ids_per_frame,
-    dt_bboxes_per_frame,
-    dt_track_ids_per_frame,
-    dt_scores_per_frame,
+def prepare_data_for_det_metrics(  # noqa: C901
+    gt_bboxes_per_frame: list,
+    gt_track_ids_per_frame: list,
+    dt_bboxes_per_frame: list,
+    dt_track_ids_per_frame: list,
+    dt_scores_per_frame: list,
     img_w: int = 640,
     img_h: int = 512,
-):
-    """
-    Returns
-    -------
-    target, preds: tuple of list of dicts
-        Each dict has keys "boxes", "labels", "scores" (scores is only in preds)
+) -> tuple[np.ndarray, np.ndarray]:
+    """Convert per-frame detection lists into tracker-format numpy arrays.
+
+    Args:
+        gt_bboxes_per_frame: Per-frame list of ground-truth bounding boxes.
+        gt_track_ids_per_frame: Per-frame list of ground-truth track IDs.
+        dt_bboxes_per_frame: Per-frame list of predicted bounding boxes.
+        dt_track_ids_per_frame: Per-frame list of predicted track IDs.
+        dt_scores_per_frame: Per-frame list of detection confidence scores.
+        img_w: Image width in pixels used for denormalization.
+        img_h: Image height in pixels used for denormalization.
+
+    Returns:
+        Tuple of (target, preds) numpy arrays in MOT tracker format.
     """
 
     def _to_tracker_format(
-        gt_bboxes_per_frame,
-        gt_track_ids_per_frame,
-        dt_bboxes_per_frame,
-        dt_track_ids_per_frame,
-        dt_scores_per_frame,
+        gt_bboxes_per_frame: list,
+        gt_track_ids_per_frame: list,
+        dt_bboxes_per_frame: list,
+        dt_track_ids_per_frame: list,
+        dt_scores_per_frame: list,
         img_w: int,
         img_h: int,
-    ):
-        """Converts a list of frames with detections (bboxes) to numpy format."""
-
-        # Tracker format <frame number>, <object id>, <bb_left>, <bb_top>, <bb_width>, <bb_height>, <confidence>, <x>, <y>, <z>
-        # put to numpy format
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Convert a list of frames with detections (bboxes) to numpy format."""
         target = []
         preds = []
 
         for idx, (bbox, track_id) in enumerate(
-            zip(gt_bboxes_per_frame, gt_track_ids_per_frame)
+            zip(gt_bboxes_per_frame, gt_track_ids_per_frame, strict=False)
         ):
             if bbox is not None:
-                for bb, t_id in zip(bbox, track_id):
+                for bb, t_id in zip(bbox, track_id, strict=False):
                     denormalized_box = box_convert(
                         box_denormalize(np.array(bb), img_w, img_h),
                         in_fmt="xywh",
                         out_fmt="xyxy",
                     )
-                    # eliminate annotations with no track index (eg: sun_reflections)
                     if t_id is not None:
                         target.append(
                             [
@@ -69,10 +75,15 @@ def prepare_data_for_det_metrics(
                         )
 
         for idx, (bbox, track_id, score) in enumerate(
-            zip(dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame)
+            zip(
+                dt_bboxes_per_frame,
+                dt_track_ids_per_frame,
+                dt_scores_per_frame,
+                strict=False,
+            )
         ):
             if bbox is not None:
-                for bb, t_id, s in zip(bbox, track_id, score):
+                for bb, t_id, s in zip(bbox, track_id, score, strict=False):
                     denormalized_box = box_convert(
                         box_denormalize(np.array(bb), img_w, img_h),
                         in_fmt="xywh",
@@ -95,29 +106,32 @@ def prepare_data_for_det_metrics(
 
         return np.array(target), np.array(preds)
 
-    def _validate_arrays(data, data_type: str):
+    def _validate_arrays(data: list | None, data_type: str) -> list:
+        """Validate and normalise per-frame annotation arrays.
+
+        Args:
+            data: Raw per-frame annotation data (bboxes, masks, scores or labels).
+            data_type: One of ``"bbox"``, ``"mask"``, ``"score"``, or ``"label"``.
+
+        Returns:
+            List of numpy arrays, one per frame, with ``None`` frames replaced by
+            empty arrays.
+
+        Raises:
+            ValueError: If ``data_type`` is not a supported value.
+        """
         if data is None or len(data) == 0:
             data = [data]
-        if data_type in ["bbox", "mask"]:
+        if data_type in {"bbox", "mask"}:
             if any(
-                [
-                    (
-                        _not_falsy(item)
-                        and not isinstance(item[0], (tuple, list, np.ndarray))
-                    )
-                    for item in data
-                ]
+                _not_falsy(item) and not isinstance(item[0], (tuple, list, np.ndarray))
+                for item in data
             ):
                 data = [data]
-        elif data_type in ["score", "label"]:
+        elif data_type in {"score", "label"}:
             if any(
-                [
-                    (
-                        _not_falsy(item)
-                        and not isinstance(item, (tuple, list, np.ndarray))
-                    )
-                    for item in data
-                ]
+                _not_falsy(item) and not isinstance(item, (tuple, list, np.ndarray))
+                for item in data
             ):
                 data = [data]
         else:
@@ -125,33 +139,21 @@ def prepare_data_for_det_metrics(
         data = [np.array(x) if x is not None else np.array([]) for x in data]
         return data
 
-    def _not_falsy(x):
+    def _not_falsy(x: object) -> bool:
+        """Return True when *x* is a non-empty, non-None value.
+
+        Args:
+            x: Value to test.
+
+        Returns:
+            False when *x* is ``None``, an empty list/tuple, or an empty ndarray;
+            True otherwise.
+        """
         if x is None:
             return False
         if isinstance(x, (list, tuple)) and len(x) == 0:
             return False
-        if isinstance(x, np.ndarray) and x.size == 0:
-            return False
-        return True
-
-    # gt_bboxes_per_frame = _validate_arrays(
-    #     gt_bboxes_per_frame, data_type="bbox")
-    # gt_labels_per_frame = _validate_arrays(
-    #     gt_labels_per_frame, data_type="label")
-    # dt_bboxes_per_frame = _validate_arrays(
-    #     dt_bboxes_per_frame, data_type="bbox")
-    # dt_labels_per_frame = _validate_arrays(
-    #     dt_labels_per_frame, data_type="label")
-    # dt_scores_per_frame = _validate_arrays(
-    #     dt_scores_per_frame, data_type="score")
-
-    # assert len(gt_bboxes_per_frame) == len(
-    #     dt_bboxes_per_frame), "Number of frames in GT and prediction do not match" + \
-    #     f" ({len(gt_bboxes_per_frame)} vs {len(dt_bboxes_per_frame)})"
-
-    # if all([item is None for sublist in dt_scores_per_frame for item in sublist]):
-    #     # print("All scores are None, setting them to 1.0")
-    #     dt_scores_per_frame = [[1.0] * len(x) for x in dt_scores_per_frame]
+        return not (isinstance(x, np.ndarray) and x.size == 0)
 
     target, preds = _to_tracker_format(
         gt_bboxes_per_frame,
@@ -168,24 +170,21 @@ def prepare_data_for_det_metrics(
 
 def get_relevant_fields(
     view: fo.DatasetView,
-    fields: list,  # fiftyone field names
-):
-    """
-    Returns a view with only the relevant fields to prevent memory issues.
+    fields: list,
+) -> fo.DatasetView:
+    """Return a view with only the relevant fields to prevent memory issues.
 
-    Parameters
-    ----------
-    view: fo.DatasetView
-        Dataset view
-    fields: list
-        List of fiftyone field names. You can use dot notation (embedded.field.name).
+    Args:
+        view: Dataset view.
+        fields: List of fiftyone field names. You can use dot notation
+            (embedded.field.name).
 
-    Returns
-    -------
-    fo.DatasetView
+    Returns:
         Dataset view with only the relevant fields.
-    """
 
+    Raises:
+        ValueError: If the media type of *view* is not ``"video"``.
+    """
     if view.media_type == "group":
         view = view.select_group_slices(view.default_group_slice)
 
@@ -199,22 +198,21 @@ def get_relevant_fields(
 
 def get_values(
     view: fo.DatasetView,
-    field_name: str,  # fiftyone field name
-):
-    """
-    Parameters
-    ----------
-    view: fo.DatasetView
-        Dataset view
-    field_name: str
-        Fiftyone field name. You can use dot notation (embedded.field.name).
+    field_name: str,
+) -> list:
+    """Return field values from a FiftyOne view.
 
-    Returns
-    -------
-    list
+    Args:
+        view: Dataset view.
+        field_name: Fiftyone field name. You can use dot notation
+            (embedded.field.name).
+
+    Returns:
         List of values.
-    """
 
+    Raises:
+        ValueError: If the media type of *view* is not ``"video"`` or ``"image"``.
+    """
     if view.media_type == "video":
         return view.values(f"frames[].{field_name}")
     elif view.media_type == "image":
@@ -227,9 +225,20 @@ def build_detection_inputs(
     view: fo.DatasetView,
     gt_field: str,
     pred_field: str,
-):
-    """Returns (target, preds) numpy arrays for the given sequence view."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (target, preds) numpy arrays for the given sequence view.
 
+    Args:
+        view: FiftyOne dataset view for the sequence.
+        gt_field: FiftyOne field name for ground-truth detections.
+        pred_field: FiftyOne field name for predicted detections.
+
+    Returns:
+        Tuple of (target, preds) numpy arrays in MOT tracker format.
+
+    Raises:
+        ValueError: If the view contains no samples after field selection.
+    """
     view = get_relevant_fields(view, [gt_field, pred_field])
 
     sample = view.first()
@@ -246,19 +255,29 @@ def build_detection_inputs(
 
     keyframes = get_values(view, f"{pred_field}.keyframe")
     gt_bboxes_per_frame = [
-        bboxes for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame) if kf
+        bboxes
+        for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame, strict=False)
+        if kf
     ]
     gt_track_ids_per_frame = [
-        track_ids for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame) if kf
+        track_ids
+        for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame, strict=False)
+        if kf
     ]
     dt_bboxes_per_frame = [
-        bboxes for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame) if kf
+        bboxes
+        for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame, strict=False)
+        if kf
     ]
     dt_scores_per_frame = [
-        scores for (kf, scores) in zip(keyframes, dt_scores_per_frame) if kf
+        scores
+        for (kf, scores) in zip(keyframes, dt_scores_per_frame, strict=False)
+        if kf
     ]
     dt_track_ids_per_frame = [
-        track_ids for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame) if kf
+        track_ids
+        for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame, strict=False)
+        if kf
     ]
 
     target, preds = prepare_data_for_det_metrics(
@@ -271,7 +290,6 @@ def build_detection_inputs(
         img_h=img_h,
     )
 
-    # free memory
     del gt_bboxes_per_frame, gt_track_ids_per_frame
     del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
 
@@ -284,16 +302,35 @@ def compute_metrics(
     pred_field: str,
     metric_fn: callable,
     metric_kwargs: dict,
-):
-    """Computes metrics for a given sequence view. Returns the metric.compute() dict."""
+) -> dict:
+    """Compute metrics for a given sequence view.
+
+    Args:
+        view: FiftyOne dataset view for the sequence.
+        gt_field: FiftyOne field name for ground-truth detections.
+        pred_field: FiftyOne field name for predicted detections.
+        metric_fn: Metric class constructor (e.g. a torchmetrics metric).
+        metric_kwargs: Keyword arguments forwarded to ``metric_fn``.
+
+    Returns:
+        Dictionary returned by ``metric.compute()``.
+    """
     target, preds = build_detection_inputs(view, gt_field, pred_field)
     metric = metric_fn(**metric_kwargs)
     metric.update(preds, target)
     return metric.compute()
 
 
-def sequence_results_to_df(sequence_results):
-    # save to pandas dataframe
+def sequence_results_to_df(sequence_results: dict) -> pd.DataFrame:
+    """Convert a sequence-results dict to a pandas DataFrame.
+
+    Args:
+        sequence_results: Nested dict of the form
+            ``{seq_name: {"metrics": {area_range_lbl: metric_dict}}}``.
+
+    Returns:
+        DataFrame with one row per (sequence, area_range_lbl) combination.
+    """
     columns = [
         "sequence",
         "area_range_lbl",
@@ -315,7 +352,6 @@ def sequence_results_to_df(sequence_results):
 
     for seq_name, results in sequence_results.items():
         for area_range_lbl, metric in results["metrics"].items():
-            # print(f"{seq_name} - {area_range_lbl}: {metric}")
             df.loc[len(df)] = {
                 "sequence": seq_name,
                 "area_range_lbl": area_range_lbl,
@@ -340,20 +376,33 @@ def sequence_results_to_df(sequence_results):
 def compute_and_save_sequence_metrics(
     csv_dirpath: str,
     view: fo.DatasetView,
-    gt_field: str,  # fiftyone field name
-    pred_field: str,  # fiftyone field name
-    metric_fn: callable,  # torchmetrics metric
-    metric_kwargs: dict,  # kwargs for metric_fn
-    csv_suffix: str = None,
+    gt_field: str,
+    pred_field: str,
+    metric_fn: callable,
+    metric_kwargs: dict,
+    csv_suffix: str | None = None,
     debug: bool = False,
     name_separator: str = "__",
-):
+) -> None:
+    """Compute per-sequence metrics and save results to a CSV file.
+
+    Args:
+        csv_dirpath: Directory where the output CSV will be written.
+        view: FiftyOne dataset view to evaluate.
+        gt_field: FiftyOne field name for ground-truth detections.
+        pred_field: FiftyOne field name for predicted detections.
+        metric_fn: Metric class constructor (e.g. a torchmetrics metric).
+        metric_kwargs: Keyword arguments forwarded to ``metric_fn``.
+        csv_suffix: Optional suffix appended to the generated CSV filename.
+        debug: When True, print captured stdout for each sequence.
+        name_separator: String used to join CSV filename components.
+    """
     csv_name = name_separator.join(
         [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
     )
     csv_name = name_separator.join([csv_name, csv_suffix]) if csv_suffix else csv_name
     csv_name += ".csv"
-    csv_path = os.path.join(csv_dirpath, csv_name)
+    csv_path = str(pathlib.Path(csv_dirpath) / csv_name)
     print(f"Saving metrics to {csv_path}")
 
     view = get_relevant_fields(view, [gt_field, pred_field, "sequence"])
@@ -375,35 +424,52 @@ def compute_and_save_sequence_metrics(
         if debug:
             print(f.getvalue())
 
-    # create csv dir if not exists
-    if not os.path.exists(csv_dirpath):
-        os.makedirs(csv_dirpath)
+    if not pathlib.Path(csv_dirpath).exists():
+        pathlib.Path(csv_dirpath).mkdir(parents=True)
     df = sequence_results_to_df(sequence_results)
     df.to_csv(csv_path, index=False)
 
 
 def compute_metrics_by_sequence(
     view: fo.DatasetView,
-    gt_field: str,  # fiftyone field name
-    pred_field: str,  # fiftyone field name
-    metric_fn: callable,  # metric class
-    metric_kwargs: dict,  # kwargs for metric_fn
-    sequence_list: list = None,  # list of sequence names
-):
+    gt_field: str,
+    pred_field: str,
+    metric_fn: callable,
+    metric_kwargs: dict,
+    sequence_list: list | None = None,
+) -> object:
+    """Compute a single metric across all sequences in a view.
 
+    Args:
+        view: FiftyOne dataset view to evaluate.
+        gt_field: FiftyOne field name for ground-truth detections.
+        pred_field: FiftyOne field name for predicted detections.
+        metric_fn: Metric class constructor.
+        metric_kwargs: Keyword arguments forwarded to ``metric_fn``.
+        sequence_list: Optional list of sequence names to restrict evaluation.
+            Defaults to all sequences found in the view.
+
+    Returns:
+        Fitted metric instance after calling ``update`` on every sequence.
+    """
     sequence_results = {}
 
     metric = metric_fn(**metric_kwargs)
-    if sequence_list is None:
-        sequence_list = get_relevant_fields(
-            view, [gt_field, pred_field, "sequence"]
-        ).distinct("sequence")
-    for sequence_name in sequence_list:
+    resolved_sequences: list = (
+        sequence_list
+        if sequence_list is not None
+        else list(
+            get_relevant_fields(view, [gt_field, pred_field, "sequence"]).distinct(
+                "sequence"
+            )
+        )
+    )
+    for sequence_name in resolved_sequences:
         sequence_view = view.match(F("sequence") == sequence_name)
         sequence_results[sequence_name] = build_detection_inputs(
             view=sequence_view, gt_field=gt_field, pred_field=pred_field
         )
-    for sequence in sequence_results.keys():
+    for sequence in sequence_results:
         try:
             metric.update(
                 sequence_results[sequence][0], sequence_results[sequence][1], sequence
@@ -421,37 +487,37 @@ def compute_metrics_by_sequence(
     return metric
 
 
-def compute_all_metrics_by_sequence(
+def compute_all_metrics_by_sequence(  # noqa: C901,PLR0912
     view: fo.DatasetView,
     gt_field: str,
     pred_fields: "str | list",
-    metrics: list,  # list of (metric_fn, metric_kwargs) tuples
-    sequence_list: list = None,
+    metrics: list,
+    sequence_list: list | None = None,
 ) -> dict:
     """Run multiple metrics across multiple prediction fields in a single pass.
 
-    Parameters
-    ----------
-    pred_fields:
-        One or more FiftyOne prediction field names. Pass a string for a single
-        model or a list to evaluate multiple models in the same pass.
-    metrics:
-        List of (metric_fn, metric_kwargs) tuples, e.g.:
-        [(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})]
+    Args:
+        view: FiftyOne dataset view to evaluate.
+        gt_field: FiftyOne field name for ground-truth detections.
+        pred_fields: One or more FiftyOne prediction field names. Pass a string
+            for a single model or a list to evaluate multiple models in the same
+            pass.
+        metrics: List of (metric_fn, metric_kwargs) tuples, e.g.
+            ``[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})]``.
+        sequence_list: Optional list of sequence names to restrict evaluation.
+            Defaults to all sequences found in the view.
 
-    Returns
-    -------
-    Nested dict: {pred_field: {metric_class_name: metric_instance}}
+    Returns:
+        Nested dict of the form ``{pred_field: {metric_class_name: metric_instance}}``.
 
-    Example
-    -------
-    results = compute_all_metrics_by_sequence(
-        view=view,
-        gt_field="ground_truth_det",
-        pred_fields=["model_a", "model_b"],
-        metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
-    )
-    mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
+    Example:
+        results = compute_all_metrics_by_sequence(
+            view=view,
+            gt_field="ground_truth_det",
+            pred_fields=["model_a", "model_b"],
+            metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
+        )
+        mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
     """
     if isinstance(pred_fields, str):
         pred_fields = [pred_fields]
@@ -473,7 +539,16 @@ def compute_all_metrics_by_sequence(
         for pred_field in pred_fields
     }
 
-    def _has_keyframes(seq_view, pred_field):
+    def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
+        """Return True if any frame in *seq_view* has keyframe data for *pred_field*.
+
+        Args:
+            seq_view: FiftyOne view for a single sequence.
+            pred_field: Prediction field name to check.
+
+        Returns:
+            True if at least one keyframe value is truthy; False otherwise.
+        """
         video_view = (
             seq_view.select_group_slices(seq_view.default_group_slice)
             if seq_view.media_type == "group"
@@ -514,9 +589,19 @@ def compute_all_metrics_by_sequence(
     return instances
 
 
-def compute_sizes(view: fo.DatasetView, gt_field: str):  # fiftyone field name
-    """Computes sizes for a given sequence view."""
+def compute_sizes(view: fo.DatasetView, gt_field: str) -> list:
+    """Compute bounding-box areas for all annotated objects in a sequence view.
 
+    Args:
+        view: FiftyOne dataset view for the sequence.
+        gt_field: FiftyOne field name for ground-truth detections.
+
+    Returns:
+        List of ``[frame_idx, track_id, area]`` entries for every annotated object.
+
+    Raises:
+        ValueError: If the view contains no samples after field selection.
+    """
     view = get_relevant_fields(view, [gt_field])
     sample = view.first()
     if sample is None:
@@ -528,35 +613,46 @@ def compute_sizes(view: fo.DatasetView, gt_field: str):  # fiftyone field name
 
     b = [
         (bboxes, t_ids)
-        for (bboxes, t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame)
+        for (bboxes, t_ids) in zip(
+            gt_bboxes_per_frame, gt_track_ids_per_frame, strict=False
+        )
         if bboxes is not None and t_ids is not None
     ]
     gt_bboxes_per_frame = [bboxes for (bboxes, _) in b]
     gt_track_ids_per_frame = [t_ids for (_, t_ids) in b]
     objects = []
     for idx, (bbox, t_id) in enumerate(
-        zip(gt_bboxes_per_frame, gt_track_ids_per_frame)
+        zip(gt_bboxes_per_frame, gt_track_ids_per_frame, strict=False)
     ):
         if bbox is not None:
-            for bb, track_id in zip(bbox, t_id):
+            for bb, track_id in zip(bbox, t_id, strict=False):
                 denormalized_box = box_denormalize(np.array(bb), img_w, img_h)
                 objects.append(
                     [idx, track_id, denormalized_box[2] * denormalized_box[3]]
                 )
 
-    # free memory
     del gt_bboxes_per_frame, gt_track_ids_per_frame
-    # del mux
 
     return objects
 
 
 def get_sequence_info(
     view: fo.DatasetView,
-    gt_field: str,  # fiftyone field name
-    sequence_list: list = None,
-):
+    gt_field: str,
+    sequence_list: list | None = None,
+) -> dict:
+    """Collect per-object size information grouped by sequence.
 
+    Args:
+        view: FiftyOne dataset view to evaluate.
+        gt_field: FiftyOne field name for ground-truth detections.
+        sequence_list: Optional list of sequence names to restrict evaluation.
+            Defaults to all sequences found in the view.
+
+    Returns:
+        Dict mapping each sequence name to the list returned by
+        :func:`compute_sizes`.
+    """
     sequence_info = {}
     sequence_names = get_relevant_fields(view, [gt_field, "sequence"]).distinct(
         "sequence"
@@ -575,20 +671,20 @@ def get_sequence_info(
 
 
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
-    """
-    Denormalizes boxes from [0, 1] to [0, img_w] and [0, img_h].
+    """Denormalize boxes from [0, 1] to pixel coordinates.
+
     Args:
-        boxes (Tensor[N, 4]): boxes which will be denormalized.
-        img_w (int): Width of image.
-        img_h (int): Height of image.
+        boxes: Array of boxes to denormalize (shape ``[N, 4]``).
+        img_w: Image width in pixels.
+        img_h: Image height in pixels.
 
     Returns:
-        Tensor[N, 4]: Denormalized boxes.
+        Array of denormalized boxes with x-coordinates scaled by *img_w* and
+        y-coordinates scaled by *img_h*.
     """
     if boxes.size == 0:
         return boxes
 
-    # check if boxes are normalized
     if np.any(boxes > 1.0):
         return boxes
 
@@ -597,26 +693,33 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     return boxes
 
 
-def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
-    """
-    Converts boxes from given in_fmt to out_fmt.
-    Supported in_fmt and out_fmt are:
+def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:  # noqa: C901
+    """Convert boxes from one format to another.
 
-    'xyxy': boxes are represented via corners, x1, y1 being top left and x2, y2 being bottom right.
-    This is the format that torchvision utilities expect.
+    Supported formats:
 
-    'xywh' : boxes are represented via corner, width and height, x1, y2 being top left, w, h being width and height.
+    ``'xyxy'``: boxes are represented via corners, x1, y1 being top left and
+    x2, y2 being bottom right. This is the format that torchvision utilities
+    expect.
 
-    'cxcywh' : boxes are represented via centre, width and height, cx, cy being center of box, w, h
-    being width and height.
+    ``'xywh'``: boxes are represented via corner, width and height, x1, y1
+    being top left, w, h being width and height.
+
+    ``'cxcywh'``: boxes are represented via centre, width and height, cx, cy
+    being center of box, w, h being width and height.
 
     Args:
-        boxes (Tensor[N, 4]): boxes which will be converted.
-        in_fmt (str): Input format of given boxes. Supported formats are ['xyxy', 'xywh', 'cxcywh'].
-        out_fmt (str): Output format of given boxes. Supported formats are ['xyxy', 'xywh', 'cxcywh']
+        boxes: Boxes which will be converted (shape ``[N, 4]``).
+        in_fmt: Input format of given boxes. Supported formats are
+            ``['xyxy', 'xywh', 'cxcywh']``.
+        out_fmt: Output format of given boxes. Supported formats are
+            ``['xyxy', 'xywh', 'cxcywh']``.
 
     Returns:
-        Tensor[N, 4]: Boxes into converted format.
+        Boxes converted to *out_fmt* (shape ``[N, 4]``).
+
+    Raises:
+        ValueError: If *in_fmt* or *out_fmt* is not a supported format string.
     """
     if boxes.size == 0:
         return boxes
@@ -631,7 +734,6 @@ def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
         return boxes.copy()
 
     if in_fmt != "xyxy" and out_fmt != "xyxy":
-        # convert to xyxy and change in_fmt xyxy
         if in_fmt == "xywh":
             boxes = _box_xywh_to_xyxy(boxes)
         elif in_fmt == "cxcywh":
@@ -651,16 +753,17 @@ def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
     return boxes
 
 
-def _box_xywh_to_xyxy(boxes):
-    """
-    Converts bounding boxes from (x, y, w, h) format to (x1, y1, x2, y2) format.
+def _box_xywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
+    """Convert bounding boxes from (x, y, w, h) format to (x1, y1, x2, y2) format.
+
     (x, y) refers to top left of bounding box.
     (w, h) refers to width and height of box.
+
     Args:
-        boxes (ndarray[N, 4]): boxes in (x, y, w, h) which will be converted.
+        boxes: Boxes in (x, y, w, h) format (shape ``[N, 4]``).
 
     Returns:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) format.
+        Boxes in (x1, y1, x2, y2) format (shape ``[N, 4]``).
     """
     x, y, w, h = np.split(boxes, 4, axis=-1)
     x1 = x
@@ -671,16 +774,17 @@ def _box_xywh_to_xyxy(boxes):
     return converted_boxes
 
 
-def _box_cxcywh_to_xyxy(boxes):
-    """
-    Converts bounding boxes from (cx, cy, w, h) format to (x1, y1, x2, y2) format.
-    (cx, cy) refers to center of bounding box
-    (w, h) are width and height of bounding box
+def _box_cxcywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
+    """Convert bounding boxes from (cx, cy, w, h) format to (x1, y1, x2, y2) format.
+
+    (cx, cy) refers to center of bounding box.
+    (w, h) are width and height of bounding box.
+
     Args:
-        boxes (ndarray[N, 4]): boxes in (cx, cy, w, h) format which will be converted.
+        boxes: Boxes in (cx, cy, w, h) format (shape ``[N, 4]``).
 
     Returns:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) format.
+        Boxes in (x1, y1, x2, y2) format (shape ``[N, 4]``).
     """
     cx, cy, w, h = np.split(boxes, 4, axis=-1)
     x1 = cx - 0.5 * w
@@ -691,16 +795,17 @@ def _box_cxcywh_to_xyxy(boxes):
     return converted_boxes
 
 
-def _box_xyxy_to_xywh(boxes):
-    """
-    Converts bounding boxes from (x1, y1, x2, y2) format to (x, y, w, h) format.
-    (x1, y1) refer to top left of bounding box
-    (x2, y2) refer to bottom right of bounding box
+def _box_xyxy_to_xywh(boxes: np.ndarray) -> np.ndarray:
+    """Convert bounding boxes from (x1, y1, x2, y2) format to (x, y, w, h) format.
+
+    (x1, y1) refer to top left of bounding box.
+    (x2, y2) refer to bottom right of bounding box.
+
     Args:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) which will be converted.
+        boxes: Boxes in (x1, y1, x2, y2) format (shape ``[N, 4]``).
 
     Returns:
-        boxes (ndarray[N, 4]): boxes in (x, y, w, h) format.
+        Boxes in (x, y, w, h) format (shape ``[N, 4]``).
     """
     x1, y1, x2, y2 = np.split(boxes, 4, axis=-1)
     w = x2 - x1
@@ -709,16 +814,17 @@ def _box_xyxy_to_xywh(boxes):
     return converted_boxes
 
 
-def _box_xyxy_to_cxcywh(boxes):
-    """
-    Converts bounding boxes from (x1, y1, x2, y2) format to (cx, cy, w, h) format.
-    (x1, y1) refer to top left of bounding box
-    (x2, y2) refer to bottom right of bounding box
+def _box_xyxy_to_cxcywh(boxes: np.ndarray) -> np.ndarray:
+    """Convert bounding boxes from (x1, y1, x2, y2) format to (cx, cy, w, h) format.
+
+    (x1, y1) refer to top left of bounding box.
+    (x2, y2) refer to bottom right of bounding box.
+
     Args:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) format which will be converted.
+        boxes: Boxes in (x1, y1, x2, y2) format (shape ``[N, 4]``).
 
     Returns:
-        boxes (ndarray[N, 4]): boxes in (cx, cy, w, h) format.
+        Boxes in (cx, cy, w, h) format (shape ``[N, 4]``).
     """
     x1, y1, x2, y2 = np.split(boxes, 4, axis=-1)
     cx = (x1 + x2) / 2
@@ -729,33 +835,40 @@ def _box_xyxy_to_cxcywh(boxes):
     return converted_boxes
 
 
-def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
+def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.DataFrame:
     """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
 
     Detects the metric type from the result keys and applies metric-specific
     scaling where implemented.
 
-    TrackingMetrics: only ``mota`` is scaled ×100 and ``motp`` is converted to
-    ``(1 - motp) × 100``; all other returned metrics are left unchanged.
-    HOTAMetrics: all returned metric values (hota, deta, assa, loca) are scaled ×100.
+    TrackingMetrics: only ``mota`` is scaled x100 and ``motp`` is converted to
+    ``(1 - motp) x 100``; all other returned metrics are left unchanged.
+    HOTAMetrics: all returned metric values (hota, deta, assa, loca) are scaled x100.
+
+    Args:
+        metrics: Fitted metric instance exposing ``accumulators`` and
+            ``compute(sequence=...)``.
+        sequence_list: Optional list of sequence names to include. Defaults to
+            all accumulators in *metrics*.
+
+    Returns:
+        DataFrame with one row per sequence and one column per metric value.
     """
     if sequence_list is None:
-        sequence_list = list(metrics.accumulators.keys())
+        sequence_list = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
 
     rows = []
     for sequence in sequence_list:
-        result = metrics.compute(sequence=sequence)
+        result = metrics.compute(sequence=sequence)  # type: ignore[attr-defined]
 
         if "hota" in result:
-            # HOTAMetrics: scores are in [0,1] and scaled ×100; num_unique_objects is a count
             row = {
                 k: (v if k == "num_unique_objects" else v * 100)
                 for k, v in result.items()
             }
         else:
-            # TrackingMetrics: result is {metric: {0: value}} (pandas to_dict format)
-            row = {k: list(v.values())[0] for k, v in result.items()}
-            row["mota"] = row["mota"] * 100
+            row = {k: next(iter(v.values())) for k, v in result.items()}
+            row["mota"] *= 100
             row["motp"] = (1 - row["motp"]) * 100
 
         row["sequence"] = sequence
@@ -764,12 +877,31 @@ def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def hota_results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
-    """Alias for results_to_df for backward compatibility."""
+def hota_results_to_df(
+    metrics: object, sequence_list: list | None = None
+) -> pd.DataFrame:
+    """Alias for results_to_df for backward compatibility.
+
+    Args:
+        metrics: Fitted metric instance (see :func:`results_to_df`).
+        sequence_list: Optional list of sequence names to include.
+
+    Returns:
+        DataFrame with one row per sequence and one column per metric value.
+    """
     return results_to_df(metrics, sequence_list)
 
 
-def classify_num_objects(x):
+def classify_num_objects(x: int | float) -> str | None:
+    """Map an object count to a human-readable category label.
+
+    Args:
+        x: Number of objects in a frame or sequence.
+
+    Returns:
+        One of ``"zero"``, ``"one"``, ``"two"``, ``"few"``, ``"many"``; or
+        ``None`` if *x* does not fall within any defined range.
+    """
     n_objects_ranges_tuples = [
         ("zero", [0, 1]),
         ("one", [1, 2]),
