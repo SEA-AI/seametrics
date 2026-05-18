@@ -23,6 +23,7 @@ dependencies = [
   "typing_extensions>=4.7.0",
   "motmetrics>=1.4.0",
   "scipy>=1.7.0",
+  "importlib-metadata>=4.6.0; python_version<'3.8'",
 ]
 
 [project.optional-dependencies]
