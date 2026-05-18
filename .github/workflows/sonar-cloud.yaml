@@ -21,7 +21,7 @@ jobs:
       # Step 2: Set up Python
       - name: 🐍 Setup Python
         id: setup-python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v6
         with:
           python-version: "3.9"
 
