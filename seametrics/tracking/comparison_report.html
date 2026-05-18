@@ -33,6 +33,7 @@
   const metricNames = __METRIC_NAMES__;
   const metricCols  = __METRIC_COLS__;
   const colorMap    = __COLOR_MAP__;
+  const sumMetrics  = new Set(__SUM_METRICS__);
   const activeModels = Object.fromEntries(predFields.map(p => [p, true]));
   const charts = {};
 
@@ -128,14 +129,26 @@
 
     document.querySelectorAll("[data-diff-mean]").forEach(cell => {
       const { mn, col } = cell.dataset;
-      const vals = sequences.map(seq => {
-        const a = tableData[pfA]?.[mn]?.[col]?.[seq];
-        const b = tableData[pfB]?.[mn]?.[col]?.[seq];
-        return (a != null && b != null) ? b - a : null;
-      }).filter(v => v != null);
-      if (!vals.length) { cell.textContent = ""; return; }
-      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
-      cell.textContent = (mean >= 0 ? "+" : "") + mean.toFixed(2);
+      if (sumMetrics.has(col)) {
+        let totalA = 0, totalB = 0, hasData = false;
+        for (const seq of sequences) {
+          const a = tableData[pfA]?.[mn]?.[col]?.[seq];
+          const b = tableData[pfB]?.[mn]?.[col]?.[seq];
+          if (a != null && b != null) { totalA += a; totalB += b; hasData = true; }
+        }
+        if (!hasData) { cell.textContent = ""; return; }
+        const delta = totalB - totalA;
+        cell.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2);
+      } else {
+        const vals = sequences.map(seq => {
+          const a = tableData[pfA]?.[mn]?.[col]?.[seq];
+          const b = tableData[pfB]?.[mn]?.[col]?.[seq];
+          return (a != null && b != null) ? b - a : null;
+        }).filter(v => v != null);
+        if (!vals.length) { cell.textContent = ""; return; }
+        const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+        cell.textContent = (mean >= 0 ? "+" : "") + mean.toFixed(2);
+      }
     });
   }
 
