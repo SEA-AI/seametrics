@@ -390,7 +390,7 @@ def compute_all_metrics_by_sequence(
             return False
 
     valid_sequences = []
-    for sequence_name in sequence_list:
+    for sequence_name in tqdm(sequence_list, desc="Validating sequences"):
         sequence_view = view.match(F("sequence") == sequence_name)
         missing = [pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)]
         if missing:
@@ -401,9 +401,9 @@ def compute_all_metrics_by_sequence(
         else:
             valid_sequences.append(sequence_name)
 
-    for sequence_name in valid_sequences:
+    for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
         sequence_view = view.match(F("sequence") == sequence_name)
-        for pred_field in pred_fields:
+        for pred_field in tqdm(pred_fields, desc="Models", leave=False):
             gt, pred = build_detection_inputs(
                 view=sequence_view, gt_field=gt_field, pred_field=pred_field
             )
