@@ -34,6 +34,11 @@ panoptic = [
   "transformers",
   "scipy",
 ]
+test = [
+  "pytest>=7",
+  "pytest-cov>=4",
+  "pytest-mock>=3",
+]
 
 [project.urls]
 Homepage = "https://github.com/SEA-AI/seametrics"
@@ -48,10 +53,11 @@ packages = ["seametrics"]
 
 [dependency-groups]
 dev = [
-  "pytest",
-  "pytest-cov",
-  "pytest-mock",
+  "pytest>=7",
+  "pytest-cov>=4",
+  "pytest-mock>=3",
   "ruff",
+  "pylint",
 ]
 
 # Pytest settings
