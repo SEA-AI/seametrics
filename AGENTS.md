@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `seametrics` is SEA.AI's library for evaluating AI pipelines. It is a **metrics library**: results from this code feed model selection and production decisions, so correctness matters more than throughput of changes. Treat every metric as a load-bearing API.
 
+## Setup
+
+Before making code changes, verify the environment is ready and **notify the user of any errors** from these steps rather than working around them:
+
+```bash
+uv sync --all-extras    # install/refresh deps from uv.lock
+uvx pre-commit install  # install the pre-commit git hook (once per clone)
+```
+
 ## Commands
 
 Dependencies and environment are managed via `uv` (see `pyproject.toml` + optional extras: `fiftyone`, `panoptic`, `test`).
