@@ -422,8 +422,8 @@ def get_target_and_preds(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
-        img_w=img_w,
-        img_h=img_h,
+        img_w,
+        img_h,
     )
 
     return target, preds
@@ -457,8 +457,8 @@ def compute_metrics(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
         dt_scores_per_frame,
-        img_w=img_w,
-        img_h=img_h,
+        img_w,
+        img_h,
     )
 
     # free memory

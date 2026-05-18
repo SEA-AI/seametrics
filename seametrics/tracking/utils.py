@@ -438,9 +438,9 @@ def compute_and_save_sequence_metrics(
     base = name_separator.join(
         [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
     )
-    csv_name = name_separator.join(
-        [base, csv_suffix] if csv_suffix else [base]
-    ) + ".csv"
+    csv_name = (
+        name_separator.join([base, csv_suffix] if csv_suffix else [base]) + ".csv"
+    )
     csv_path = str(pathlib.Path(csv_dirpath) / csv_name)
     print(f"Saving metrics to {csv_path}")
 
