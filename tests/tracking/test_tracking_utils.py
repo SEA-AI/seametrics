@@ -1,3 +1,5 @@
+"""Tests for seametrics.tracking.utils."""
+
 from contextlib import contextmanager
 from typing import ClassVar
 from unittest.mock import patch
