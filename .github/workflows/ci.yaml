@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    outputs:
+      repo-cache-key: repo-${{ github.sha }}
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Ensures we get commit history for diffing
+
+      - name: 🔄 Cache repository
+        uses: actions/cache@v5
+        with:
+          path: . # Cache the entire repo
+          key: repo-${{ github.sha }}
+
+  changed-files:
+    needs: checkout
+    runs-on: ubuntu-latest
+    outputs:
+      changed_files: ${{ steps.changed-python-files.outputs.all_changed_files }}
+    steps:
+      - name: 🔄 Restore repository from cache
+        uses: actions/cache@v5
+        with:
+          path: .
+          key: repo-${{ github.sha }}
+
+      - name: 🔍 Get changed files
+        id: changed-python-files
+        uses: tj-actions/changed-files@v47
+        with:
+          files: |
+            **/*.py
+            **/*.pyi
+
+  ruff-linter:
+    needs: changed-files
+    runs-on: ubuntu-latest
+    if: ${{ needs.changed-files.outputs.changed_files != '' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 🔄 Restore repository from cache
+        uses: actions/cache@v5
+        with:
+          path: .
+          key: repo-${{ github.sha }}
+
+      - uses: astral-sh/ruff-action@v3
+        name: ✨ Lint with Ruff (only changed files)
+        with:
+          version: "latest"
+          src: ${{ needs.changed-files.outputs.changed_files }}
+          args: check --output-format=github
+
+  ruff-format:
+    needs: changed-files
+    runs-on: ubuntu-latest
+    if: ${{ needs.changed-files.outputs.changed_files != '' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 🔄 Restore repository from cache
+        uses: actions/cache@v5
+        with:
+          path: .
+          key: repo-${{ github.sha }}
+
+      - uses: astral-sh/ruff-action@v3
+        name: 📝 Format with Ruff (only changed files)
+        with:
+          version: "latest"
+          src: ${{ needs.changed-files.outputs.changed_files }}
+          args: "format --diff"
+
+  pylint:
+    needs: changed-files
+    runs-on: ubuntu-latest
+    if: ${{ needs.changed-files.outputs.changed_files != '' }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 🔄 Restore repository from cache
+        uses: actions/cache@v5
+        with:
+          path: .
+          key: repo-${{ github.sha }}
+
+      - name: 🛠️ Install the latest version of uv and set the python version
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: 🦾 Install the project
+        run: uv sync --all-extras
+
+      - name: 🦾 Install pylint
+        run: uv pip install pylint
+
+      - name: 🔍 Run Pylint
+        run: uv run pylint ${{ needs.changed-files.outputs.changed_files }}
+
+  sonarqube:
+    needs:
+      - checkout # Needs full repo
+      - changed-files
+      - ruff-linter
+      - ruff-format
+      - pylint
+    runs-on: ubuntu-latest
+    if: ${{ needs.changed-files.outputs.changed_files != '' }}
+    steps:
+      - name: 🔄 Restore repository from cache
+        uses: actions/cache@v5
+        with:
+          path: .
+          key: repo-${{ github.sha }}
+
+      - name: 🛠️ Install the latest version of uv and set the python version
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: 🦾 Install the project
+        run: uv sync --all-extras
+
+      - name: 🧪 Run pytest with coverage
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+        run: uv run pytest --cov-report=xml
+
+      - name: 🔎 SonarQube Cloud Scan (Full Repo)
+        uses: SonarSource/sonarqube-scan-action@v3.1.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: 🧹 Minimize uv cache
+        run: uv cache prune --ci
