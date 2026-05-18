@@ -132,6 +132,9 @@ jobs:
           path: .
           key: repo-${{ github.sha }}
 
+      - name: 📥 Install ffmpeg
+        uses: AnimMouse/setup-ffmpeg@v1
+
       - name: 🛠️ Install the latest version of uv and set the python version
         uses: astral-sh/setup-uv@v7
         with:
