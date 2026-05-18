@@ -8,13 +8,16 @@ import fiftyone as fo
 from fiftyone import ViewField as F
 # helper functions
 
-def prepare_data_for_det_metrics(gt_bboxes_per_frame,
-                                 gt_track_ids_per_frame,
-                                 dt_bboxes_per_frame,
-                                 dt_track_ids_per_frame,
-                                 dt_scores_per_frame,
-                                 img_w: int = 640,
-                                 img_h: int = 512):
+
+def prepare_data_for_det_metrics(
+    gt_bboxes_per_frame,
+    gt_track_ids_per_frame,
+    dt_bboxes_per_frame,
+    dt_track_ids_per_frame,
+    dt_scores_per_frame,
+    img_w: int = 640,
+    img_h: int = 512,
+):
     """
     Returns
     -------
@@ -22,9 +25,15 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
         Each dict has keys "boxes", "labels", "scores" (scores is only in preds)
     """
 
-    def _to_tracker_format(gt_bboxes_per_frame, gt_track_ids_per_frame,
-                      dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
-                      img_w: int, img_h: int):
+    def _to_tracker_format(
+        gt_bboxes_per_frame,
+        gt_track_ids_per_frame,
+        dt_bboxes_per_frame,
+        dt_track_ids_per_frame,
+        dt_scores_per_frame,
+        img_w: int,
+        img_h: int,
+    ):
         """Converts a list of frames with detections (bboxes) to numpy format."""
 
         # Tracker format <frame number>, <object id>, <bb_left>, <bb_top>, <bb_width>, <bb_height>, <confidence>, <x>, <y>, <z>
@@ -32,46 +41,88 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
         target = []
         preds = []
 
-        for idx, (bbox, track_id) in enumerate(zip(gt_bboxes_per_frame, gt_track_ids_per_frame)):
-            if bbox is not  None:
+        for idx, (bbox, track_id) in enumerate(
+            zip(gt_bboxes_per_frame, gt_track_ids_per_frame)
+        ):
+            if bbox is not None:
                 for bb, t_id in zip(bbox, track_id):
                     denormalized_box = box_convert(
-                    box_denormalize(np.array(bb), img_w, img_h),
-                    in_fmt="xywh",
-                    out_fmt="xyxy"
+                        box_denormalize(np.array(bb), img_w, img_h),
+                        in_fmt="xywh",
+                        out_fmt="xyxy",
                     )
-                    #eliminate annotations with no track index (eg: sun_reflections)
+                    # eliminate annotations with no track index (eg: sun_reflections)
                     if t_id is not None:
-                        target.append([idx+1, t_id, denormalized_box[0], denormalized_box[1], denormalized_box[2], denormalized_box[3], 1, -1, -1, -1])
+                        target.append(
+                            [
+                                idx + 1,
+                                t_id,
+                                denormalized_box[0],
+                                denormalized_box[1],
+                                denormalized_box[2],
+                                denormalized_box[3],
+                                1,
+                                -1,
+                                -1,
+                                -1,
+                            ]
+                        )
 
-        for idx, (bbox, track_id, score) in enumerate(zip(dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame)):
+        for idx, (bbox, track_id, score) in enumerate(
+            zip(dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame)
+        ):
             if bbox is not None:
                 for bb, t_id, s in zip(bbox, track_id, score):
                     denormalized_box = box_convert(
-                    box_denormalize(np.array(bb), img_w, img_h),
-                    in_fmt="xywh",
-                    out_fmt="xyxy"
+                        box_denormalize(np.array(bb), img_w, img_h),
+                        in_fmt="xywh",
+                        out_fmt="xyxy",
                     )
-                    preds.append([idx+1, t_id, denormalized_box[0], denormalized_box[1], denormalized_box[2], denormalized_box[3], s, -1, -1, -1])
-                   
-        return np.array(target), np.array(preds)
+                    preds.append(
+                        [
+                            idx + 1,
+                            t_id,
+                            denormalized_box[0],
+                            denormalized_box[1],
+                            denormalized_box[2],
+                            denormalized_box[3],
+                            s,
+                            -1,
+                            -1,
+                            -1,
+                        ]
+                    )
 
+        return np.array(target), np.array(preds)
 
     def _validate_arrays(data, data_type: str):
         if data is None or len(data) == 0:
             data = [data]
         if data_type in ["bbox", "mask"]:
-            if any([(_not_falsy(item) and not isinstance(item[0], (tuple, list, np.ndarray)))
-                    for item in data]):
+            if any(
+                [
+                    (
+                        _not_falsy(item)
+                        and not isinstance(item[0], (tuple, list, np.ndarray))
+                    )
+                    for item in data
+                ]
+            ):
                 data = [data]
         elif data_type in ["score", "label"]:
-            if any([(_not_falsy(item) and not isinstance(item, (tuple, list, np.ndarray)))
-                    for item in data]):
+            if any(
+                [
+                    (
+                        _not_falsy(item)
+                        and not isinstance(item, (tuple, list, np.ndarray))
+                    )
+                    for item in data
+                ]
+            ):
                 data = [data]
         else:
             raise ValueError(f"Unsupported data type: {data_type}")
-        data = [np.array(x) if x is not None else np.array([])
-                for x in data]
+        data = [np.array(x) if x is not None else np.array([]) for x in data]
         return data
 
     def _not_falsy(x):
@@ -103,17 +154,22 @@ def prepare_data_for_det_metrics(gt_bboxes_per_frame,
     #     dt_scores_per_frame = [[1.0] * len(x) for x in dt_scores_per_frame]
 
     target, preds = _to_tracker_format(
-        gt_bboxes_per_frame, gt_track_ids_per_frame,
-        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
-        img_w=img_w, img_h=img_h)
-
-
+        gt_bboxes_per_frame,
+        gt_track_ids_per_frame,
+        dt_bboxes_per_frame,
+        dt_track_ids_per_frame,
+        dt_scores_per_frame,
+        img_w=img_w,
+        img_h=img_h,
+    )
 
     return target, preds
 
-def get_relevant_fields(view: fo.DatasetView,
-                        fields: list,  # fiftyone field names
-                        ):
+
+def get_relevant_fields(
+    view: fo.DatasetView,
+    fields: list,  # fiftyone field names
+):
     """
     Returns a view with only the relevant fields to prevent memory issues.
 
@@ -130,18 +186,21 @@ def get_relevant_fields(view: fo.DatasetView,
         Dataset view with only the relevant fields.
     """
 
-    if view.media_type == 'group':
+    if view.media_type == "group":
         view = view.select_group_slices(view.default_group_slice)
 
-    if view.media_type == 'video':
-        return view.select_fields([f"frames.{f}" if view.has_frame_field(f) else f
-                                   for f in fields])
+    if view.media_type == "video":
+        return view.select_fields(
+            [f"frames.{f}" if view.has_frame_field(f) else f for f in fields]
+        )
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
-def get_values(view: fo.DatasetView,
-               field_name: str,  # fiftyone field name
-               ):
+
+def get_values(
+    view: fo.DatasetView,
+    field_name: str,  # fiftyone field name
+):
     """
     Parameters
     ----------
@@ -156,12 +215,13 @@ def get_values(view: fo.DatasetView,
         List of values.
     """
 
-    if view.media_type == 'video':
+    if view.media_type == "video":
         return view.values(f"frames[].{field_name}")
-    elif view.media_type == 'image':
+    elif view.media_type == "image":
         return view.values(field_name)
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
+
 
 def build_detection_inputs(
     view: fo.DatasetView,
@@ -178,34 +238,45 @@ def build_detection_inputs(
     img_w = sample["metadata"]["frame_width"]
     img_h = sample["metadata"]["frame_height"]
 
-    gt_bboxes_per_frame = get_values(view,
-                                     f"{gt_field}.detections.bounding_box")
-    gt_track_ids_per_frame = get_values(view,
-                                     f"{gt_field}.detections.index")
-    dt_bboxes_per_frame = get_values(view,
-                                     f"{pred_field}.detections.bounding_box")
-    dt_scores_per_frame = get_values(view,
-                                     f"{pred_field}.detections.confidence")
-    dt_track_ids_per_frame = get_values(view,
-                                     f"{pred_field}.detections.index")
+    gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
+    gt_track_ids_per_frame = get_values(view, f"{gt_field}.detections.index")
+    dt_bboxes_per_frame = get_values(view, f"{pred_field}.detections.bounding_box")
+    dt_scores_per_frame = get_values(view, f"{pred_field}.detections.confidence")
+    dt_track_ids_per_frame = get_values(view, f"{pred_field}.detections.index")
 
     keyframes = get_values(view, f"{pred_field}.keyframe")
-    gt_bboxes_per_frame = [bboxes for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame) if kf]
-    gt_track_ids_per_frame = [track_ids for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame) if kf]
-    dt_bboxes_per_frame = [bboxes for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame) if kf]
-    dt_scores_per_frame = [scores for (kf, scores) in zip(keyframes, dt_scores_per_frame) if kf]
-    dt_track_ids_per_frame = [track_ids for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame) if kf]
+    gt_bboxes_per_frame = [
+        bboxes for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame) if kf
+    ]
+    gt_track_ids_per_frame = [
+        track_ids for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame) if kf
+    ]
+    dt_bboxes_per_frame = [
+        bboxes for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame) if kf
+    ]
+    dt_scores_per_frame = [
+        scores for (kf, scores) in zip(keyframes, dt_scores_per_frame) if kf
+    ]
+    dt_track_ids_per_frame = [
+        track_ids for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame) if kf
+    ]
 
     target, preds = prepare_data_for_det_metrics(
-        gt_bboxes_per_frame, gt_track_ids_per_frame,
-        dt_bboxes_per_frame, dt_track_ids_per_frame, dt_scores_per_frame,
-        img_w=img_w, img_h=img_h)
+        gt_bboxes_per_frame,
+        gt_track_ids_per_frame,
+        dt_bboxes_per_frame,
+        dt_track_ids_per_frame,
+        dt_scores_per_frame,
+        img_w=img_w,
+        img_h=img_h,
+    )
 
     # free memory
     del gt_bboxes_per_frame, gt_track_ids_per_frame
     del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
 
     return target, preds
+
 
 def compute_metrics(
     view: fo.DatasetView,
@@ -220,15 +291,30 @@ def compute_metrics(
     metric.update(preds, target)
     return metric.compute()
 
+
 def sequence_results_to_df(sequence_results):
     # save to pandas dataframe
-    columns = ["sequence", "area_range_lbl", "area_range", "iou_threshold", "max_dets",
-               "tp", "fp", "fn", "duplicates", "precision", "recall", "f1", "support",
-               "fpi", "n_imgs"]
+    columns = [
+        "sequence",
+        "area_range_lbl",
+        "area_range",
+        "iou_threshold",
+        "max_dets",
+        "tp",
+        "fp",
+        "fn",
+        "duplicates",
+        "precision",
+        "recall",
+        "f1",
+        "support",
+        "fpi",
+        "n_imgs",
+    ]
     df = pd.DataFrame(columns=columns)
 
     for seq_name, results in sequence_results.items():
-        for area_range_lbl, metric in results['metrics'].items():
+        for area_range_lbl, metric in results["metrics"].items():
             # print(f"{seq_name} - {area_range_lbl}: {metric}")
             df.loc[len(df)] = {
                 "sequence": seq_name,
@@ -250,6 +336,7 @@ def sequence_results_to_df(sequence_results):
 
     return df
 
+
 def compute_and_save_sequence_metrics(
     csv_dirpath: str,
     view: fo.DatasetView,
@@ -260,16 +347,16 @@ def compute_and_save_sequence_metrics(
     csv_suffix: str = None,
     debug: bool = False,
     name_separator: str = "__",
-    ):
+):
     csv_name = name_separator.join(
-        [view.dataset_name, gt_field, pred_field, metric_fn.__name__])
-    csv_name = name_separator.join(
-        [csv_name, csv_suffix]) if csv_suffix else csv_name
+        [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
+    )
+    csv_name = name_separator.join([csv_name, csv_suffix]) if csv_suffix else csv_name
     csv_name += ".csv"
     csv_path = os.path.join(csv_dirpath, csv_name)
     print(f"Saving metrics to {csv_path}")
 
-    view = get_relevant_fields(view, [gt_field, pred_field, 'sequence'])
+    view = get_relevant_fields(view, [gt_field, pred_field, "sequence"])
 
     sequence_results = {}
     sequence_names = view.distinct("sequence")
@@ -294,6 +381,7 @@ def compute_and_save_sequence_metrics(
     df = sequence_results_to_df(sequence_results)
     df.to_csv(csv_path, index=False)
 
+
 def compute_metrics_by_sequence(
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
@@ -301,25 +389,32 @@ def compute_metrics_by_sequence(
     metric_fn: callable,  # metric class
     metric_kwargs: dict,  # kwargs for metric_fn
     sequence_list: list = None,  # list of sequence names
-    ):
+):
 
     sequence_results = {}
 
     metric = metric_fn(**metric_kwargs)
     if sequence_list is None:
-        sequence_list = get_relevant_fields(view, [gt_field, pred_field, 'sequence']).distinct("sequence")
+        sequence_list = get_relevant_fields(
+            view, [gt_field, pred_field, "sequence"]
+        ).distinct("sequence")
     for sequence_name in sequence_list:
         sequence_view = view.match(F("sequence") == sequence_name)
         sequence_results[sequence_name] = build_detection_inputs(
-            view=sequence_view,
-            gt_field=gt_field,
-            pred_field=pred_field
+            view=sequence_view, gt_field=gt_field, pred_field=pred_field
         )
     for sequence in sequence_results.keys():
         try:
-            metric.update(sequence_results[sequence][0], sequence_results[sequence][1], sequence)
+            metric.update(
+                sequence_results[sequence][0], sequence_results[sequence][1], sequence
+            )
         except (ValueError, IndexError) as e:
-            metric.log_failed_sequence(sequence, sequence_results[sequence][0], sequence_results[sequence][1], exc=e)
+            metric.log_failed_sequence(
+                sequence,
+                sequence_results[sequence][0],
+                sequence_results[sequence][1],
+                exc=e,
+            )
         except Exception:
             raise
 
@@ -381,7 +476,8 @@ def compute_all_metrics_by_sequence(
     def _has_keyframes(seq_view, pred_field):
         video_view = (
             seq_view.select_group_slices(seq_view.default_group_slice)
-            if seq_view.media_type == "group" else seq_view
+            if seq_view.media_type == "group"
+            else seq_view
         )
         try:
             kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
@@ -417,45 +513,54 @@ def compute_all_metrics_by_sequence(
 
     return instances
 
-def compute_sizes(view: fo.DatasetView,
-                    gt_field: str):  # fiftyone field name
-        """Computes sizes for a given sequence view."""
 
-        view = get_relevant_fields(view, [gt_field])
-        sample = view.first()
-        if sample is None:
-            raise ValueError("View is empty — no samples found after field selection.")
-        img_w = sample["metadata"]["frame_width"]
-        img_h = sample["metadata"]["frame_height"]
-        gt_bboxes_per_frame = get_values(view,
-                                         f"{gt_field}.detections.bounding_box")
-        gt_track_ids_per_frame = get_values(view,
-                                            f"{gt_field}.detections.index")
+def compute_sizes(view: fo.DatasetView, gt_field: str):  # fiftyone field name
+    """Computes sizes for a given sequence view."""
 
-        b = [(bboxes, t_ids) for (bboxes, t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame) if bboxes is not None and t_ids is not None]
-        gt_bboxes_per_frame = [bboxes for (bboxes,_) in b]
-        gt_track_ids_per_frame = [t_ids for (_,t_ids)  in b]
-        objects = []
-        for idx, (bbox,t_id) in enumerate(zip(gt_bboxes_per_frame, gt_track_ids_per_frame)):
-            if bbox is not None:
-                for (bb,track_id) in zip(bbox, t_id):
-                    denormalized_box = box_denormalize(np.array(bb), img_w, img_h)
-                    objects.append([idx, track_id, denormalized_box[2]*denormalized_box[3]])
-    
-        # free memory
-        del gt_bboxes_per_frame, gt_track_ids_per_frame
-        #del mux
-    
-        return objects
+    view = get_relevant_fields(view, [gt_field])
+    sample = view.first()
+    if sample is None:
+        raise ValueError("View is empty — no samples found after field selection.")
+    img_w = sample["metadata"]["frame_width"]
+    img_h = sample["metadata"]["frame_height"]
+    gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
+    gt_track_ids_per_frame = get_values(view, f"{gt_field}.detections.index")
 
-def get_sequence_info(view: fo.DatasetView,
-                    gt_field: str,  # fiftyone field name
-                    sequence_list: list = None,
-                    ): 
+    b = [
+        (bboxes, t_ids)
+        for (bboxes, t_ids) in zip(gt_bboxes_per_frame, gt_track_ids_per_frame)
+        if bboxes is not None and t_ids is not None
+    ]
+    gt_bboxes_per_frame = [bboxes for (bboxes, _) in b]
+    gt_track_ids_per_frame = [t_ids for (_, t_ids) in b]
+    objects = []
+    for idx, (bbox, t_id) in enumerate(
+        zip(gt_bboxes_per_frame, gt_track_ids_per_frame)
+    ):
+        if bbox is not None:
+            for bb, track_id in zip(bbox, t_id):
+                denormalized_box = box_denormalize(np.array(bb), img_w, img_h)
+                objects.append(
+                    [idx, track_id, denormalized_box[2] * denormalized_box[3]]
+                )
 
+    # free memory
+    del gt_bboxes_per_frame, gt_track_ids_per_frame
+    # del mux
+
+    return objects
+
+
+def get_sequence_info(
+    view: fo.DatasetView,
+    gt_field: str,  # fiftyone field name
+    sequence_list: list = None,
+):
 
     sequence_info = {}
-    sequence_names = get_relevant_fields(view, [gt_field, 'sequence']).distinct("sequence")
+    sequence_names = get_relevant_fields(view, [gt_field, "sequence"]).distinct(
+        "sequence"
+    )
     if sequence_list is None:
         sequence_list = sequence_names
 
@@ -465,9 +570,10 @@ def get_sequence_info(view: fo.DatasetView,
             view=sequence_view,
             gt_field=gt_field,
         )
-        
+
     return sequence_info
-        
+
+
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     """
     Denormalizes boxes from [0, 1] to [0, img_w] and [0, img_h].
@@ -489,6 +595,7 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     boxes[0::2] *= img_w
     boxes[1::2] *= img_h
     return boxes
+
 
 def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
     """
@@ -517,7 +624,8 @@ def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
     allowed_fmts = ("xyxy", "xywh", "cxcywh")
     if in_fmt not in allowed_fmts or out_fmt not in allowed_fmts:
         raise ValueError(
-            "Unsupported Bounding Box Conversions for given in_fmt and out_fmt")
+            "Unsupported Bounding Box Conversions for given in_fmt and out_fmt"
+        )
 
     if in_fmt == out_fmt:
         return boxes.copy()
@@ -542,6 +650,7 @@ def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
             boxes = _box_cxcywh_to_xyxy(boxes)
     return boxes
 
+
 def _box_xywh_to_xyxy(boxes):
     """
     Converts bounding boxes from (x, y, w, h) format to (x1, y1, x2, y2) format.
@@ -560,6 +669,7 @@ def _box_xywh_to_xyxy(boxes):
     y2 = y + h
     converted_boxes = np.concatenate([x1, y1, x2, y2], axis=-1)
     return converted_boxes
+
 
 def _box_cxcywh_to_xyxy(boxes):
     """
@@ -580,6 +690,7 @@ def _box_cxcywh_to_xyxy(boxes):
     converted_boxes = np.concatenate([x1, y1, x2, y2], axis=-1)
     return converted_boxes
 
+
 def _box_xyxy_to_xywh(boxes):
     """
     Converts bounding boxes from (x1, y1, x2, y2) format to (x, y, w, h) format.
@@ -596,6 +707,7 @@ def _box_xyxy_to_xywh(boxes):
     h = y2 - y1
     converted_boxes = np.concatenate([x1, y1, w, h], axis=-1)
     return converted_boxes
+
 
 def _box_xyxy_to_cxcywh(boxes):
     """
@@ -616,6 +728,7 @@ def _box_xyxy_to_cxcywh(boxes):
     converted_boxes = np.concatenate([cx, cy, w, h], axis=-1)
     return converted_boxes
 
+
 def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
     """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
 
@@ -635,7 +748,10 @@ def results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
 
         if "hota" in result:
             # HOTAMetrics: scores are in [0,1] and scaled ×100; num_unique_objects is a count
-            row = {k: (v if k == "num_unique_objects" else v * 100) for k, v in result.items()}
+            row = {
+                k: (v if k == "num_unique_objects" else v * 100)
+                for k, v in result.items()
+            }
         else:
             # TrackingMetrics: result is {metric: {0: value}} (pandas to_dict format)
             row = {k: list(v.values())[0] for k, v in result.items()}
@@ -655,15 +771,15 @@ def hota_results_to_df(metrics, sequence_list: list = None) -> pd.DataFrame:
 
 def classify_num_objects(x):
     n_objects_ranges_tuples = [
-        ("zero", [0, 1]), 
-        ("one", [1, 2]), 
+        ("zero", [0, 1]),
+        ("one", [1, 2]),
         ("two", [2, 3]),
-        ("few", [3,7]),
-        ("many", [7, 20])
+        ("few", [3, 7]),
+        ("many", [7, 20]),
     ]
     category = None
     for label, n_objects_range in n_objects_ranges_tuples:
-            if n_objects_range[0] <= x < n_objects_range[1]:
-                category = label
-                break
+        if n_objects_range[0] <= x < n_objects_range[1]:
+            category = label
+            break
     return category

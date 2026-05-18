@@ -44,7 +44,12 @@ def build_comparison_html(dfs: dict) -> str:
     metric_names = list(next(iter(dfs.values())).keys())
 
     sequences = sorted(
-        {seq for pf_val in dfs.values() for mn_key in metric_names for seq in pf_val[mn_key]["sequence"]}
+        {
+            seq
+            for pf_val in dfs.values()
+            for mn_key in metric_names
+            for seq in pf_val[mn_key]["sequence"]
+        }
     )
 
     metric_cols = {
@@ -75,16 +80,19 @@ def build_comparison_html(dfs: dict) -> str:
         for col in metric_cols[mn]:
             chart_data[mn][col] = {
                 pf: round(float(v), 2)
-                if pd.notna(v := _agg(dfs[pf][mn][col], col)) else None
+                if pd.notna(v := _agg(dfs[pf][mn][col], col))
+                else None
                 for pf in pred_fields
             }
 
-    color_map = {pf: _MODEL_COLORS[i % len(_MODEL_COLORS)] for i, pf in enumerate(pred_fields)}
+    color_map = {
+        pf: _MODEL_COLORS[i % len(_MODEL_COLORS)] for i, pf in enumerate(pred_fields)
+    }
 
     checkboxes_html = "".join(
         f'<label style="margin-right:16px;cursor:pointer;color:{color_map[pf]};">'
         f'<input type="checkbox" checked onchange="toggleModel({html.escape(json.dumps(pf))})" style="margin-right:4px;">'
-        f'{html.escape(pf)}</label>'
+        f"{html.escape(pf)}</label>"
         for pf in pred_fields
     )
 
@@ -92,7 +100,7 @@ def build_comparison_html(dfs: dict) -> str:
         f'<button onclick="showTab({html.escape(json.dumps(mn))})" id="tab-{html.escape(mn)}" '
         f'style="margin-right:8px;padding:6px 14px;cursor:pointer;'
         f'background:{"#e94560" if i == 0 else "#1a1a2e"};color:#fff;border:1px solid #e94560;border-radius:4px;">'
-        f'{html.escape(_DISPLAY_NAME.get(mn, mn))}</button>'
+        f"{html.escape(_DISPLAY_NAME.get(mn, mn))}</button>"
         for i, mn in enumerate(metric_names)
     )
 
@@ -106,14 +114,23 @@ def build_comparison_html(dfs: dict) -> str:
         display = "grid" if mn == metric_names[0] else "none"
         chart_grids += (
             f'<div id="grid-{mn}" class="chart-grid" style="display:{display};">'
-            f'{canvases}</div>'
+            f"{canvases}</div>"
         )
 
     table_data = {
         pf: {
             mn: {
                 col: {
-                    seq: (round(float(v), 2) if pd.notna(v := dfs[pf][mn].set_index("sequence").reindex([seq]).iloc[0][col]) else None)
+                    seq: (
+                        round(float(v), 2)
+                        if pd.notna(
+                            v := dfs[pf][mn]
+                            .set_index("sequence")
+                            .reindex([seq])
+                            .iloc[0][col]
+                        )
+                        else None
+                    )
                     for seq in sequences
                 }
                 for col in metric_cols[mn]
@@ -132,7 +149,9 @@ def build_comparison_html(dfs: dict) -> str:
         f'<th class="sortable" data-label="{html.escape(col)}" data-pf="{pf_idx[pf]}" onclick="sortTable({i + 1})" title="Sort by {html.escape(col)}">{html.escape(col)}</th>'
         for i, (pf, _, col) in enumerate(
             (pf, mn, col)
-            for pf in pred_fields for mn in metric_names for col in metric_cols[mn]
+            for pf in pred_fields
+            for mn in metric_names
+            for col in metric_cols[mn]
         )
     )
     if show_diff:
@@ -165,27 +184,39 @@ def build_comparison_html(dfs: dict) -> str:
         return dfs[pf][mn].set_index("sequence").reindex([seq]).iloc[0][col]
 
     table_rows = "".join(
-        "<tr><td>" + html.escape(seq) + "</td>" +
-        "".join(
+        "<tr><td>"
+        + html.escape(seq)
+        + "</td>"
+        + "".join(
             f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">{"" if pd.isna(v := _val(pf, mn, col, seq)) else f"{v:.2f}"}</td>'
-            for pf in pred_fields for mn in metric_names for col in metric_cols[mn]
-        ) +
-        ("".join(
-            f'<td style="text-align:right;" data-diff data-mn="{html.escape(mn)}" data-col="{html.escape(col)}" data-seq="{html.escape(seq)}"></td>'
-            for mn in metric_names for col in metric_cols[mn]
-        ) if show_diff else "") +
-        "</tr>"
+            for pf in pred_fields
+            for mn in metric_names
+            for col in metric_cols[mn]
+        )
+        + (
+            "".join(
+                f'<td style="text-align:right;" data-diff data-mn="{html.escape(mn)}" data-col="{html.escape(col)}" data-seq="{html.escape(seq)}"></td>'
+                for mn in metric_names
+                for col in metric_cols[mn]
+            )
+            if show_diff
+            else ""
+        )
+        + "</tr>"
         for seq in sequences
     )
 
     agg_cells = "".join(
         f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">{_agg(dfs[pf][mn][col], col):.2f}</td>'
-        for pf in pred_fields for mn in metric_names for col in metric_cols[mn]
+        for pf in pred_fields
+        for mn in metric_names
+        for col in metric_cols[mn]
     )
     if show_diff:
         agg_cells += "".join(
             f'<td style="text-align:right;" data-diff-mean data-mn="{html.escape(mn)}" data-col="{html.escape(col)}"></td>'
-            for mn in metric_names for col in metric_cols[mn]
+            for mn in metric_names
+            for col in metric_cols[mn]
         )
 
     n_cols_per_model = sum(len(metric_cols[mn]) for mn in metric_names)
@@ -198,7 +229,8 @@ def build_comparison_html(dfs: dict) -> str:
 
     metric_name_headers = "".join(
         f'<th colspan="{len(metric_cols[mn])}" data-pf="{pf_idx[pf]}" style="border-left:2px solid #0f3460;">{html.escape(_DISPLAY_NAME.get(mn, mn))}</th>'
-        for pf in pred_fields for mn in metric_names
+        for pf in pred_fields
+        for mn in metric_names
     )
     if show_diff:
         metric_name_headers += "".join(
@@ -208,7 +240,10 @@ def build_comparison_html(dfs: dict) -> str:
 
     diff_controls = ""
     if show_diff:
-        opts_a = "".join(f'<option value="{html.escape(pf)}">{html.escape(pf)}</option>' for pf in pred_fields)
+        opts_a = "".join(
+            f'<option value="{html.escape(pf)}">{html.escape(pf)}</option>'
+            for pf in pred_fields
+        )
         opts_b = "".join(
             f'<option value="{html.escape(pf)}" {"selected" if i == 1 else ""}>{html.escape(pf)}</option>'
             for i, pf in enumerate(pred_fields)
@@ -217,10 +252,12 @@ def build_comparison_html(dfs: dict) -> str:
             '<div style="margin-bottom:10px;font-size:12px;">'
             f'Compare: <select id="diff-a" class="diff-sel" onchange="updateDiff()">{opts_a}</select>'
             f'&nbsp;vs&nbsp;<select id="diff-b" class="diff-sel" onchange="updateDiff()">{opts_b}</select>'
-            '</div>'
+            "</div>"
         )
 
-    table_html = diff_controls + f"""<table id="seq-table">
+    table_html = (
+        diff_controls
+        + f"""<table id="seq-table">
     <thead>
       <tr><th rowspan="3">Sequence</th>{pred_field_headers}</tr>
       <tr>{metric_name_headers}</tr>
@@ -233,14 +270,14 @@ def build_comparison_html(dfs: dict) -> str:
       </tr>
     </tbody>
   </table>"""
+    )
 
     template_path = os.path.join(os.path.dirname(__file__), "comparison_report.html")
     with pathlib.Path(template_path).open("r", encoding="utf-8") as f:
         template = f.read()
 
     return (
-        template
-        .replace("__SUM_METRICS__", json.dumps(sorted(_SUM_METRICS)))
+        template.replace("__SUM_METRICS__", json.dumps(sorted(_SUM_METRICS)))
         .replace("__CHART_DATA__", json.dumps(chart_data))
         .replace("__TABLE_DATA__", json.dumps(table_data))
         .replace("__METRIC_COLS__", json.dumps(metric_cols))
