@@ -3,10 +3,7 @@
 Custom metrics for evaluating performance of A.I. pipelines at SEA.AI.
 """
 
-try:
-    from importlib.metadata import PackageNotFoundError, version
-except ImportError:
-    from importlib_metadata import PackageNotFoundError, version  # type: ignore[import-not-found]
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("seametrics")
