@@ -132,23 +132,20 @@ jobs:
           path: .
           key: repo-${{ github.sha }}
 
-      - name: 📥 Install ffmpeg
-        uses: AnimMouse/setup-ffmpeg@v1
-
       - name: 🛠️ Install the latest version of uv and set the python version
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: 🦾 Install the project with all extras
-        run: uv pip install -e ".[test,fiftyone,panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: 🦾 Install the project
+        run: uv sync --all-extras
 
       - name: 🧪 Run pytest with coverage
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
-        run: uv run pytest --cov=seametrics --cov-report=xml
+        run: uv run pytest --cov-report=xml
 
       - name: 🔎 SonarQube Cloud Scan (Full Repo)
         uses: SonarSource/sonarqube-scan-action@v3.1.0
