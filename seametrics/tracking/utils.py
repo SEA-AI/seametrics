@@ -17,6 +17,7 @@ def prepare_data_for_det_metrics(  # noqa: C901
     dt_bboxes_per_frame: list,
     dt_track_ids_per_frame: list,
     dt_scores_per_frame: list,
+    *,
     img_w: int = 640,
     img_h: int = 512,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -41,10 +42,11 @@ def prepare_data_for_det_metrics(  # noqa: C901
         dt_bboxes_per_frame: list,
         dt_track_ids_per_frame: list,
         dt_scores_per_frame: list,
-        img_w: int,
-        img_h: int,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Convert a list of frames with detections (bboxes) to numpy format."""
+        """Convert a list of frames with detections (bboxes) to numpy format.
+
+        Uses ``img_w`` and ``img_h`` from the enclosing function scope.
+        """
         target = []
         preds = []
 
@@ -161,8 +163,6 @@ def prepare_data_for_det_metrics(  # noqa: C901
         dt_bboxes_per_frame,
         dt_track_ids_per_frame,
         dt_scores_per_frame,
-        img_w=img_w,
-        img_h=img_h,
     )
 
     return target, preds
@@ -192,8 +192,7 @@ def get_relevant_fields(
         return view.select_fields(
             [f"frames.{f}" if view.has_frame_field(f) else f for f in fields]
         )
-    else:
-        raise ValueError(f"Unsupported media type: {view.media_type}")
+    raise ValueError(f"Unsupported media type: {view.media_type}")
 
 
 def get_values(
@@ -215,10 +214,9 @@ def get_values(
     """
     if view.media_type == "video":
         return view.values(f"frames[].{field_name}")
-    elif view.media_type == "image":
+    if view.media_type == "image":
         return view.values(field_name)
-    else:
-        raise ValueError(f"Unsupported media type: {view.media_type}")
+    raise ValueError(f"Unsupported media type: {view.media_type}")
 
 
 def build_detection_inputs(
@@ -373,12 +371,52 @@ def sequence_results_to_df(sequence_results: dict) -> pd.DataFrame:
     return df
 
 
+def _collect_sequence_results(
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_field: str,
+    metric_fn: callable,
+    metric_kwargs: dict,
+    *,
+    debug: bool,
+) -> dict:
+    """Run ``compute_metrics`` over every sequence in *view* and collect results.
+
+    Args:
+        view: FiftyOne dataset view (already field-filtered).
+        gt_field: FiftyOne field name for ground-truth detections.
+        pred_field: FiftyOne field name for predicted detections.
+        metric_fn: Metric class constructor.
+        metric_kwargs: Keyword arguments forwarded to ``metric_fn``.
+        debug: When True, print captured stdout for each sequence.
+
+    Returns:
+        Dict mapping sequence name to its ``compute_metrics`` result dict.
+    """
+    sequence_results = {}
+    for sequence_name in tqdm(view.distinct("sequence")):
+        with contextlib.redirect_stdout(io.StringIO()) as f:
+            print(sequence_name)
+            sequence_view = view.match(F("sequence") == sequence_name)
+            sequence_results[sequence_name] = compute_metrics(
+                view=sequence_view,
+                gt_field=gt_field,
+                pred_field=pred_field,
+                metric_fn=metric_fn,
+                metric_kwargs=metric_kwargs,
+            )
+        if debug:
+            print(f.getvalue())
+    return sequence_results
+
+
 def compute_and_save_sequence_metrics(
     csv_dirpath: str,
     view: fo.DatasetView,
     gt_field: str,
     pred_field: str,
     metric_fn: callable,
+    *,
     metric_kwargs: dict,
     csv_suffix: str | None = None,
     debug: bool = False,
@@ -397,32 +435,19 @@ def compute_and_save_sequence_metrics(
         debug: When True, print captured stdout for each sequence.
         name_separator: String used to join CSV filename components.
     """
-    csv_name = name_separator.join(
+    base = name_separator.join(
         [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
     )
-    csv_name = name_separator.join([csv_name, csv_suffix]) if csv_suffix else csv_name
-    csv_name += ".csv"
+    csv_name = name_separator.join(
+        [base, csv_suffix] if csv_suffix else [base]
+    ) + ".csv"
     csv_path = str(pathlib.Path(csv_dirpath) / csv_name)
     print(f"Saving metrics to {csv_path}")
 
-    view = get_relevant_fields(view, [gt_field, pred_field, "sequence"])
-
-    sequence_results = {}
-    sequence_names = view.distinct("sequence")
-    for sequence_name in tqdm(sequence_names):
-        with contextlib.redirect_stdout(io.StringIO()) as f:
-            print(sequence_name)
-            sequence_view = view.match(F("sequence") == sequence_name)
-            sequence_results[sequence_name] = compute_metrics(
-                view=sequence_view,
-                gt_field=gt_field,
-                pred_field=pred_field,
-                metric_fn=metric_fn,
-                metric_kwargs=metric_kwargs,
-            )
-
-        if debug:
-            print(f.getvalue())
+    filtered_view = get_relevant_fields(view, [gt_field, pred_field, "sequence"])
+    sequence_results = _collect_sequence_results(
+        filtered_view, gt_field, pred_field, metric_fn, metric_kwargs, debug=debug
+    )
 
     if not pathlib.Path(csv_dirpath).exists():
         pathlib.Path(csv_dirpath).mkdir(parents=True)
@@ -436,6 +461,7 @@ def compute_metrics_by_sequence(
     pred_field: str,
     metric_fn: callable,
     metric_kwargs: dict,
+    *,
     sequence_list: list | None = None,
 ) -> object:
     """Compute a single metric across all sequences in a view.
@@ -469,25 +495,101 @@ def compute_metrics_by_sequence(
         sequence_results[sequence_name] = build_detection_inputs(
             view=sequence_view, gt_field=gt_field, pred_field=pred_field
         )
-    for sequence in sequence_results:
+    for sequence, (gt, pred) in sequence_results.items():
         try:
-            metric.update(
-                sequence_results[sequence][0], sequence_results[sequence][1], sequence
-            )
+            metric.update(gt, pred, sequence)
         except (ValueError, IndexError) as e:
-            metric.log_failed_sequence(
-                sequence,
-                sequence_results[sequence][0],
-                sequence_results[sequence][1],
-                exc=e,
-            )
-        except Exception:
-            raise
+            metric.log_failed_sequence(sequence, gt, pred, exc=e)
 
     return metric
 
 
-def compute_all_metrics_by_sequence(  # noqa: C901,PLR0912
+def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
+    """Return True if any frame in *seq_view* has keyframe data for *pred_field*.
+
+    Args:
+        seq_view: FiftyOne view for a single sequence.
+        pred_field: Prediction field name to check.
+
+    Returns:
+        True if at least one keyframe value is truthy; False otherwise.
+    """
+    video_view = (
+        seq_view.select_group_slices(seq_view.default_group_slice)
+        if seq_view.media_type == "group"
+        else seq_view
+    )
+    try:
+        kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
+        return any(kf for kf in kf_vals if kf)
+    except (ValueError, AttributeError, RuntimeError, TypeError, KeyError):
+        return False
+
+
+def _filter_valid_sequences(
+    sequence_list: list,
+    view: fo.DatasetView,
+    pred_fields: list,
+    instances: dict,
+) -> list:
+    """Validate keyframe availability and return sequences that have all fields.
+
+    Sequences missing keyframes for any prediction field are logged as failed
+    on every metric instance and excluded from the returned list.
+
+    Args:
+        sequence_list: Candidate sequence names.
+        view: FiftyOne dataset view used to match individual sequences.
+        pred_fields: Prediction field names to validate.
+        instances: Nested dict ``{pred_field: {metric_name: metric_instance}}``.
+
+    Returns:
+        List of sequence names where all prediction fields have keyframe data.
+    """
+    valid = []
+    for sequence_name in tqdm(sequence_list, desc="Validating sequences"):
+        sequence_view = view.match(F("sequence") == sequence_name)
+        missing = [pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)]
+        if missing:
+            exc = ValueError(f"No keyframe data for: {missing}")
+            for pf in pred_fields:
+                for instance in instances[pf].values():
+                    instance.log_failed_sequence(sequence_name, [], [], exc=exc)
+        else:
+            valid.append(sequence_name)
+    return valid
+
+
+def _run_metric_updates(
+    valid_sequences: list,
+    view: fo.DatasetView,
+    pred_fields: list,
+    gt_field: str,
+    instances: dict,
+) -> None:
+    """Call ``update`` on every metric instance for each valid sequence.
+
+    Args:
+        valid_sequences: Sequence names confirmed to have keyframe data.
+        view: FiftyOne dataset view used to match individual sequences.
+        pred_fields: Prediction field names to evaluate.
+        gt_field: FiftyOne field name for ground-truth detections.
+        instances: Nested dict ``{pred_field: {metric_name: metric_instance}}``.
+    """
+    for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
+        sequence_view = view.match(F("sequence") == sequence_name)
+        for pred_field in tqdm(pred_fields, desc="Models", leave=False):
+            gt, pred = build_detection_inputs(
+                view=sequence_view, gt_field=gt_field, pred_field=pred_field
+            )
+            for instance in instances[pred_field].values():
+                try:
+                    instance.update(gt, pred, sequence_name)
+                except (ValueError, IndexError) as e:
+                    instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
+
+
+def compute_all_metrics_by_sequence(
     view: fo.DatasetView,
     gt_field: str,
     pred_fields: "str | list",
@@ -522,10 +624,15 @@ def compute_all_metrics_by_sequence(  # noqa: C901,PLR0912
     if isinstance(pred_fields, str):
         pred_fields = [pred_fields]
 
-    if sequence_list is None:
-        sequence_list = get_relevant_fields(
-            view, [gt_field, *pred_fields, "sequence"]
-        ).distinct("sequence")
+    resolved: list = (
+        list(
+            get_relevant_fields(view, [gt_field, *pred_fields, "sequence"]).distinct(
+                "sequence"
+            )
+        )
+        if sequence_list is None
+        else sequence_list
+    )
 
     metric_names = [fn.__name__ for fn, _ in metrics]
     if len(metric_names) != len(set(metric_names)):
@@ -538,54 +645,8 @@ def compute_all_metrics_by_sequence(  # noqa: C901,PLR0912
         pred_field: {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
         for pred_field in pred_fields
     }
-
-    def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
-        """Return True if any frame in *seq_view* has keyframe data for *pred_field*.
-
-        Args:
-            seq_view: FiftyOne view for a single sequence.
-            pred_field: Prediction field name to check.
-
-        Returns:
-            True if at least one keyframe value is truthy; False otherwise.
-        """
-        video_view = (
-            seq_view.select_group_slices(seq_view.default_group_slice)
-            if seq_view.media_type == "group"
-            else seq_view
-        )
-        try:
-            kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
-            return any(kf for kf in kf_vals if kf)
-        except Exception:
-            return False
-
-    valid_sequences = []
-    for sequence_name in tqdm(sequence_list, desc="Validating sequences"):
-        sequence_view = view.match(F("sequence") == sequence_name)
-        missing = [pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)]
-        if missing:
-            exc = ValueError(f"No keyframe data for: {missing}")
-            for pf in pred_fields:
-                for instance in instances[pf].values():
-                    instance.log_failed_sequence(sequence_name, [], [], exc=exc)
-        else:
-            valid_sequences.append(sequence_name)
-
-    for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
-        sequence_view = view.match(F("sequence") == sequence_name)
-        for pred_field in tqdm(pred_fields, desc="Models", leave=False):
-            gt, pred = build_detection_inputs(
-                view=sequence_view, gt_field=gt_field, pred_field=pred_field
-            )
-            for instance in instances[pred_field].values():
-                try:
-                    instance.update(gt, pred, sequence_name)
-                except (ValueError, IndexError) as e:
-                    instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
-                except Exception:
-                    raise
-
+    valid_sequences = _filter_valid_sequences(resolved, view, pred_fields, instances)
+    _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
     return instances
 
 
@@ -765,12 +826,11 @@ def _box_xywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
     Returns:
         Boxes in (x1, y1, x2, y2) format (shape ``[N, 4]``).
     """
-    x, y, w, h = np.split(boxes, 4, axis=-1)
-    x1 = x
-    y1 = y
-    x2 = x + w
-    y2 = y + h
-    converted_boxes = np.concatenate([x1, y1, x2, y2], axis=-1)
+    x = boxes[..., 0:1]
+    y = boxes[..., 1:2]
+    w = boxes[..., 2:3]
+    h = boxes[..., 3:4]
+    converted_boxes = np.concatenate([x, y, x + w, y + h], axis=-1)
     return converted_boxes
 
 
@@ -786,12 +846,13 @@ def _box_cxcywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
     Returns:
         Boxes in (x1, y1, x2, y2) format (shape ``[N, 4]``).
     """
-    cx, cy, w, h = np.split(boxes, 4, axis=-1)
-    x1 = cx - 0.5 * w
-    y1 = cy - 0.5 * h
-    x2 = cx + 0.5 * w
-    y2 = cy + 0.5 * h
-    converted_boxes = np.concatenate([x1, y1, x2, y2], axis=-1)
+    cx = boxes[..., 0:1]
+    cy = boxes[..., 1:2]
+    w = boxes[..., 2:3]
+    h = boxes[..., 3:4]
+    converted_boxes = np.concatenate(
+        [cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h], axis=-1
+    )
     return converted_boxes
 
 
@@ -807,10 +868,11 @@ def _box_xyxy_to_xywh(boxes: np.ndarray) -> np.ndarray:
     Returns:
         Boxes in (x, y, w, h) format (shape ``[N, 4]``).
     """
-    x1, y1, x2, y2 = np.split(boxes, 4, axis=-1)
-    w = x2 - x1
-    h = y2 - y1
-    converted_boxes = np.concatenate([x1, y1, w, h], axis=-1)
+    x1 = boxes[..., 0:1]
+    y1 = boxes[..., 1:2]
+    x2 = boxes[..., 2:3]
+    y2 = boxes[..., 3:4]
+    converted_boxes = np.concatenate([x1, y1, x2 - x1, y2 - y1], axis=-1)
     return converted_boxes
 
 
@@ -826,12 +888,13 @@ def _box_xyxy_to_cxcywh(boxes: np.ndarray) -> np.ndarray:
     Returns:
         Boxes in (cx, cy, w, h) format (shape ``[N, 4]``).
     """
-    x1, y1, x2, y2 = np.split(boxes, 4, axis=-1)
-    cx = (x1 + x2) / 2
-    cy = (y1 + y2) / 2
-    w = x2 - x1
-    h = y2 - y1
-    converted_boxes = np.concatenate([cx, cy, w, h], axis=-1)
+    x1 = boxes[..., 0:1]
+    y1 = boxes[..., 1:2]
+    x2 = boxes[..., 2:3]
+    y2 = boxes[..., 3:4]
+    converted_boxes = np.concatenate(
+        [(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1], axis=-1
+    )
     return converted_boxes
 
 
