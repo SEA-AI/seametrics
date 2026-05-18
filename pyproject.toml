@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=43.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "seametrics"
-dynamic = ['version']
+dynamic = ["version"]
 authors = [{ name = "Kevin Serrano" }, { name = "Vasco Rodrigues" }]
 description = "Custom metrics for evaluating performance of A.I. pipelines at SEA.AI"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent",
@@ -27,75 +27,59 @@ dependencies = [
 
 [project.optional-dependencies]
 fiftyone = ["fiftyone>=0.23.4"]
-test = [
-  "pytest>=7",
-  "pytest-cov>=4",
-  "pytest-mock>=3",
-  # "pytest-xdist>=2.4.0",
-  # "pytest-asyncio>=0.15.1",
-  # "pytest-asyncio-network-simulator"
-]
 panoptic = [
   "torch",
   "torchmetrics>=1.4.0",
   "cleanlab",
   "transformers",
-  "scipy"
+  "scipy",
 ]
 
 [project.urls]
-Homepage = "https://github.com/SEA-AI/metrics"
-Issues = "https://github.com/SEA-AI/metrics/issues"
+Homepage = "https://github.com/SEA-AI/seametrics"
+Issues = "https://github.com/SEA-AI/seametrics/issues"
 
-[tool.setuptools.dynamic]
-version = { attr = "seametrics.__version__" }
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
 
-# Tools settings
-[tool.setuptools.packages.find]
-where = ["."] # list of folders that contain the packages (["."] by default)
-# include = ["seametrics*"]  # package names should match these glob patterns (["*"] by default)
-exclude = [
-  "notebooks*",
-] # exclude packages matching these glob patterns (empty by default)
+[tool.hatch.build.targets.wheel]
+packages = ["seametrics"]
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "pytest-mock",
+  "ruff",
+]
 
 # Pytest settings
 [tool.pytest.ini_options]
-minversion = 6.0
-#addopts = "--import-mode=importlib"
-addopts = "-q --cov -s"
+minversion = "6.0"
+addopts = "-q --cov --tb=short --cov-report=term:skip-covered"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["."],
 python_files = ["test_*.py"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 # Coverage settings
 [tool.coverage.report]
 include = ["seametrics/*"]
-
-# Flake8 settings
-[tool.flake8]
-max-line-length = 88
-extend-ignore = "E203, W503"
-exclude = [
-  "notebooks*",
-  "docs*",
-  "build*",
-  "dist*",
-  "seametrics.egg-info*",
-  "seametrics/__init__.py"
-]
+exclude_lines = ["if TYPE_CHECKING"]
 
 # Pylint settings
-[tool.pylint."MESSAGES CONTROL"]
-max-line-length = 88
-disable = """
-  logging-fstring-interpolation,
-"""
-exclude = [
-  "notebooks*",
-  "docs*",
-  "build*",
-  "dist*",
-  "seametrics.egg-info*",
-  "seametrics/__init__.py"
+[tool.pylint]
+ignored-modules = ["cv2"]
+jobs = 0
+ignore = ["tests", "docs", "build", ".venv"]
+max-args = 10
+max-attributes = 10
+max-line-length = 120
+min-similarity-lines = 6
+disable = [
+  "import-outside-toplevel",
+  "missing-function-docstring",
+  "logging-fstring-interpolation",
+  "too-few-public-methods",
 ]

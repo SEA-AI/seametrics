@@ -25,8 +25,7 @@ exclude = [
     "docs",
     "node_modules",
     "site-packages",
-    # "tests",
-    "venv",
+    ".venv",
     "*egg-info",
 ]
 
@@ -35,24 +34,35 @@ indent-width = 4
 # target-version = "py312"  # Uncomment and set the target Python version if needed
 
 [lint]
-select = [  # https://docs.astral.sh/ruff/rules/
-    "C",  # Complexity
-    "D",  # PyDocStyle
-    "E",  # PyCodeStyle Errors
-    "F",  # PyFlakes
-    "W",  # PyCodeStyle Warnings
+select = [ # https://docs.astral.sh/ruff/rules/
+    "C",    # Complexity
+    "D",    # PyDocStyle
+    "DOC",  # pydoclint
+    "E",    # PyCodeStyle Errors
+    "F",    # PyFlakes
+    "N",    # PyCodeStyle Names
+    "W",    # PyCodeStyle Warnings
+    "ARG",  # flake8-unused-arguments
     "ANN",  # flake8-annotations
-    "B",  # flake8-bugbear
-    "TC",  # flake8-type-checking
+    "B",    # flake8-bugbear
+    "TC",   # flake8-type-checking
+    "PT",   # flake8-pytest
     "PTH",  # flake8-use-pathlib
-    "NPY",  # NumPy specific rules
     "TID",  # flake8-tidy-imports
     "SIM",  # flake8-simplify
-    "I",  # isort
-    "PL",  # PyLint
+    "NPY",  # NumPy specific rules
+    "I",    # isort
+    "PL",   # PyLint
     "ERA",  # eradicate
+    "RUF",  # ruff-specific rules
 ]
-ignore = ["D105"]
+ignore = [
+    "D105",    # undocumented magic method
+    "DOC201",  # docstring-missing-return
+    "DOC501",  # docstring-missing-exception
+    "PLC0415", # import at top of file
+    "RUF067",  # non-empty-init-module
+]
 fixable = ["ALL"]
 unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
@@ -62,11 +72,38 @@ preview = true
 max-args = 10
 
 [lint.per-file-ignores]
-"tests/*" = ["D100", "D103", "ANN001"]
+"tests/*" = [
+    "ANN001",
+    "ANN201",
+    "ANN202",
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "PLR2004",
+    "PLR6301",
+    "PLC2701",
+]
 "*.ipynb" = ["D101", "D102", "D103", "D107", "E402", "I001"]
 
 [lint.pydocstyle]
 convention = "google"
+
+[lint.pep8-naming]
+extend-ignore-names = [
+    "H*", # Homography matrix / Height
+    "K*", # Camera intrinsics matrix
+    "R*", # Rotation matrix
+    "T*", # Transformation matrix
+    "P*", # Homogeneous point
+    "B*", # Batch size
+    "C*", # Channel size
+    "W*", # Width
+    "G*", # Gray level or Green channel
+    "X*", # X coordinate
+    "Y*", # Y coordinate
+    "Z*", # Z coordinate
+]
 
 [format]
 quote-style = "double"
