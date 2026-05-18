@@ -141,8 +141,8 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: 🦾 Install the project
-        run: uv sync --all-extras
+      - name: 🦾 Install the project with all extras
+        run: uv pip install -e ".[test,fiftyone,panoptic]" --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: 🧪 Run pytest with coverage
         env:
