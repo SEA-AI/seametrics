@@ -49,6 +49,20 @@ def build_comparison_html(dfs: dict) -> str:
     }
 
     def _agg(series: pd.Series, col: str):
+        """Aggregate a metric series across sequences.
+
+        Parameters
+        ----------
+        series : pd.Series
+            Numeric values for a single metric column across all sequences.
+        col : str
+            Metric column name; used to decide the aggregation strategy.
+
+        Returns
+        -------
+        float
+            Sum for count-based metrics (e.g. num_switches), mean for ratio metrics.
+        """
         return series.sum() if col in _SUM_METRICS else series.mean()
 
     chart_data = {}
@@ -126,6 +140,24 @@ def build_comparison_html(dfs: dict) -> str:
         )
 
     def _val(pf, mn, col, seq):
+        """Look up a single metric value for a specific model, metric, column, and sequence.
+
+        Parameters
+        ----------
+        pf : str
+            Prediction field name (model identifier).
+        mn : str
+            Metric name key (e.g. "TrackingMetrics", "HOTAMetrics").
+        col : str
+            Metric column name.
+        seq : str
+            Sequence name to look up.
+
+        Returns
+        -------
+        float or NaN
+            The metric value, or NaN if the sequence is not present in the DataFrame.
+        """
         return dfs[pf][mn].set_index("sequence").reindex([seq]).iloc[0][col]
 
     table_rows = "".join(
