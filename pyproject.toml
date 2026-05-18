@@ -59,7 +59,7 @@ dev = [
 minversion = "6.0"
 addopts = "-q --cov --tb=short --cov-report=term:skip-covered"
 testpaths = ["tests"]
-pythonpath = ["."],
+pythonpath = ["."]
 python_files = ["test_*.py"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
