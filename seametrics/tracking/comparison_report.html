@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tracking Metrics Comparison</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" integrity="sha384-y49Zu59jZHJL/PLKgZPv3k2WI9c0Yp3pWB76V8OBVCb0QBKS8l4Ff3YslzHVX76Y" crossorigin="anonymous"></script>
+<style>
+  body { font-family: monospace; background: #0d0d1a; color: #e0e0e0; margin: 16px; }
+  h2 { color: #e94560; margin-bottom: 8px; }
+  #controls { margin-bottom: 16px; }
+  .chart-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .chart-card { background: #111; border: 1px solid #2a2a4a; border-radius: 6px; padding: 12px; }
+  table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  th, td { border: 1px solid #2a2a4a; padding: 5px 10px; }
+  th { text-align: center; color: #ccc; background: #0f3460; position: sticky; top: 0; z-index: 2; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { background: #1a4a80; }
+  tr:nth-child(even) td { background: #111827; }
+  tr:hover td { background: #1f2937 !important; }
+  td:first-child { white-space: nowrap; position: sticky; left: 0; background: #0d0d1a; }
+  details summary { cursor: pointer; color: #aaa; margin: 24px 0 8px; font-size: 13px; }
+  .glossary { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 20px; }
+  .glossary-card { background: #111; border: 1px solid #2a2a4a; border-radius: 4px; padding: 7px 10px; font-size: 11px; }
+  .glossary-card .name { color: #e94560; font-weight: bold; }
+  .glossary-card .dir { float: right; opacity: 0.6; }
+  select.diff-sel { background: #1a1a2e; color: #e0e0e0; border: 1px solid #2a2a4a; padding: 3px 6px; border-radius: 3px; }
+</style>
+<script>
+  const chartData   = __CHART_DATA__;
+  const tableData   = __TABLE_DATA__;
+  const sequences   = __SEQUENCES__;
+  const predFields  = __PRED_FIELDS__;
+  const metricNames = __METRIC_NAMES__;
+  const metricCols  = __METRIC_COLS__;
+  const colorMap    = __COLOR_MAP__;
+  const sumMetrics  = new Set(__SUM_METRICS__);
+  const activeModels = Object.fromEntries(predFields.map(p => [p, true]));
+  const charts = {};
+
+  Chart.register(ChartDataLabels);
+  Chart.defaults.color = "#ccc";
+  Chart.defaults.borderColor = "#2a2a4a";
+
+  function initCharts() {
+    for (const mn of metricNames) {
+      charts[mn] = {};
+      for (const col of Object.keys(chartData[mn])) {
+        const ctx = document.getElementById("chart-" + mn + "-" + col);
+        if (!ctx) continue;
+        charts[mn][col] = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: [col],
+            datasets: predFields.map(pf => ({
+              label: pf,
+              data: [chartData[mn][col][pf]],
+              backgroundColor: colorMap[pf],
+              borderColor: colorMap[pf].replace("0.8", "1"),
+              borderWidth: 1,
+              hidden: !activeModels[pf],
+            })),
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: true, position: "bottom", labels: { font: { size: 9 }, boxWidth: 10 } },
+              title: { display: true, text: col, color: "#e0e0e0", font: { size: 12 } },
+              datalabels: {
+                anchor: "end",
+                align: "end",
+                color: "#e0e0e0",
+                font: { size: 10 },
+                formatter: v => v !== null ? v : "",
+              },
+            },
+            scales: {
+              x: { display: false },
+              y: { beginAtZero: true },
+            },
+          },
+        });
+      }
+    }
+  }
+
+  function toggleModel(pf) {
+    activeModels[pf] = !activeModels[pf];
+    const idx = predFields.indexOf(pf);
+    for (const mn of metricNames) {
+      for (const col of Object.keys(charts[mn] || {})) {
+        charts[mn][col].data.datasets[idx].hidden = !activeModels[pf];
+        charts[mn][col].update();
+      }
+    }
+  }
+
+  function showTab(selected) {
+    for (const mn of metricNames) {
+      const grid = document.getElementById("grid-" + mn);
+      const btn  = document.getElementById("tab-" + mn);
+      if (grid) grid.style.display = mn === selected ? "grid" : "none";
+      if (btn)  btn.style.background = mn === selected ? "#e94560" : "#1a1a2e";
+    }
+  }
+
+  function updateDiff() {
+    const pfA = document.getElementById("diff-a")?.value;
+    const pfB = document.getElementById("diff-b")?.value;
+    if (!pfA || !pfB) return;
+
+    const idxA = String(predFields.indexOf(pfA));
+    const idxB = String(predFields.indexOf(pfB));
+
+    const label = document.getElementById("diff-label");
+    if (label) label.textContent = `Δ (${pfB} − ${pfA})`;
+
+    // Show only the two selected models' columns, hide all others
+    document.querySelectorAll("[data-pf]").forEach(el => {
+      const show = el.dataset.pf === idxA || el.dataset.pf === idxB;
+      el.style.display = show ? "" : "none";
+    });
+
+    document.querySelectorAll("[data-diff]").forEach(cell => {
+      const { mn, col, seq } = cell.dataset;
+      const a = tableData[pfA]?.[mn]?.[col]?.[seq];
+      const b = tableData[pfB]?.[mn]?.[col]?.[seq];
+      cell.textContent = (a == null || b == null) ? "" : ((b - a >= 0 ? "+" : "") + (b - a).toFixed(2));
+    });
+
+    document.querySelectorAll("[data-diff-mean]").forEach(cell => {
+      const { mn, col } = cell.dataset;
+      if (sumMetrics.has(col)) {
+        let totalA = 0, totalB = 0, hasData = false;
+        for (const seq of sequences) {
+          const a = tableData[pfA]?.[mn]?.[col]?.[seq];
+          const b = tableData[pfB]?.[mn]?.[col]?.[seq];
+          if (a != null && b != null) { totalA += a; totalB += b; hasData = true; }
+        }
+        if (!hasData) { cell.textContent = ""; return; }
+        const delta = totalB - totalA;
+        cell.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2);
+      } else {
+        const vals = sequences.map(seq => {
+          const a = tableData[pfA]?.[mn]?.[col]?.[seq];
+          const b = tableData[pfB]?.[mn]?.[col]?.[seq];
+          return (a != null && b != null) ? b - a : null;
+        }).filter(v => v != null);
+        if (!vals.length) { cell.textContent = ""; return; }
+        const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+        cell.textContent = (mean >= 0 ? "+" : "") + mean.toFixed(2);
+      }
+    });
+  }
+
+  let sortColIdx = null, sortDir = 1;
+
+  function sortTable(colIdx) {
+    const tbody = document.querySelector("#seq-table tbody");
+    const meanRow = document.getElementById("mean-row");
+    const rows = Array.from(tbody.querySelectorAll("tr:not(#mean-row)"));
+
+    if (sortColIdx === colIdx) {
+      sortDir *= -1;
+    } else {
+      sortColIdx = colIdx;
+      sortDir = -1;
+    }
+
+    rows.sort((a, b) => {
+      const av = parseFloat(a.cells[colIdx].textContent);
+      const bv = parseFloat(b.cells[colIdx].textContent);
+      if (isNaN(av) && isNaN(bv)) return 0;
+      if (isNaN(av)) return 1;
+      if (isNaN(bv)) return -1;
+      return sortDir * (av - bv);
+    });
+
+    rows.forEach(r => tbody.insertBefore(r, meanRow));
+
+    document.querySelectorAll("th.sortable").forEach((th, i) => {
+      const base = th.dataset.label;
+      th.textContent = base + (i + 1 === colIdx ? (sortDir === -1 ? " ▼" : " ▲") : "");
+    });
+  }
+
+  function fixStickyHeaders() {
+    const thead = document.querySelector("#seq-table thead");
+    if (!thead) return;
+    let top = 0;
+    thead.querySelectorAll("tr").forEach(row => {
+      row.querySelectorAll("th").forEach(th => { th.style.top = top + "px"; });
+      top += row.offsetHeight;
+    });
+  }
+
+  window.addEventListener("load", () => { initCharts(); updateDiff(); fixStickyHeaders(); });
+</script>
+</head>
+<body>
+<h2>Tracking Metrics Comparison</h2>
+
+<details open>
+  <summary>▶ Metric glossary</summary>
+  <div class="glossary" style="margin-top:10px;">
+    <div class="glossary-card"><span class="name">MOTA</span><span class="dir">↑</span>Overall tracking quality — penalises misses, false positives and ID switches.</div>
+    <div class="glossary-card"><span class="name">MOTP</span><span class="dir">↑</span>How accurately matched boxes overlap with ground truth (localisation precision).</div>
+    <div class="glossary-card"><span class="name">IDF1</span><span class="dir">↑</span>F1 of correct ID assignments over the full sequence — rewards long, consistent tracks.</div>
+    <div class="glossary-card"><span class="name">Num Switches</span><span class="dir">↓</span>Times a GT track is reassigned to a different predicted ID.</div>
+    <div class="glossary-card"><span class="name">Num Misses</span><span class="dir">↓</span>GT detections with no matching prediction (false negatives).</div>
+    <div class="glossary-card"><span class="name">Num False Positives</span><span class="dir">↓</span>Predictions with no matching GT object.</div>
+    <div class="glossary-card"><span class="name">Mostly Tracked</span><span class="dir">↑</span>% of GT tracks covered by a single predicted ID for &gt;80% of their lifespan.</div>
+    <div class="glossary-card"><span class="name">Mostly Lost</span><span class="dir">↓</span>% of GT tracks covered by any predicted ID for &lt;20% of their lifespan.</div>
+    <div class="glossary-card"><span class="name">Precision / Recall</span><span class="dir">↑</span>Standard detection precision and recall across all frames.</div>
+    <div class="glossary-card"><span class="name">HOTA</span><span class="dir">↑</span>Combined score of detection and association accuracy — the main HOTA summary metric.</div>
+    <div class="glossary-card"><span class="name">DetA</span><span class="dir">↑</span>Detection accuracy component of HOTA — how well objects are detected.</div>
+    <div class="glossary-card"><span class="name">AssA</span><span class="dir">↑</span>Association accuracy component of HOTA — how consistently IDs are maintained.</div>
+    <div class="glossary-card"><span class="name">LocA</span><span class="dir">↑</span>Localisation accuracy component of HOTA — average IoU of matched detections.</div>
+  </div>
+</details>
+
+<div id="controls">__CHECKBOXES_HTML__</div>
+<div style="margin-bottom:16px;">__TAB_BUTTONS__</div>
+__CHART_GRIDS__
+
+<details>
+  <summary>▶ Show full per-sequence table</summary>
+  <div style="overflow-x:auto;overflow-y:auto;max-height:70vh;margin-top:8px;">
+  __TABLE_HTML__
+  </div>
+</details>
+</body>
+</html>
