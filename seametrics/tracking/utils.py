@@ -849,6 +849,8 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
             row = {k: next(iter(v.values())) for k, v in result.items()}
             row["mota"] *= 100
             row["motp"] = (1 - row["motp"]) * 100
+            if "num_frames" in row:
+                row["num_keyframes"] = row.pop("num_frames")
 
         row["sequence"] = sequence
         rows.append(row)

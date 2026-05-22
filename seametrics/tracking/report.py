@@ -7,7 +7,7 @@ import pathlib
 import pandas as pd
 
 _SUM_METRICS = {
-    "num_frames",
+    "num_keyframes",
     "mostly_tracked",
     "partially_tracked",
     "mostly_lost",
