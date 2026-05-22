@@ -239,8 +239,8 @@ def build_detection_inputs(
     view: fo.DatasetView,
     gt_field: str,
     pred_field: str,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return (target, preds) numpy arrays for the given sequence view.
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Return (target, preds, num_keyframes) arrays for the given sequence view.
 
     Args:
         view: FiftyOne dataset view for the sequence.
@@ -248,7 +248,9 @@ def build_detection_inputs(
         pred_field: FiftyOne field name for predicted detections.
 
     Returns:
-        Tuple of (target, preds) numpy arrays in MOT tracker format.
+        Tuple of (target, preds, num_keyframes) where target and preds are MOT
+        tracker-format numpy arrays and num_keyframes is the count of frames
+        where ``pred_field.keyframe == True``.
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
@@ -271,6 +273,7 @@ def build_detection_inputs(
     dt_track_ids_per_frame = get_values(view, f"{pred_field}.detections.index")
 
     keyframes = get_values(view, f"{pred_field}.keyframe")
+    num_keyframes = sum(1 for kf in keyframes if kf)
     gt_bboxes_per_frame = [
         bboxes
         for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame, strict=False)
@@ -310,7 +313,7 @@ def build_detection_inputs(
     del gt_bboxes_per_frame, gt_track_ids_per_frame
     del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
 
-    return target, preds
+    return target, preds, num_keyframes
 
 
 def compute_metrics(
@@ -337,7 +340,7 @@ def compute_metrics(
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
-    target, preds = build_detection_inputs(view, gt_field, pred_field)
+    target, preds, _ = build_detection_inputs(view, gt_field, pred_field)
     metric = metric_fn(**metric_kwargs)
     metric.update(preds, target)
     return metric.compute()
@@ -531,9 +534,10 @@ def compute_metrics_by_sequence(
     )
     for sequence_name in resolved_sequences:
         sequence_view = view.match(F("sequence") == sequence_name)
-        sequence_results[sequence_name] = build_detection_inputs(
+        gt, pred, _ = build_detection_inputs(
             view=sequence_view, gt_field=gt_field, pred_field=pred_field
         )
+        sequence_results[sequence_name] = (gt, pred)
     for sequence, (gt, pred) in sequence_results.items():
         try:
             metric.update(gt, pred, sequence)
@@ -633,10 +637,13 @@ def _run_metric_updates(
     for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
         sequence_view = view.match(F("sequence") == sequence_name)
         for pred_field in tqdm(pred_fields, desc="Models", leave=False):
-            gt, pred = build_detection_inputs(
+            gt, pred, num_kf = build_detection_inputs(
                 view=sequence_view, gt_field=gt_field, pred_field=pred_field
             )
             for instance in instances[pred_field].values():
+                if not hasattr(instance, "_keyframe_counts"):
+                    instance._keyframe_counts = {}
+                instance._keyframe_counts[sequence_name] = num_kf
                 try:
                     instance.update(gt, pred, sequence_name)
                 except (ValueError, IndexError) as e:
@@ -849,8 +856,9 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
             row = {k: next(iter(v.values())) for k, v in result.items()}
             row["mota"] *= 100
             row["motp"] = (1 - row["motp"]) * 100
-            if "num_frames" in row:
-                row["num_keyframes"] = row.pop("num_frames")
+            row.pop("num_frames", None)
+            kf_counts = getattr(metrics, "_keyframe_counts", {})
+            row["num_keyframes"] = kf_counts.get(sequence, 0)
 
         row["sequence"] = sequence
         rows.append(row)
