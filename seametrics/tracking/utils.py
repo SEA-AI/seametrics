@@ -198,9 +198,6 @@ def get_relevant_fields(
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
-    if view.media_type == "group":
-        view = view.select_group_slices(view.default_group_slice)
-
     if view.media_type == "video":
         return view.select_fields(
             [f"frames.{f}" if view.has_frame_field(f) else f for f in fields]
@@ -558,13 +555,8 @@ def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
-    video_view = (
-        seq_view.select_group_slices(seq_view.default_group_slice)
-        if seq_view.media_type == "group"
-        else seq_view
-    )
     try:
-        kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
+        kf_vals = seq_view.values(f"frames[].{pred_field}.keyframe")
         return any(kf for kf in kf_vals if kf)
     except (ValueError, AttributeError, RuntimeError, TypeError, KeyError):
         return False
@@ -653,13 +645,15 @@ def compute_all_metrics_by_sequence(
     """Run multiple metrics across multiple prediction fields in a single pass.
 
     Args:
-        view: FiftyOne dataset view to evaluate.
+        view: FiftyOne dataset view to evaluate.  For grouped datasets, slice
+            selection should be applied by the caller before passing the view
+            (e.g. ``view.select_group_slices(["thermal_wide"])``).
         gt_field: FiftyOne field name for ground-truth detections.
         pred_fields: One or more FiftyOne prediction field names. Pass a string
             for a single model or a list to evaluate multiple models in the same
             pass.
         metrics: List of (metric_fn, metric_kwargs) tuples, e.g.
-            ``[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})]``.
+            ``[(TrackingMetrics, {"max_iou": 0.9999}), (HOTAMetrics, {})]``.
         sequence_list: Optional list of sequence names to restrict evaluation.
             Defaults to all sequences found in the view.
 
@@ -675,12 +669,17 @@ def compute_all_metrics_by_sequence(
             view=view,
             gt_field="ground_truth_det",
             pred_fields=["model_a", "model_b"],
-            metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
+            metrics=[(TrackingMetrics, {"max_iou": 0.9999}), (HOTAMetrics, {})],
         )
         mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
+    if view.media_type == "group":
+        raise ValueError(
+            "Grouped dataset passed directly — apply slice selection before "
+            "calling this function (e.g. view.select_group_slices(['thermal_wide']))."
+        )
     if isinstance(pred_fields, str):
         pred_fields = [pred_fields]
 

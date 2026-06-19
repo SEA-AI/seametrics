@@ -1,7 +1,8 @@
 import contextlib
 import io
 import os
-from typing import Dict, List, Tuple
+import pathlib
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import fiftyone as fo
 import numpy as np
@@ -13,6 +14,9 @@ from tqdm import tqdm
 from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
 from seametrics.detection.np.utils import box_convert
 from seametrics.payload import Payload
+
+if TYPE_CHECKING:
+    from seametrics.detection.det_metrics import DetectionMetrics
 
 if _TORCHMETRICS_AVAILABLE:
     from torch import tensor
@@ -104,7 +108,7 @@ def payload_sequence_to_det_metrics(
     output = []
 
     for frame_dets in sequence_dets:
-        frame_dict = frame_dets_to_det_metrics(frame_dets, w, h, is_gt, label_mapping)
+        frame_dict = frame_dets_to_det_metrics(frame_dets or [], w, h, is_gt, label_mapping)
         output.append(frame_dict)
 
     return output
@@ -141,12 +145,19 @@ def frame_dets_to_det_metrics(
 
     for det in fo_dets:
         bbox = det["bounding_box"]
+        if not bbox or len(bbox) < 4:
+            continue
         if label_mapping and det["label"] not in label_mapping:
             print(f"could not add sample w/ label {det['label']}, \
                   as label is not in label mapping")
             continue
 
-        detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
+        detections.append([
+            bbox[0] * w,
+            bbox[1] * h,
+            (bbox[0] + bbox[2]) * w,
+            (bbox[1] + bbox[3]) * h,
+        ])
         labels.append(0 if label_mapping is None else label_mapping[det["label"]])
         scores.append(det["confidence"] if det["confidence"] else 1.0)  # None for gt
 
@@ -154,7 +165,7 @@ def frame_dets_to_det_metrics(
             if "area" in det.field_names:
                 areas.append(det["area"])
             else:
-                areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3] - bbox[1]))
+                areas.append(bbox[2] * w * bbox[3] * h)
                 if error_code is None:
                     print("⚠️WARNING: Area not found in ground truth annotation(s), \
                           using bbox area instead for these cases.")
@@ -180,8 +191,7 @@ def prepare_data_for_det_metrics(
     img_w,
     img_h,
 ):
-    """
-    Returns
+    """Returns:
     -------
     target, preds: tuple of list of dicts
         Each dict has keys "boxes", "labels", "scores" (scores is only in preds)
@@ -197,7 +207,6 @@ def prepare_data_for_det_metrics(
         img_h,
     ):
         """Converts a list of frames with detections (bboxes) to numpy format."""
-
         # put to numpy format
         target = []
         for boxes, labels in zip(gt_bboxes_per_frame, gt_labels_per_frame):
@@ -310,6 +319,7 @@ def prepare_data_for_det_metrics(
 
     return target, preds
 
+
 def get_relevant_fields(
     view: fo.DatasetView,
     fields: list,  # fiftyone field names
@@ -342,26 +352,25 @@ def get_values(
     view: fo.DatasetView,
     field_name: str,  # fiftyone field name
 ):
-    """
-    Parameters
+    """Parameters
     ----------
     view: fo.DatasetView
         Dataset view
     field_name: str
         Fiftyone field name. You can use dot notation (embedded.field.name).
 
-    Returns
+    Returns:
     -------
     list
         List of values.
     """
-
     if view.media_type == "video":
         return view.values(f"frames[].{field_name}")
     elif view.media_type == "image":
         return view.values(field_name)
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
+
 
 @deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def smart_compute_metrics(
@@ -374,8 +383,8 @@ def smart_compute_metrics(
 ):  # confidence threshold
     """If the dataset is a video dataset, it updates the metric for each
     sequence and compute is called only once in the end. If the dataset is an
-    image dataset, it computes the metric in a single pass."""
-
+    image dataset, it computes the metric in a single pass.
+    """
     # init metric
     metric = metric_fn(**metric_kwargs)
     print("Collecting bboxes, labels and scores...")
@@ -397,6 +406,7 @@ def smart_compute_metrics(
 
     print("Computing metrics...")
     return metric.compute()
+
 
 @deprecated(reason="We do not guarantee the correctness of this function.")
 def get_target_and_preds(
@@ -428,6 +438,7 @@ def get_target_and_preds(
 
     return target, preds
 
+
 @deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def compute_metrics(
     view: fo.DatasetView,
@@ -437,7 +448,6 @@ def compute_metrics(
     metric_kwargs: dict,
 ):  # kwargs for metric_fn
     """Computes metrics for a given dataset view."""
-
     view = get_relevant_fields(view, [gt_field, pred_field])
     img_w = view.first()["metadata"]["width"]
     img_h = view.first()["metadata"]["height"]
@@ -469,6 +479,7 @@ def compute_metrics(
     metric = metric_fn(**metric_kwargs)
     metric.update(preds, target)
     return metric.compute()
+
 
 def results_to_df(results, fixed_columns: dict = {}):
     # save to pandas dataframe
@@ -510,6 +521,7 @@ def results_to_df(results, fixed_columns: dict = {}):
         }
 
     return df
+
 
 def sequence_results_to_df(sequence_results):
     # save to pandas dataframe
@@ -555,6 +567,7 @@ def sequence_results_to_df(sequence_results):
 
     return df
 
+
 def compute_and_save_sequence_metrics(
     csv_dirpath: str,
     view: fo.DatasetView,
@@ -595,10 +608,11 @@ def compute_and_save_sequence_metrics(
             print(f.getvalue())
 
     # create csv dir if not exists
-    if not os.path.exists(csv_dirpath):
-        os.makedirs(csv_dirpath)
+    if not pathlib.Path(csv_dirpath).exists():
+        pathlib.Path(csv_dirpath).mkdir(parents=True)
     df = sequence_results_to_df(sequence_results)
     df.to_csv(csv_path, index=False)
+
 
 def get_confidence_metric_vals(
     cocoeval: np.ndarray, T: int, R: int, K: int, A: int, M: int
@@ -675,3 +689,256 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     boxes[:, 0::2] *= img_w
     boxes[:, 1::2] *= img_h
     return boxes
+
+
+def _filter_det_valid_sequences(
+    sequence_list: list,
+    view: fo.DatasetView,
+    pred_fields: list,
+    instances: dict,
+) -> list:
+    """Filter sequences that have keyframe data for all prediction fields.
+
+    Sequences missing keyframes for any prediction field are logged as failed
+    on every metric instance and excluded from the returned list.
+
+    Parameters
+    ----------
+    sequence_list : list
+        Candidate sequence names.
+    view : fo.DatasetView
+        FiftyOne dataset view used to match individual sequences.
+    pred_fields : list
+        Prediction field names to validate.
+    instances : dict
+        Nested dict ``{pred_field: {metric_name: metric_instance}}``.
+
+    Returns:
+    -------
+    list
+        Sequence names where all prediction fields have at least one keyframe.
+    """
+    def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
+        """Return True if any frame in *seq_view* has a truthy keyframe value."""
+        try:
+            kf_vals = seq_view.values(f"frames[].{pred_field}.keyframe")
+            return any(kf for kf in kf_vals if kf)
+        except (ValueError, AttributeError, RuntimeError, TypeError, KeyError):
+            return False
+
+    valid = []
+    for sequence_name in tqdm(sequence_list, desc="Validating sequences"):
+        sequence_view = view.match(F("sequence") == sequence_name)
+        missing = [pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)]
+        if missing:
+            exc = ValueError(f"No keyframe data for: {missing}")
+            for pf in pred_fields:
+                for instance in instances[pf].values():
+                    instance.log_failed_sequence(sequence_name, [], [], exc=exc)
+        else:
+            valid.append(sequence_name)
+    return valid
+
+
+def compute_all_metrics_by_sequence(  # noqa: C901, PLR0912, PLR0914
+    view: fo.DatasetView,
+    gt_field: str,
+    pred_fields: "str | list",
+    metrics: list,
+    sequence_list: Optional[list] = None,
+    keyframe_only: bool = False,
+) -> dict:
+    """Run multiple detection metrics across multiple prediction fields in one pass.
+
+    Parameters
+    ----------
+    view : fo.DatasetView
+        FiftyOne dataset view to evaluate.  For grouped datasets, slice
+        selection should be applied by the caller before passing the view
+        (e.g. ``view.select_group_slices(["thermal_wide"])``).
+    gt_field : str
+        FiftyOne field name for ground-truth detections.
+    pred_fields : str or list
+        One or more FiftyOne prediction field names.  Pass a string for a
+        single model or a list to evaluate multiple models in the same pass.
+    metrics : list
+        List of ``(metric_fn, metric_kwargs)`` tuples, e.g.
+        ``[(DetectionMetrics, {"iou_threshold": 0.5})]``.
+    sequence_list : list, optional
+        Restrict evaluation to these sequence names.  Defaults to all
+        sequences found in the view.
+    keyframe_only : bool
+        When ``True``, restrict evaluation to frames whose
+        ``<pred_field>.keyframe`` flag is truthy.  Sequences with no keyframe
+        data for any prediction field are logged to ``failed_sequences`` and
+        skipped.  Useful for video datasets where the model only annotates
+        keyframes.  Default is ``False`` (all frames evaluated).
+
+    Returns:
+    -------
+    dict
+        Nested dict of the form ``{pred_field: {metric_class_name: metric_instance}}``.
+
+    Raises:
+    ------
+    ValueError
+        If duplicate metric class names are found in *metrics*.
+
+    Example:
+    -------
+    results = compute_all_metrics_by_sequence(
+        view=view,
+        gt_field="ground_truth_det",
+        pred_fields=["model_a", "model_b"],
+        metrics=[(DetectionMetrics, {"iou_threshold": 0.5})],
+        keyframe_only=True,
+    )
+    df = det_metrics_to_df(results["model_a"]["DetectionMetrics"])
+    """
+    if isinstance(pred_fields, str):
+        pred_fields = [pred_fields]
+
+    if view.media_type == "group":
+        raise ValueError(
+            "Grouped dataset passed directly — apply slice selection before "
+            "calling this function (e.g. view.select_group_slices(['thermal_wide']))."
+        )
+
+    metric_names = [fn.__name__ for fn, _ in metrics]
+    if len(metric_names) != len(set(metric_names)):
+        raise ValueError(
+            f"Duplicate metric class names in metrics list: {metric_names}. "
+            "Each metric class may only appear once."
+        )
+
+    resolved: list = (
+        list(
+            get_relevant_fields(view, [gt_field, *pred_fields, "sequence"]).distinct(
+                "sequence"
+            )
+        )
+        if sequence_list is None
+        else sequence_list
+    )
+
+    instances = {
+        pred_field: {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
+        for pred_field in pred_fields
+    }
+
+    if keyframe_only:
+        valid_sequences = _filter_det_valid_sequences(
+            resolved, view, pred_fields, instances
+        )
+    else:
+        valid_sequences = resolved
+
+    for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
+        seq_view = view.match(F("sequence") == sequence_name)
+        sample = seq_view.first()
+        if sample is None:
+            continue
+
+        if seq_view.media_type in {"video", "group"}:
+            img_w = sample["metadata"]["frame_width"]
+            img_h = sample["metadata"]["frame_height"]
+        else:
+            img_w = sample["metadata"]["width"]
+            img_h = sample["metadata"]["height"]
+
+        gt_frame_dets = get_values(seq_view, f"{gt_field}.detections")
+
+        for pred_field in pred_fields:
+            pred_frame_dets = get_values(seq_view, f"{pred_field}.detections")
+
+            if keyframe_only:
+                keyframes = get_values(seq_view, f"{pred_field}.keyframe")
+                gt_filtered = [
+                    dets
+                    for kf, dets in zip(keyframes, gt_frame_dets, strict=False)
+                    if kf
+                ]
+                pred_filtered = [
+                    dets
+                    for kf, dets in zip(keyframes, pred_frame_dets, strict=False)
+                    if kf
+                ]
+            else:
+                gt_filtered = gt_frame_dets
+                pred_filtered = pred_frame_dets
+
+            targets = payload_sequence_to_det_metrics(
+                sequence_dets=gt_filtered,
+                w=img_w,
+                h=img_h,
+                is_gt=True,
+            )
+            preds = payload_sequence_to_det_metrics(
+                sequence_dets=pred_filtered,
+                w=img_w,
+                h=img_h,
+                is_gt=False,
+            )
+
+            for instance in instances[pred_field].values():
+                instance.update(preds, targets, sequence_name)
+
+    # Synchronise failures: a sequence that failed for one pred_field is
+    # marked failed across all pred_fields so det_metrics_to_df returns
+    # the same sequence set regardless of which model is requested.
+    all_failed: set = {
+        seq
+        for pf_instances in instances.values()
+        for instance in pf_instances.values()
+        for seq in instance.failed_sequences
+    }
+    for pf_instances in instances.values():
+        for instance in pf_instances.values():
+            for seq in all_failed - set(instance.failed_sequences):
+                instance.log_failed_sequence(seq, [], [], exc=None)
+
+    return instances
+
+
+def det_metrics_to_df(
+    metrics: "DetectionMetrics",
+    sequence_list: Optional[list] = None,
+    area_range_label: str = "all",
+) -> pd.DataFrame:
+    """Convert a DetectionMetrics instance to a per-sequence DataFrame.
+
+    Parameters
+    ----------
+    metrics : DetectionMetrics
+        Fitted instance returned by ``compute_all_metrics_by_sequence``.
+    sequence_list : list, optional
+        Sequences to include.  Defaults to all successful accumulators
+        (``metrics.accumulators.keys()``).
+    area_range_label : str
+        Which area range to extract from each sequence result.  Must match
+        one of the ``area_ranges_labels`` configured on the underlying
+        ``PrecisionRecallF1Support`` (default ``"all"``).
+
+    Returns:
+    -------
+    pd.DataFrame
+        One row per sequence with columns:
+        ``sequence``, ``precision``, ``recall``, ``f1``,
+        ``tp``, ``fp``, ``fn``, ``duplicates``, ``support``, ``fpi``, ``n_imgs``.
+
+    Example:
+    -------
+    df_all   = det_metrics_to_df(inst, area_range_label="all")
+    df_small = det_metrics_to_df(inst, area_range_label="small")
+    """
+    if sequence_list is None:
+        sequence_list = list(metrics.accumulators.keys())
+
+    rows = []
+    for sequence in sequence_list:
+        area_results = metrics.compute(sequence=sequence)
+        row = area_results.get(area_range_label, {}).copy()
+        row["sequence"] = sequence
+        rows.append(row)
+
+    return pd.DataFrame(rows)

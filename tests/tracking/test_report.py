@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from seametrics.tracking.report import (
+from seametrics.report.report import (
     _agg,
     _build_diff_controls,
     _cell_value,

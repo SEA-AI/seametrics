@@ -216,6 +216,14 @@
     <div class="glossary-card"><span class="name">DetA</span><span class="dir">↑</span>Detection accuracy component of HOTA — how well objects are detected.</div>
     <div class="glossary-card"><span class="name">AssA</span><span class="dir">↑</span>Association accuracy component of HOTA — how consistently IDs are maintained.</div>
     <div class="glossary-card"><span class="name">LocA</span><span class="dir">↑</span>Localisation accuracy component of HOTA — average IoU of matched detections.</div>
+    <div class="glossary-card"><span class="name">Precision</span><span class="dir">↑</span>TP / (TP + FP) — fraction of predictions that match a GT object.</div>
+    <div class="glossary-card"><span class="name">Recall</span><span class="dir">↑</span>TP / (TP + FN) — fraction of GT objects that are detected.</div>
+    <div class="glossary-card"><span class="name">F1</span><span class="dir">↑</span>Harmonic mean of precision and recall.</div>
+    <div class="glossary-card"><span class="name">TP / FP / FN</span><span class="dir"></span>True positives, false positives, false negatives at the configured IoU threshold.</div>
+    <div class="glossary-card"><span class="name">Duplicates</span><span class="dir">↓</span>Predictions matched to an already-claimed GT box (suppressed after the first match).</div>
+    <div class="glossary-card"><span class="name">Support</span><span class="dir"></span>TP + FN — total number of GT objects in the evaluated set.</div>
+    <div class="glossary-card"><span class="name">FPI</span><span class="dir">↓</span>Frames / images containing at least one false positive.</div>
+    <div class="glossary-card"><span class="name">N Imgs</span><span class="dir"></span>Total number of frames / images evaluated.</div>
   </div>
 </details>
 

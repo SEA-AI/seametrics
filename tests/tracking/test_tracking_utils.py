@@ -63,7 +63,7 @@ class _FakeGroupView:
         self.video_view = _FakeVideoView()
         self.selected_slice = None
 
-    def select_group_slices(self, group_slice):
+    def select_group_slices(self, group_slice=None):
         self.selected_slice = group_slice
         return self.video_view
 
@@ -94,8 +94,22 @@ def _fo_patch():
         yield
 
 
-def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
+def test_compute_all_metrics_raises_for_grouped_view():
+    """Grouped datasets must have slice selection applied by the caller."""
     view = _FakeGroupView()
+
+    with _fo_patch(), pytest.raises(ValueError, match="Grouped dataset"):
+        utils.compute_all_metrics_by_sequence(
+            view=view,
+            gt_field="gt",
+            pred_fields="pred",
+            metrics=[(_RecordingMetric, {"label": "ok"})],
+        )
+
+
+def test_compute_all_metrics_by_sequence_filters_keyframes():
+    """Only keyframe frames are passed to the metric (frames where keyframe=True)."""
+    view = _FakeVideoView()
 
     with _fo_patch():
         all_metrics = utils.compute_all_metrics_by_sequence(
@@ -107,7 +121,6 @@ def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
 
     recording = all_metrics["pred"]["_RecordingMetric"]
 
-    assert view.selected_slice == "rgb"
     assert recording.label == "ok"
     assert len(recording.updates) == 1
 
