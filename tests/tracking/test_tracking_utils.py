@@ -75,6 +75,7 @@ class _RecordingMetric:
     def __init__(self, label=None) -> None:
         self.label = label
         self.updates = []
+        self.failed_sequences: dict = {}
 
     def update(self, gt, pred, sequence_name):
         self.updates.append((gt, pred, sequence_name))
@@ -125,13 +126,14 @@ def test_sequence_skipped_when_keyframe_lookup_raises():
 
     class _CapturingMetric:
         def __init__(self) -> None:
-            pass
+            self.failed_sequences: dict = {}
 
         def update(self, _gt, _pred, _seq):
             raise AssertionError("should not be called")
 
         def log_failed_sequence(self, seq, _gt, _pred, **_kwargs: object):
             failures.append((seq, _kwargs.get("exc")))
+            self.failed_sequences[seq] = str(_kwargs.get("exc"))
 
     class _ErrorView(_FakeVideoView):
         def values(self, field):
@@ -159,13 +161,14 @@ def test_sequence_skipped_when_no_true_keyframes():
 
     class _CapturingMetric:
         def __init__(self) -> None:
-            pass
+            self.failed_sequences: dict = {}
 
         def update(self, _gt, _pred, _seq):
             raise AssertionError("should not be called")
 
         def log_failed_sequence(self, seq, _gt, _pred, **_kwargs: object):
             failures.append((seq, _kwargs.get("exc")))
+            self.failed_sequences[seq] = str(_kwargs.get("exc"))
 
     class _NoKeyframeView(_FakeVideoView):
         def values(self, field):
@@ -192,13 +195,14 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
 
     class _CapturingMetric:
         def __init__(self) -> None:
-            pass
+            self.failed_sequences: dict = {}
 
         def update(self, _gt, _pred, _seq):
             raise AssertionError("should not be called")
 
         def log_failed_sequence(self, seq, _gt, _pred, **_kwargs: object):
             failures.append(seq)
+            self.failed_sequences[seq] = str(_kwargs.get("exc"))
 
     class _PartialKeyframeView(_FakeVideoView):
         def values(self, field):

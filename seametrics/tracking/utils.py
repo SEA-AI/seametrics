@@ -707,6 +707,21 @@ def compute_all_metrics_by_sequence(
     }
     valid_sequences = _filter_valid_sequences(resolved, view, pred_fields, instances)
     _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
+
+    # Ensure consistent results: any sequence that failed for one pred_field is
+    # marked as failed for all, so results_to_df returns the same sequence set
+    # across every pred_field.
+    all_failed: set[str] = {
+        seq
+        for pf_instances in instances.values()
+        for instance in pf_instances.values()
+        for seq in instance.failed_sequences
+    }
+    for pf_instances in instances.values():
+        for instance in pf_instances.values():
+            for seq in all_failed - set(instance.failed_sequences):
+                instance.log_failed_sequence(seq, [], [], exc=None)
+
     return instances
 
 

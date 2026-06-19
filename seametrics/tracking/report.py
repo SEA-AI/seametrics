@@ -467,12 +467,13 @@ def build_comparison_html(dfs: dict) -> str:
     pred_fields = list(dfs.keys())
     metric_names = list(next(iter(dfs.values())).keys())
     sequences = sorted(
-        {
-            seq
-            for pf_val in dfs.values()
-            for mn_key in metric_names
-            for seq in pf_val[mn_key]["sequence"]
-        }
+        set.intersection(
+            *[
+                set(pf_val[mn_key]["sequence"])
+                for pf_val in dfs.values()
+                for mn_key in metric_names
+            ]
+        )
     )
     metric_cols = {
         m: [c for c in next(iter(dfs.values()))[m].columns if c != "sequence"]
