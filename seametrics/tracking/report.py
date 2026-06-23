@@ -518,13 +518,12 @@ def build_comparison_html(dfs: dict) -> str:
     color_map = {
         pf: _MODEL_COLORS[i % len(_MODEL_COLORS)] for i, pf in enumerate(pred_fields)
     }
-    # Pooled dataset-level values keyed for client-side diff (Δ) computation.
+    # Summary-row values keyed for client-side diff (Δ) computation. Uses the
+    # same aggregation as the rendered summary row (_agg) so the mean fallback
+    # for legacy inputs without an OVERALL row stays consistent.
     overall_data = {
         pf: {
-            mn: {
-                col: _round_or_none(_overall_value(dfs[pf][mn], col))
-                for col in metric_cols[mn]
-            }
+            mn: {col: _round_or_none(_agg(dfs[pf][mn], col)) for col in metric_cols[mn]}
             for mn in metric_names
         }
         for pf in pred_fields

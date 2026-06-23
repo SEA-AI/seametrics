@@ -1,10 +1,7 @@
 import numpy as np
 import pytest
 
-mm = pytest.importorskip("motmetrics", reason="motmetrics not installed")
-
 from seametrics.tracking.track import TrackingMetrics
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,13 +13,13 @@ def _det(frame, obj_id, x1, y1, x2, y2):
     return [frame, obj_id, x1, y1, x2, y2]
 
 
-def _array(*rows):
+def _array(*rows: list) -> np.ndarray:
     return np.array(rows, dtype=float)
 
 
 def _scalar(result, metric):
     """Extract the single scalar value from a per-sequence compute() result."""
-    return list(result[metric].values())[0]
+    return next(iter(result[metric].values()))
 
 
 # ---------------------------------------------------------------------------
@@ -105,8 +102,8 @@ class TestIDSwitch:
     """Same GT track matched to two different predicted IDs."""
 
     def setup_method(self):
-        # Frames 1–2: GT id=1 → pred id=1  (correct)
-        # Frame 3:    GT id=1 → pred id=2  (ID switch)
+        # Frames 1-2: GT id=1 -> pred id=1  (correct)
+        # Frame 3:    GT id=1 -> pred id=2  (ID switch)
         gt = _array(
             _det(1, 1, 0, 0, 10, 10),
             _det(2, 1, 0, 0, 10, 10),
@@ -208,8 +205,13 @@ class TestSubsetPooling:
         )
 
     def test_unknown_sequence_in_list_raises(self):
-        with pytest.raises(Exception, match="Unknown sequence"):
+        with pytest.raises(ValueError, match="Unknown sequence"):
             self.m.compute(["A", "nope"])
+
+    def test_duplicate_sequence_in_list_raises(self):
+        # A duplicate name would pool the same accumulator twice and skew scores.
+        with pytest.raises(ValueError, match="Duplicate sequence"):
+            self.m.compute(["A", "A"])
 
 
 # ---------------------------------------------------------------------------

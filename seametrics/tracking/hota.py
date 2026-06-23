@@ -1,5 +1,8 @@
-import numpy as np
+"""HOTA (Higher Order Tracking Accuracy) metric, mirroring TrackingMetrics."""
+
 from collections import defaultdict
+
+import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 _HOTA_THRESHOLDS = np.arange(0.05, 0.95 + 1e-9, 0.05)  # 19 values: 0.05 … 0.95
@@ -26,41 +29,40 @@ def _iou_matrix(gt_boxes: np.ndarray, pred_boxes: np.ndarray) -> np.ndarray:
     return np.where(union > 0, inter / union, 0.0).astype(np.float32)
 
 
-def _hungarian_match(iou_mat: np.ndarray, threshold: float):
-    """
-    Optimal one-to-one matching via the Hungarian algorithm.
+def _hungarian_match(iou_mat: np.ndarray, threshold: float) -> tuple:
+    """Optimal one-to-one matching via the Hungarian algorithm.
+
     Returns (matches, unmatched_gt_indices, unmatched_pred_indices).
     matches is a list of (gt_idx, pred_idx, iou).
     Pairs whose IoU is below threshold are discarded.
     """
-    M, N = iou_mat.shape
-    if M == 0 or N == 0:
-        return [], list(range(M)), list(range(N))
+    n_gt, n_pr = iou_mat.shape
+    if n_gt == 0 or n_pr == 0:
+        return [], list(range(n_gt)), list(range(n_pr))
 
     # Prioritise maximising the count of valid (iou >= threshold) matches first,
     # then use IoU as a tie-breaker. A valid pair always beats any invalid pair
     # because the validity bonus (2.0) exceeds the maximum possible IoU (1.0).
-    valid = (iou_mat >= threshold).astype(float)
-    cost_mat = -(2.0 * valid + iou_mat)
-    row_ind, col_ind = linear_sum_assignment(cost_mat)
+    row_ind, col_ind = linear_sum_assignment(
+        -(2.0 * (iou_mat >= threshold).astype(float) + iou_mat)
+    )
 
     matched_gt, matched_pr = set(), set()
     matches = []
-    for r, c in zip(row_ind, col_ind):
+    for r, c in zip(row_ind, col_ind, strict=False):
         iou = float(iou_mat[r, c])
         if iou >= threshold:
             matches.append((int(r), int(c), iou))
             matched_gt.add(int(r))
             matched_pr.add(int(c))
 
-    unmatched_gt = [i for i in range(M) if i not in matched_gt]
-    unmatched_pr = [j for j in range(N) if j not in matched_pr]
+    unmatched_gt = [i for i in range(n_gt) if i not in matched_gt]
+    unmatched_pr = [j for j in range(n_pr) if j not in matched_pr]
     return matches, unmatched_gt, unmatched_pr
 
 
 class HOTAMetrics:
-    """
-    HOTA (Higher Order Tracking Accuracy).
+    """HOTA (Higher Order Tracking Accuracy).
 
     Reference: Luiten et al., "HOTA: A Higher Order Metric for Evaluating
     Multi-Object Tracking", IJCV 2021.
@@ -72,7 +74,8 @@ class HOTAMetrics:
         [frame_id, obj_id, x1, y1, x2, y2, confidence, ...]
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: object) -> None:
+        """Initialise empty accumulators; extra kwargs are set as attributes."""
         self.accumulators: dict = {}  # sequence_name -> (gt_array, pred_array)
         self.iou_thresholds: np.ndarray = _HOTA_THRESHOLDS
         self.failed_sequences: dict = {}
@@ -84,11 +87,11 @@ class HOTAMetrics:
     # ------------------------------------------------------------------
 
     def update(self, gt: np.ndarray, pred: np.ndarray, sequence_name: str) -> None:
+        """Store the (gt, pred) arrays for *sequence_name* for later compute."""
         self.accumulators[sequence_name] = (gt, pred)
 
     def compute(self, sequence: "str | list | None" = None) -> dict:
-        """
-        Compute HOTA metrics.
+        """Compute HOTA metrics.
 
         Parameters
         ----------
@@ -100,7 +103,7 @@ class HOTAMetrics:
               identical to ``None`` over that subset, so single-sequence results
               are unchanged.
 
-        Returns
+        Returns:
         -------
         dict with keys: hota, deta, assa, loca  (values in [0, 1]) and
         num_unique_objects (integer count of distinct GT track IDs).
@@ -111,6 +114,11 @@ class HOTAMetrics:
             if sequence is None:
                 entries = list(self.accumulators.values())
             else:
+                duplicates = sorted(
+                    {n for n in sequence if list(sequence).count(n) > 1}
+                )
+                if duplicates:
+                    raise KeyError(f"Duplicate sequence: {duplicates}")
                 unknown = [n for n in sequence if n not in self.accumulators]
                 if unknown:
                     raise KeyError(f"Unknown sequence: {unknown}")
@@ -163,8 +171,13 @@ class HOTAMetrics:
         return pooled_gt, pooled_pred
 
     def log_failed_sequence(
-        self, sequence_name: str, gt, pred, exc: Exception = None
+        self,
+        sequence_name: str,
+        gt: "np.ndarray | list",
+        pred: "np.ndarray | list",
+        exc: "Exception | None" = None,
     ) -> None:
+        """Record why *sequence_name* could not be evaluated."""
         if len(gt) == 0 and len(pred) == 0:
             reason = "No ground truth and no predictions"
         elif len(gt) == 0:
@@ -182,15 +195,28 @@ class HOTAMetrics:
     # ------------------------------------------------------------------
 
     def _compute_hota(self, gt: np.ndarray, pred: np.ndarray) -> dict:
-        num_unique_objects = int(len(np.unique(gt[:, 1]))) if len(gt) > 0 else 0
-        nan_result = {k: float("nan") for k in ["hota", "deta", "assa", "loca"]}
-        nan_result["num_unique_objects"] = num_unique_objects
-
+        """Compute HOTA/DetA/AssA/LoCA on a single pooled (gt, pred) pair."""
+        num_unique_objects = len(np.unique(gt[:, 1])) if len(gt) > 0 else 0
         if len(gt) == 0 and len(pred) == 0:
-            return nan_result
+            result = {k: float("nan") for k in ("hota", "deta", "assa", "loca")}
+        else:
+            frame_cache, gt_track_frames, pred_track_frames = self._build_frame_cache(
+                gt, pred
+            )
+            result = self._aggregate_over_thresholds(
+                frame_cache, gt_track_frames, pred_track_frames
+            )
+        result["num_unique_objects"] = num_unique_objects
+        return result
 
-        # Pre-compute IoU matrices once per frame (reused across all thresholds)
-        frames = set()
+    @staticmethod
+    def _build_frame_cache(gt: np.ndarray, pred: np.ndarray) -> tuple:
+        """Pre-compute per-frame (gt_ids, pred_ids, IoU matrix) and track lengths.
+
+        The IoU matrices are reused across all thresholds, and the per-track
+        frame counts feed the association-accuracy denominator.
+        """
+        frames: set = set()
         if len(gt) > 0:
             frames.update(gt[:, 0].astype(int).tolist())
         if len(pred) > 0:
@@ -206,65 +232,84 @@ class HOTAMetrics:
             pr_ids = pr_f[:, 1].astype(int).tolist()
             gt_boxes = gt_f[:, 2:6] if len(gt_f) > 0 else np.empty((0, 4))
             pr_boxes = pr_f[:, 2:6] if len(pr_f) > 0 else np.empty((0, 4))
-            iou_mat = _iou_matrix(gt_boxes, pr_boxes)
-            frame_cache.append((gt_ids, pr_ids, iou_mat))
+            frame_cache.append((gt_ids, pr_ids, _iou_matrix(gt_boxes, pr_boxes)))
             for g in gt_ids:
                 gt_track_frames[g] += 1
             for p in pr_ids:
                 pred_track_frames[p] += 1
+        return frame_cache, gt_track_frames, pred_track_frames
 
-        hota_vals, deta_vals, assa_vals, loca_vals = [], [], [], []
-
+    def _aggregate_over_thresholds(
+        self, frame_cache: list, gt_track_frames: dict, pred_track_frames: dict
+    ) -> dict:
+        """Average DetA/AssA/LoCA/HOTA over every IoU threshold."""
+        deta_vals, assa_vals, loca_vals, hota_vals = [], [], [], []
         for alpha in self.iou_thresholds:
-            tp_list = []  # (gt_id, pred_id, iou)
-            n_fp = 0
-            n_fn = 0
-
-            for gt_ids, pr_ids, iou_mat in frame_cache:
-                n_gt, n_pr = len(gt_ids), len(pr_ids)
-                if n_gt == 0 and n_pr == 0:
-                    continue
-                if n_gt == 0:
-                    n_fp += n_pr
-                    continue
-                if n_pr == 0:
-                    n_fn += n_gt
-                    continue
-
-                matches, unmatched_gt, unmatched_pr = _hungarian_match(iou_mat, alpha)
-                for gi, pi, iou in matches:
-                    tp_list.append((gt_ids[gi], pr_ids[pi], iou))
-                n_fp += len(unmatched_pr)
-                n_fn += len(unmatched_gt)
-
-            n_tp = len(tp_list)
-            total = n_tp + n_fp + n_fn
-            deta = n_tp / total if total > 0 else 0.0
-
-            if n_tp == 0:
-                assa, loca = 0.0, 0.0
-            else:
-                pair_counts: dict = defaultdict(int)
-                for g, p, _ in tp_list:
-                    pair_counts[(g, p)] += 1
-
-                ass_sum = sum(
-                    pair_counts[(g, p)]
-                    / (gt_track_frames[g] + pred_track_frames[p] - pair_counts[(g, p)])
-                    for g, p, _ in tp_list
-                )
-                assa = ass_sum / n_tp
-                loca = sum(iou for _, _, iou in tp_list) / n_tp
-
-            hota_vals.append((deta * assa) ** 0.5)
+            tp_list, n_fp, n_fn = self._match_frames(frame_cache, alpha)
+            deta, assa, loca = self._scores_at_alpha(
+                tp_list, n_fp, n_fn, gt_track_frames, pred_track_frames
+            )
             deta_vals.append(deta)
             assa_vals.append(assa)
             loca_vals.append(loca)
-
+            hota_vals.append((deta * assa) ** 0.5)
         return {
             "hota": float(np.mean(hota_vals)),
             "deta": float(np.mean(deta_vals)),
             "assa": float(np.mean(assa_vals)),
             "loca": float(np.mean(loca_vals)),
-            "num_unique_objects": num_unique_objects,
         }
+
+    @staticmethod
+    def _match_frames(frame_cache: list, alpha: float) -> tuple:
+        """Match detections per frame at one IoU threshold.
+
+        Returns ``(tp_list, n_fp, n_fn)`` where each true positive is a
+        ``(gt_id, pred_id, iou)`` triple.
+        """
+        tp_list = []
+        n_fp = 0
+        n_fn = 0
+        for gt_ids, pr_ids, iou_mat in frame_cache:
+            n_gt, n_pr = len(gt_ids), len(pr_ids)
+            if n_gt == 0 and n_pr == 0:
+                continue
+            if n_gt == 0:
+                n_fp += n_pr
+                continue
+            if n_pr == 0:
+                n_fn += n_gt
+                continue
+
+            matches, unmatched_gt, unmatched_pr = _hungarian_match(iou_mat, alpha)
+            tp_list.extend((gt_ids[gi], pr_ids[pi], iou) for gi, pi, iou in matches)
+            n_fp += len(unmatched_pr)
+            n_fn += len(unmatched_gt)
+        return tp_list, n_fp, n_fn
+
+    @staticmethod
+    def _scores_at_alpha(
+        tp_list: list,
+        n_fp: int,
+        n_fn: int,
+        gt_track_frames: dict,
+        pred_track_frames: dict,
+    ) -> tuple:
+        """Return ``(deta, assa, loca)`` for one threshold's matched pairs."""
+        n_tp = len(tp_list)
+        total = n_tp + n_fp + n_fn
+        deta = n_tp / total if total > 0 else 0.0
+        if n_tp == 0:
+            return deta, 0.0, 0.0
+
+        pair_counts: dict = defaultdict(int)
+        for g, p, _ in tp_list:
+            pair_counts[g, p] += 1
+        ass_sum = sum(
+            pair_counts[g, p]
+            / (gt_track_frames[g] + pred_track_frames[p] - pair_counts[g, p])
+            for g, p, _ in tp_list
+        )
+        assa = ass_sum / n_tp
+        loca = sum(iou for _, _, iou in tp_list) / n_tp
+        return deta, assa, loca

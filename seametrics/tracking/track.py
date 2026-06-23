@@ -1,9 +1,14 @@
+"""MOT tracking metrics (MOTA/MOTP/IDF1/…) backed by motmetrics."""
+
 import motmetrics as mm
 import numpy as np
 
 
 class TrackingMetrics:
-    def __init__(self, **kwargs) -> None:
+    """MOT metrics wrapper around ``motmetrics`` with per-sequence accumulators."""
+
+    def __init__(self, **kwargs: object) -> None:
+        """Initialise accumulators and defaults; extra kwargs become attributes."""
         self.accumulators = {}
         self.max_iou = 0.5
         self.metrics = [
@@ -29,6 +34,7 @@ class TrackingMetrics:
             setattr(self, key, value)
 
     def update(self, gt: np.ndarray, pred: np.ndarray, sequence_name: str) -> None:
+        """Build a MOTAccumulator for *sequence_name* from (gt, pred) arrays."""
         num_frames = max(gt[:, 0].max(), pred[:, 0].max()) + 1
         acc = mm.MOTAccumulator(auto_id=True)
 
@@ -36,13 +42,13 @@ class TrackingMetrics:
             gt_dets = gt[gt[:, 0] == i, 1:6]
             pred_dets = pred[pred[:, 0] == i, 1:6]
 
-            C = mm.distances.iou_matrix(
+            dist_matrix = mm.distances.iou_matrix(
                 gt_dets[:, 1:], pred_dets[:, 1:], max_iou=self.max_iou
             )
             acc.update(
                 gt_dets[:, 0].astype("int").tolist(),
                 pred_dets[:, 0].astype("int").tolist(),
-                C,
+                dist_matrix,
             )
 
         self.accumulators[sequence_name] = acc
@@ -65,9 +71,12 @@ class TrackingMetrics:
             names = (
                 list(self.accumulators.keys()) if sequence is None else list(sequence)
             )
+            duplicates = sorted({n for n in names if names.count(n) > 1})
+            if duplicates:
+                raise ValueError(f"Duplicate sequence: {duplicates}")
             unknown = [n for n in names if n not in self.accumulators]
             if unknown:
-                raise Exception(f"Unknown sequence: {unknown}")
+                raise ValueError(f"Unknown sequence: {unknown}")
             summary = mh.compute_many(
                 [self.accumulators[n] for n in names],
                 metrics=self.metrics,
@@ -76,14 +85,15 @@ class TrackingMetrics:
             )
         else:
             if sequence not in self.accumulators:
-                raise Exception(f"Unknown sequence: {sequence}")
+                raise ValueError(f"Unknown sequence: {sequence}")
             summary = mh.compute(self.accumulators[sequence], metrics=self.metrics)
 
         return summary.to_dict()
 
     def log_failed_sequence(
-        self, sequence_name: str, gt: list, pred: list, exc: Exception = None
+        self, sequence_name: str, gt: list, pred: list, exc: "Exception | None" = None
     ) -> None:
+        """Record why *sequence_name* could not be evaluated."""
         if len(gt) == 0 and len(pred) == 0:
             reason = "No ground truth and no predictions"
         elif len(gt) == 0:
@@ -96,5 +106,7 @@ class TrackingMetrics:
             reason = "Missing IDs from GT or Pred"
         self.failed_sequences[sequence_name] = reason
 
-    def metrics_help(self):
+    @staticmethod
+    def metrics_help() -> None:
+        """Print the markdown table of metrics supported by motmetrics."""
         print(mm.metrics.create().list_metrics_markdown())

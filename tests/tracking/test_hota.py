@@ -1,8 +1,9 @@
 import math
+
 import numpy as np
 import pytest
-from seametrics.tracking.hota import HOTAMetrics
 
+from seametrics.tracking.hota import HOTAMetrics
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -14,7 +15,7 @@ def _det(frame, obj_id, x1, y1, x2, y2, conf=1.0):
     return [frame, obj_id, x1, y1, x2, y2, conf]
 
 
-def _array(*rows):
+def _array(*rows: list) -> np.ndarray:
     return np.array(rows, dtype=float)
 
 
@@ -98,18 +99,17 @@ class TestHOTANoPred:
 
 
 class TestHOTAIDSwitch:
-    """
-    1 GT track, 2 predicted IDs (a clean ID switch halfway through).
+    """1 GT track, 2 predicted IDs (a clean ID switch halfway through).
 
     Frame 1: GT id=1  matched to pred id=1  → TP
     Frame 2: GT id=1  matched to pred id=2  → TP (ID switch)
 
     Boxes are identical so IoU=1 and every threshold yields a TP.
-    Expected (at each α):
+    Expected (at each alpha):
         DetA = 2/2 = 1.0
-        For each TP: tpa=1, gt_count=2, pr_count=1 → A = 1/(2+1-1) = 0.5
+        For each TP: tpa=1, gt_count=2, pr_count=1 -> A = 1/(2+1-1) = 0.5
         AssA = 0.5
-        HOTA = sqrt(1.0 * 0.5) ≈ 0.7071
+        HOTA = sqrt(1.0 * 0.5) ~= 0.7071
     """
 
     def setup_method(self):
@@ -138,8 +138,8 @@ class TestHOTAIDSwitch:
 
 
 class TestHOTAPartialDetection:
-    """
-    1 GT track over 3 frames, only matched in 2 (1 FN, 0 FP).
+    """1 GT track over 3 frames, only matched in 2 (1 FN, 0 FP).
+
     Expected DetA = 2/3 at all thresholds (IoU=1).
     """
 
@@ -240,3 +240,8 @@ class TestHOTASubsetPooling:
     def test_unknown_sequence_in_list_raises(self):
         with pytest.raises(KeyError):
             self.m.compute(["A", "nonexistent"])
+
+    def test_duplicate_sequence_in_list_raises(self):
+        # A duplicate name would pool the same accumulator twice and skew scores.
+        with pytest.raises(KeyError, match="Duplicate sequence"):
+            self.m.compute(["A", "A"])
