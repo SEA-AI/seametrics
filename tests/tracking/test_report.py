@@ -21,10 +21,15 @@ from seametrics.tracking.report import (
 # ---------------------------------------------------------------------------
 
 
-def _mot_df(sequences=("seq-1", "seq-2")):
-    """Return a minimal MOT metrics DataFrame."""
+def _mot_df(sequences=("seq-1", "seq-2"), *, overall=True):
+    """Return a minimal MOT metrics DataFrame, with a pooled OVERALL row.
+
+    The OVERALL ratio values (``mota``/``motp``) are deliberately set to numbers
+    that differ from the mean of the per-sequence rows, so tests can tell the
+    pooled value apart from a naive mean.
+    """
     n = len(sequences)
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {
             "sequence": list(sequences),
             "mota": [50.0 + i * 10 for i in range(n)],
@@ -39,12 +44,28 @@ def _mot_df(sequences=("seq-1", "seq-2")):
             "mostly_lost": [0] * n,
         }
     )
+    if overall:
+        overall_row = {
+            "sequence": "OVERALL",
+            "mota": 42.0,  # != mean(50, 60) = 55
+            "motp": 33.0,  # != mean(80, 70) = 75
+            "num_switches": 0,  # ignored: counts are summed over per-seq rows
+            "num_false_positives": 0,
+            "num_misses": 0,
+            "num_fragmentations": 0,
+            "num_frames": 0,
+            "mostly_tracked": 0,
+            "partially_tracked": 0,
+            "mostly_lost": 0,
+        }
+        df = pd.concat([df, pd.DataFrame([overall_row])], ignore_index=True)
+    return df
 
 
-def _hota_df(sequences=("seq-1", "seq-2")):
-    """Return a minimal HOTA metrics DataFrame."""
+def _hota_df(sequences=("seq-1", "seq-2"), *, overall=True):
+    """Return a minimal HOTA metrics DataFrame, with a pooled OVERALL row."""
     n = len(sequences)
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {
             "sequence": list(sequences),
             "hota": [55.0 + i * 10 for i in range(n)],
@@ -53,6 +74,16 @@ def _hota_df(sequences=("seq-1", "seq-2")):
             "num_unique_objects": list(range(3, n + 3)),
         }
     )
+    if overall:
+        overall_row = {
+            "sequence": "OVERALL",
+            "hota": 47.0,  # != mean(55, 65) = 60
+            "deta": 50.0,
+            "assa": 60.0,
+            "num_unique_objects": 0,
+        }
+        df = pd.concat([df, pd.DataFrame([overall_row])], ignore_index=True)
+    return df
 
 
 def _two_model_dfs(sequences=("seq-1", "seq-2")):
@@ -107,23 +138,48 @@ class TestHtmlEscape:
 
 
 class TestAgg:
-    """Tests for _agg."""
+    """Tests for _agg.
 
-    def test_sum_metrics_are_summed(self):
-        s = pd.Series([1.0, 2.0, 3.0])
-        assert _agg(s, "num_switches") == pytest.approx(6.0)
+    Count metrics are summed over the per-sequence rows (the OVERALL row is
+    ignored). Ratio metrics take the pooled OVERALL value, falling back to the
+    per-sequence mean only when no OVERALL row exists.
+    """
+
+    def test_sum_metrics_are_summed_ignoring_overall(self):
+        df = pd.DataFrame(
+            {
+                "sequence": ["s1", "s2", "s3", "OVERALL"],
+                "num_switches": [1.0, 2.0, 3.0, 999.0],
+            }
+        )
+        assert _agg(df, "num_switches") == pytest.approx(6.0)
 
     def test_sum_metrics_num_false_positives(self):
-        s = pd.Series([10.0, 20.0])
-        assert _agg(s, "num_false_positives") == pytest.approx(30.0)
+        df = pd.DataFrame(
+            {
+                "sequence": ["s1", "s2", "OVERALL"],
+                "num_false_positives": [10.0, 20.0, 999.0],
+            }
+        )
+        assert _agg(df, "num_false_positives") == pytest.approx(30.0)
 
-    def test_ratio_metrics_are_averaged(self):
-        s = pd.Series([0.0, 1.0])
-        assert _agg(s, "mota") == pytest.approx(0.5)
+    def test_ratio_metric_uses_pooled_overall_not_mean(self):
+        # mean of per-seq would be 0.5; pooled OVERALL is 0.42 → must pick 0.42.
+        df = pd.DataFrame(
+            {"sequence": ["s1", "s2", "OVERALL"], "mota": [0.0, 1.0, 0.42]}
+        )
+        assert _agg(df, "mota") == pytest.approx(0.42)
 
-    def test_ratio_hota_averaged(self):
-        s = pd.Series([60.0, 80.0])
-        assert _agg(s, "hota") == pytest.approx(70.0)
+    def test_ratio_hota_uses_pooled_overall(self):
+        # mean of per-seq would be 70; pooled OVERALL is 79.06 → must pick pooled.
+        df = pd.DataFrame(
+            {"sequence": ["s1", "s2", "OVERALL"], "hota": [60.0, 80.0, 79.06]}
+        )
+        assert _agg(df, "hota") == pytest.approx(79.06)
+
+    def test_ratio_falls_back_to_mean_without_overall_row(self):
+        df = pd.DataFrame({"sequence": ["s1", "s2"], "hota": [60.0, 80.0]})
+        assert _agg(df, "hota") == pytest.approx(70.0)
 
 
 class TestRoundOrNone:
@@ -239,9 +295,23 @@ class TestBuildComparisonHtml:
         result = build_comparison_html(_two_model_dfs())
         assert "chartData" in result or "__CHART_DATA__" not in result
 
-    def test_mean_sum_row_present(self):
+    def test_summary_row_present(self):
         result = build_comparison_html(_two_model_dfs())
-        assert "MEAN / SUM" in result
+        assert "OVERALL / SUM" in result
+
+    def test_summary_row_uses_pooled_overall_for_ratio(self):
+        """Ratio summary cell shows the pooled OVERALL value, not the mean.
+
+        For mota the pooled value is 42.00; the per-sequence mean would be 55.00.
+        """
+        result = build_comparison_html(_one_model_dfs(sequences=("seq-1", "seq-2")))
+        assert "42.00" in result
+        assert ">55.00<" not in result
+
+    def test_overall_row_not_rendered_as_sequence(self):
+        """The pooled OVERALL row must not appear as a per-sequence table row."""
+        result = build_comparison_html(_one_model_dfs(sequences=("seq-1", "seq-2")))
+        assert "<td>OVERALL</td>" not in result
 
     def test_single_sequence(self):
         dfs = _one_model_dfs(sequences=("only-seq",))

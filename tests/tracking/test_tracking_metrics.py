@@ -10,6 +10,7 @@ from seametrics.tracking.track import TrackingMetrics
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _det(frame, obj_id, x1, y1, x2, y2):
     """Single MOT-format row: [frame, id, x1, y1, x2, y2]."""
     return [frame, obj_id, x1, y1, x2, y2]
@@ -27,6 +28,7 @@ def _scalar(result, metric):
 # ---------------------------------------------------------------------------
 # Perfect tracking
 # ---------------------------------------------------------------------------
+
 
 class TestPerfectTracking:
     """GT == pred in every frame."""
@@ -65,6 +67,7 @@ class TestPerfectTracking:
 # No predictions
 # ---------------------------------------------------------------------------
 
+
 class TestNoPredictions:
     """GT present, pred empty → everything missed."""
 
@@ -74,7 +77,7 @@ class TestNoPredictions:
             _det(2, 1, 0, 0, 10, 10),
             _det(3, 1, 0, 0, 10, 10),
         )
-        pred = _array(_det(1, 1, 100, 100, 110, 110))   # outside IoU threshold
+        pred = _array(_det(1, 1, 100, 100, 110, 110))  # outside IoU threshold
         self.m = TrackingMetrics(max_iou=0.5)
         self.m.update(gt, pred, "seq")
 
@@ -96,6 +99,7 @@ class TestNoPredictions:
 # ---------------------------------------------------------------------------
 # ID switch
 # ---------------------------------------------------------------------------
+
 
 class TestIDSwitch:
     """Same GT track matched to two different predicted IDs."""
@@ -134,8 +138,8 @@ class TestIDSwitch:
 # Global aggregation (sequence=None)
 # ---------------------------------------------------------------------------
 
-class TestGlobalCompute:
 
+class TestGlobalCompute:
     def setup_method(self):
         gt = _array(_det(1, 1, 0, 0, 10, 10))
         self.m = TrackingMetrics()
@@ -160,12 +164,60 @@ class TestGlobalCompute:
         assert r["mota"]["OVERALL"] == pytest.approx(1.0)
 
 
+class TestSubsetPooling:
+    """compute(list) pools IDF1 counts over exactly the named subset.
+
+    Two sequences, identical boxes:
+      A (perfect): gt id1 frames 1,2 ; pred id1 frames 1,2
+          -> IDTP=2 IDFP=0 IDFN=0 -> IDF1 = 4/4 = 1.0
+      B (one miss): gt id1 frames 1,2 ; pred id1 frame 1 only
+          -> IDTP=1 IDFP=0 IDFN=1 -> IDF1 = 2/3 = 0.6666667
+
+    Pooled over {A, B}: IDTP=3 IDFP=0 IDFN=1 -> IDF1 = 6/7 = 0.8571429.
+    A naive mean of per-sequence IDF1 would be (1.0 + 2/3)/2 = 0.8333333.
+    """
+
+    def setup_method(self):
+        gt_a = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 0, 0, 10, 10))
+        pred_a = gt_a.copy()
+        gt_b = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 0, 0, 10, 10))
+        pred_b = _array(_det(1, 1, 0, 0, 10, 10))  # frame 2 missed
+
+        self.m = TrackingMetrics()
+        self.m.update(gt_a, pred_a, "A")
+        self.m.update(gt_b, pred_b, "B")
+
+    def test_per_sequence_idf1_unchanged(self):
+        assert _scalar(self.m.compute("A"), "idf1") == pytest.approx(1.0)
+        assert _scalar(self.m.compute("B"), "idf1") == pytest.approx(2 / 3)
+
+    def test_subset_overall_is_pooled(self):
+        overall = self.m.compute(["A", "B"])["idf1"]["OVERALL"]
+        assert overall == pytest.approx(6 / 7)
+
+    def test_subset_overall_differs_from_mean(self):
+        overall = self.m.compute(["A", "B"])["idf1"]["OVERALL"]
+        mean = (
+            _scalar(self.m.compute("A"), "idf1") + _scalar(self.m.compute("B"), "idf1")
+        ) / 2
+        assert overall != pytest.approx(mean, abs=1e-3)
+
+    def test_subset_matches_none_when_all_sequences_listed(self):
+        assert self.m.compute(["A", "B"])["idf1"]["OVERALL"] == pytest.approx(
+            self.m.compute()["idf1"]["OVERALL"]
+        )
+
+    def test_unknown_sequence_in_list_raises(self):
+        with pytest.raises(Exception, match="Unknown sequence"):
+            self.m.compute(["A", "nope"])
+
+
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
 
-class TestErrorHandling:
 
+class TestErrorHandling:
     def test_unknown_sequence_raises(self):
         m = TrackingMetrics()
         with pytest.raises(Exception, match="Unknown sequence"):
@@ -184,8 +236,8 @@ class TestErrorHandling:
 # log_failed_sequence
 # ---------------------------------------------------------------------------
 
-class TestLogFailedSequence:
 
+class TestLogFailedSequence:
     def test_no_gt_and_no_pred(self):
         m = TrackingMetrics()
         m.log_failed_sequence("s", [], [])

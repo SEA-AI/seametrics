@@ -6,6 +6,8 @@ import pathlib
 
 import pandas as pd
 
+from .utils import OVERALL_LABEL
+
 _SUM_METRICS = {
     "num_frames",
     "mostly_tracked",
@@ -62,22 +64,53 @@ def _js(s: str) -> str:
     return html.escape(json.dumps(s))
 
 
-def _agg(series: pd.Series, col: str) -> float:
-    """Aggregate a metric series across sequences.
+def _overall_value(df: pd.DataFrame, col: str) -> float:
+    """Return the pooled ``OVERALL`` row value for *col*, or NaN if absent.
 
     Parameters
     ----------
-    series : pd.Series
-        Numeric values for a single metric column across all sequences.
+    df : pd.DataFrame
+        Per-metric DataFrame with a ``sequence`` column, optionally containing
+        a pooled row labelled :data:`OVERALL_LABEL`.
+    col : str
+        Metric column name.
+
+    Returns:
+    -------
+    float
+        The pooled value, or NaN when no ``OVERALL`` row is present.
+    """
+    overall = df.loc[df["sequence"] == OVERALL_LABEL, col]
+    return float(overall.iloc[0]) if not overall.empty else float("nan")
+
+
+def _agg(df: pd.DataFrame, col: str) -> float:
+    """Aggregate a metric column across sequences for the summary row.
+
+    Count-based metrics (e.g. ``num_switches``) are summed over the per-sequence
+    rows. Every other (ratio/derived) metric uses the pooled, dataset-level
+    ``OVERALL`` value, since a plain mean of per-sequence ratios is not the
+    correct aggregate for metrics like ``hota`` and ``idf1``. When no pooled row
+    is present (older callers), it falls back to the per-sequence mean.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Per-metric DataFrame with a ``sequence`` column, optionally containing
+        a pooled row labelled :data:`OVERALL_LABEL`.
     col : str
         Metric column name; used to decide the aggregation strategy.
 
     Returns:
     -------
     float
-        Sum for count-based metrics (e.g. ``num_switches``), mean for ratio metrics.
+        Sum for count-based metrics, pooled ``OVERALL`` value for ratio metrics.
     """
-    return series.sum() if col in _SUM_METRICS else series.mean()
+    per_seq = df.loc[df["sequence"] != OVERALL_LABEL, col]
+    if col in _SUM_METRICS:
+        return per_seq.sum()
+    overall = _overall_value(df, col)
+    return overall if pd.notna(overall) else per_seq.mean()
 
 
 def _round_or_none(val: float) -> float | None:
@@ -257,7 +290,7 @@ def _assemble_html_table(
 
     agg_cells = "".join(
         f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
-        f"{_agg(dfs[pf][mn][col], col):.2f}</td>"
+        f"{_agg(dfs[pf][mn], col):.2f}</td>"
         for pf in pred_fields
         for mn in metric_names
         for col in metric_cols[mn]
@@ -310,7 +343,7 @@ def _assemble_html_table(
     <tbody>
       {table_rows}
       <tr id="mean-row" style="font-weight:bold;border-top:2px solid #e94560;">
-        <td>MEAN / SUM</td>{agg_cells}
+        <td>OVERALL / SUM</td>{agg_cells}
       </tr>
     </tbody>
   </table>"""
@@ -349,7 +382,7 @@ def _build_chart_section(
         chart_data[mn] = {}
         for col in metric_cols[mn]:
             chart_data[mn][col] = {
-                pf: _round_or_none(_agg(dfs[pf][mn][col], col)) for pf in pred_fields
+                pf: _round_or_none(_agg(dfs[pf][mn], col)) for pf in pred_fields
             }
 
     checkboxes_html = "".join(
@@ -466,6 +499,8 @@ def build_comparison_html(dfs: dict) -> str:
 
     pred_fields = list(dfs.keys())
     metric_names = list(next(iter(dfs.values())).keys())
+    # The pooled OVERALL row is rendered as the summary row, not as a per-sequence
+    # row, so exclude it from the sequence list used for the body and charts.
     sequences = sorted(
         set.intersection(
             *[
@@ -474,6 +509,7 @@ def build_comparison_html(dfs: dict) -> str:
                 for mn_key in metric_names
             ]
         )
+        - {OVERALL_LABEL}
     )
     metric_cols = {
         m: [c for c in next(iter(dfs.values()))[m].columns if c != "sequence"]
@@ -481,6 +517,17 @@ def build_comparison_html(dfs: dict) -> str:
     }
     color_map = {
         pf: _MODEL_COLORS[i % len(_MODEL_COLORS)] for i, pf in enumerate(pred_fields)
+    }
+    # Pooled dataset-level values keyed for client-side diff (Δ) computation.
+    overall_data = {
+        pf: {
+            mn: {
+                col: _round_or_none(_overall_value(dfs[pf][mn], col))
+                for col in metric_cols[mn]
+            }
+            for mn in metric_names
+        }
+        for pf in pred_fields
     }
     chart_data, checkboxes_html, tab_buttons, chart_grids = _build_chart_section(
         pred_fields, metric_names, metric_cols, dfs, color_map
@@ -495,6 +542,7 @@ def build_comparison_html(dfs: dict) -> str:
     return (
         template.replace("__SUM_METRICS__", json.dumps(sorted(_SUM_METRICS)))
         .replace("__CHART_DATA__", json.dumps(chart_data))
+        .replace("__OVERALL_DATA__", json.dumps(overall_data))
         .replace("__TABLE_DATA__", json.dumps(table_data))
         .replace("__METRIC_COLS__", json.dumps(metric_cols))
         .replace("__SEQUENCES__", json.dumps(sequences))

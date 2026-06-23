@@ -8,6 +8,7 @@ from seametrics.tracking.hota import HOTAMetrics
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _det(frame, obj_id, x1, y1, x2, y2, conf=1.0):
     """Build a single row in MOT format: [frame, id, x1, y1, x2, y2, conf]."""
     return [frame, obj_id, x1, y1, x2, y2, conf]
@@ -20,6 +21,7 @@ def _array(*rows):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestHOTAPerfect:
     """Perfect tracker: pred == gt in every frame."""
@@ -179,8 +181,62 @@ class TestHOTAGlobalAggregation:
     def test_global_hota_pools_counts(self):
         # Pooled: TP=1, FP=0, FN=1 → DetA=0.5, AssA=1.0 → HOTA=sqrt(0.5)
         r = self.m.compute()  # sequence=None
-        assert r["hota"] == pytest.approx(0.5 ** 0.5, abs=1e-6)
+        assert r["hota"] == pytest.approx(0.5**0.5, abs=1e-6)
 
     def test_unknown_sequence_raises(self):
         with pytest.raises(KeyError):
             self.m.compute("nonexistent")
+
+
+class TestHOTASubsetPooling:
+    """compute(list) pools exactly the named subset (MOT standard).
+
+    Two sequences, identical boxes so IoU=1 and matching is threshold-independent:
+      A (perfect): gt id1 frames 1,2 ; pred id1 frames 1,2
+          -> TP=2 FP=0 FN=0, DetA=1 ; pair(1,1) cnt2 -> AssA=1 ; HOTA=1
+      B (one miss): gt id1 frames 1,2 ; pred id1 frame 1 only
+          -> TP=1 FP=0 FN=1 DetA=0.5 ; pair(1,1) cnt1 gtf2 prf1 -> AssA=0.5 HOTA=0.5
+
+    Pooled over {A, B} (ids/frames offset so they don't collide):
+      TP=3 FP=0 FN=1 -> DetA=3/4=0.75
+      pair(1,1) cnt2 ass=2/(2+2-2)=1 (x2) ; pair(3,3) cnt1 ass=1/(2+1-1)=0.5
+      AssA = (1+1+0.5)/3 = 0.8333333 -> HOTA = sqrt(0.75*0.8333333) = sqrt(0.625)
+    A plain mean of per-sequence HOTA would instead be (1.0+0.5)/2 = 0.75.
+    """
+
+    def setup_method(self):
+        gt_a = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 0, 0, 10, 10))
+        pred_a = gt_a.copy()
+        gt_b = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 0, 0, 10, 10))
+        pred_b = _array(_det(1, 1, 0, 0, 10, 10))  # frame 2 missed
+        # An extra, larger sequence to prove the subset excludes it.
+        gt_c = _array(_det(1, 7, 0, 0, 10, 10), _det(1, 8, 20, 20, 30, 30))
+        pred_c = gt_c.copy()
+
+        self.m = HOTAMetrics()
+        self.m.update(gt_a, pred_a, "A")
+        self.m.update(gt_b, pred_b, "B")
+        self.m.update(gt_c, pred_c, "C")
+
+    def test_per_sequence_unchanged(self):
+        assert self.m.compute("A")["hota"] == pytest.approx(1.0, abs=1e-6)
+        assert self.m.compute("B")["hota"] == pytest.approx(0.5, abs=1e-6)
+
+    def test_subset_pooled_value(self):
+        pooled = self.m.compute(["A", "B"])["hota"]
+        assert pooled == pytest.approx(math.sqrt(0.625), abs=1e-6)
+
+    def test_subset_differs_from_naive_mean(self):
+        pooled = self.m.compute(["A", "B"])["hota"]
+        mean = (self.m.compute("A")["hota"] + self.m.compute("B")["hota"]) / 2
+        assert pooled != pytest.approx(mean, abs=1e-3)
+
+    def test_subset_excludes_unnamed_sequence(self):
+        # Pooling {A, B} must ignore C, so it differs from pooling all three.
+        assert self.m.compute(["A", "B"])["hota"] != pytest.approx(
+            self.m.compute()["hota"], abs=1e-6
+        )
+
+    def test_unknown_sequence_in_list_raises(self):
+        with pytest.raises(KeyError):
+            self.m.compute(["A", "nonexistent"])

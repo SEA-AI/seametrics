@@ -10,15 +10,18 @@ def _iou_matrix(gt_boxes: np.ndarray, pred_boxes: np.ndarray) -> np.ndarray:
     if len(gt_boxes) == 0 or len(pred_boxes) == 0:
         return np.zeros((len(gt_boxes), len(pred_boxes)), dtype=np.float32)
 
-    gt = gt_boxes[:, None, :]    # (M, 1, 4)
+    gt = gt_boxes[:, None, :]  # (M, 1, 4)
     pr = pred_boxes[None, :, :]  # (1, N, 4)
 
-    inter = (
-        np.maximum(0, np.minimum(gt[..., 2], pr[..., 2]) - np.maximum(gt[..., 0], pr[..., 0]))
-        * np.maximum(0, np.minimum(gt[..., 3], pr[..., 3]) - np.maximum(gt[..., 1], pr[..., 1]))
+    inter = np.maximum(
+        0, np.minimum(gt[..., 2], pr[..., 2]) - np.maximum(gt[..., 0], pr[..., 0])
+    ) * np.maximum(
+        0, np.minimum(gt[..., 3], pr[..., 3]) - np.maximum(gt[..., 1], pr[..., 1])
     )
     area_gt = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
-    area_pr = (pred_boxes[:, 2] - pred_boxes[:, 0]) * (pred_boxes[:, 3] - pred_boxes[:, 1])
+    area_pr = (pred_boxes[:, 2] - pred_boxes[:, 0]) * (
+        pred_boxes[:, 3] - pred_boxes[:, 1]
+    )
     union = area_gt[:, None] + area_pr[None, :] - inter
     return np.where(union > 0, inter / union, 0.0).astype(np.float32)
 
@@ -70,7 +73,7 @@ class HOTAMetrics:
     """
 
     def __init__(self, **kwargs) -> None:
-        self.accumulators: dict = {}   # sequence_name -> (gt_array, pred_array)
+        self.accumulators: dict = {}  # sequence_name -> (gt_array, pred_array)
         self.iou_thresholds: np.ndarray = _HOTA_THRESHOLDS
         self.failed_sequences: dict = {}
         for key, value in kwargs.items():
@@ -83,53 +86,38 @@ class HOTAMetrics:
     def update(self, gt: np.ndarray, pred: np.ndarray, sequence_name: str) -> None:
         self.accumulators[sequence_name] = (gt, pred)
 
-    def compute(self, sequence: str = None) -> dict:
+    def compute(self, sequence: "str | list | None" = None) -> dict:
         """
         Compute HOTA metrics.
 
         Parameters
         ----------
         sequence:
-            Sequence name to compute metrics for. If None, averages over all
-            stored sequences (standard MOT benchmark convention).
+            - ``None``: pool all stored sequences (standard MOT benchmark
+              convention).
+            - ``str``: compute for that single sequence.
+            - ``list``/``tuple`` of names: pool exactly that subset. Pooling is
+              identical to ``None`` over that subset, so single-sequence results
+              are unchanged.
 
         Returns
         -------
         dict with keys: hota, deta, assa, loca  (values in [0, 1]) and
         num_unique_objects (integer count of distinct GT track IDs).
-        When sequence is None, TP/FP/FN/association counts are pooled across
-        all sequences before computing metrics (MOT standard).
+        When sequence is None or a list, TP/FP/FN/association counts are pooled
+        across the selected sequences before computing metrics (MOT standard).
         """
-        if sequence is None:
-            entries = list(self.accumulators.values())
+        if sequence is None or isinstance(sequence, (list, tuple)):
+            if sequence is None:
+                entries = list(self.accumulators.values())
+            else:
+                unknown = [n for n in sequence if n not in self.accumulators]
+                if unknown:
+                    raise KeyError(f"Unknown sequence: {unknown}")
+                entries = [self.accumulators[n] for n in sequence]
             if not entries:
                 return {}
-            # Pool raw arrays across sequences so counts are aggregated before
-            # computing metrics (MOT standard), rather than averaging per-sequence
-            # results which biases toward sequences with fewer objects.
-            # Frame and track IDs are offset per sequence to prevent collisions.
-            gt_parts, pred_parts = [], []
-            frame_off = gt_off = pred_off = 0
-            for gt, pred in entries:
-                max_frame = max(
-                    int(gt[:, 0].max()) if len(gt) > 0 else 0,
-                    int(pred[:, 0].max()) if len(pred) > 0 else 0,
-                )
-                if len(gt) > 0:
-                    g = gt.copy()
-                    g[:, 0] += frame_off
-                    g[:, 1] += gt_off
-                    gt_parts.append(g)
-                    gt_off += int(gt[:, 1].max()) + 1
-                if len(pred) > 0:
-                    p = pred.copy()
-                    p[:, 0] += frame_off
-                    p[:, 1] += pred_off
-                    pred_parts.append(p)
-                    pred_off += int(pred[:, 1].max()) + 1
-                frame_off += max_frame + 1
-            pooled_gt = np.concatenate(gt_parts) if gt_parts else np.empty((0,), dtype=float)
-            pooled_pred = np.concatenate(pred_parts) if pred_parts else np.empty((0,), dtype=float)
+            pooled_gt, pooled_pred = self._pool(entries)
             return self._compute_hota(pooled_gt, pooled_pred)
 
         if sequence not in self.accumulators:
@@ -137,7 +125,46 @@ class HOTAMetrics:
         gt, pred = self.accumulators[sequence]
         return self._compute_hota(gt, pred)
 
-    def log_failed_sequence(self, sequence_name: str, gt, pred, exc: Exception = None) -> None:
+    @staticmethod
+    def _pool(entries: list) -> tuple:
+        """Pool raw (gt, pred) arrays across sequences.
+
+        Counts are aggregated before computing metrics (MOT standard), rather
+        than averaging per-sequence results which biases toward sequences with
+        fewer objects. Frame and track IDs are offset per sequence to prevent
+        collisions across the concatenated arrays.
+        """
+        gt_parts, pred_parts = [], []
+        frame_off = gt_off = pred_off = 0
+        for gt, pred in entries:
+            max_frame = max(
+                int(gt[:, 0].max()) if len(gt) > 0 else 0,
+                int(pred[:, 0].max()) if len(pred) > 0 else 0,
+            )
+            if len(gt) > 0:
+                g = gt.copy()
+                g[:, 0] += frame_off
+                g[:, 1] += gt_off
+                gt_parts.append(g)
+                gt_off += int(gt[:, 1].max()) + 1
+            if len(pred) > 0:
+                p = pred.copy()
+                p[:, 0] += frame_off
+                p[:, 1] += pred_off
+                pred_parts.append(p)
+                pred_off += int(pred[:, 1].max()) + 1
+            frame_off += max_frame + 1
+        pooled_gt = (
+            np.concatenate(gt_parts) if gt_parts else np.empty((0,), dtype=float)
+        )
+        pooled_pred = (
+            np.concatenate(pred_parts) if pred_parts else np.empty((0,), dtype=float)
+        )
+        return pooled_gt, pooled_pred
+
+    def log_failed_sequence(
+        self, sequence_name: str, gt, pred, exc: Exception = None
+    ) -> None:
         if len(gt) == 0 and len(pred) == 0:
             reason = "No ground truth and no predictions"
         elif len(gt) == 0:
@@ -189,7 +216,7 @@ class HOTAMetrics:
         hota_vals, deta_vals, assa_vals, loca_vals = [], [], [], []
 
         for alpha in self.iou_thresholds:
-            tp_list = []   # (gt_id, pred_id, iou)
+            tp_list = []  # (gt_id, pred_id, iou)
             n_fp = 0
             n_fn = 0
 
@@ -222,9 +249,8 @@ class HOTAMetrics:
                     pair_counts[(g, p)] += 1
 
                 ass_sum = sum(
-                    pair_counts[(g, p)] / (
-                        gt_track_frames[g] + pred_track_frames[p] - pair_counts[(g, p)]
-                    )
+                    pair_counts[(g, p)]
+                    / (gt_track_frames[g] + pred_track_frames[p] - pair_counts[(g, p)])
                     for g, p, _ in tp_list
                 )
                 assa = ass_sum / n_tp

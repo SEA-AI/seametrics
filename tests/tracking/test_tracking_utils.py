@@ -228,8 +228,10 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
     class _HotaResults:
         accumulators: ClassVar = {"seq-1": None}
 
-        def compute(self, sequence):
-            assert sequence == "seq-1"
+        def compute(self, sequence=None):
+            # str (per-seq), list (pooled), and None all accepted; the single-seq
+            # fake returns the same flat scalars for each.
+            assert sequence in ("seq-1", ["seq-1"], None)
             return {
                 "hota": 0.5,
                 "deta": 0.75,
@@ -243,11 +245,24 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
     assert hota_df.loc[0, "deta"] == 75
     assert hota_df.loc[0, "num_unique_objects"] == 2
     assert hota_df.loc[0, "sequence"] == "seq-1"
+    # A pooled OVERALL row is appended.
+    overall = hota_df[hota_df["sequence"] == utils.OVERALL_LABEL]
+    assert len(overall) == 1
+    assert overall.iloc[0]["hota"] == 50
 
     class _TrackingResults:
         accumulators: ClassVar = {"seq-1": None}
 
-        def compute(self, sequence):
+        def compute(self, sequence=None):
+            # Pooled calls (list/None) carry an explicit OVERALL entry whose
+            # values differ from the per-sequence ones, so the test can confirm
+            # results_to_df reads the OVERALL key for the pooled row.
+            if sequence is None or isinstance(sequence, (list, tuple)):
+                return {
+                    "mota": {"seq-1": 0.25, "OVERALL": 0.30},
+                    "motp": {"seq-1": 0.2, "OVERALL": 0.1},
+                    "idf1": {"seq-1": 0.8, "OVERALL": 0.9},
+                }
             assert sequence == "seq-1"
             return {
                 "mota": {"seq-1": 0.25},
@@ -259,6 +274,12 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
     assert tracking_df.loc[0, "mota"] == 25
     assert tracking_df.loc[0, "motp"] == 80
     assert tracking_df.loc[0, "idf1"] == pytest.approx(0.8)
+    # The pooled OVERALL row uses the OVERALL entry (mota 0.30 -> 30, idf1 0.9).
+    overall = tracking_df[tracking_df["sequence"] == utils.OVERALL_LABEL]
+    assert len(overall) == 1
+    assert overall.iloc[0]["mota"] == pytest.approx(30)
+    assert overall.iloc[0]["motp"] == pytest.approx(90)  # (1 - 0.1) * 100
+    assert overall.iloc[0]["idf1"] == pytest.approx(0.9)
 
 
 # ---------------------------------------------------------------------------
