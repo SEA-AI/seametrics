@@ -151,9 +151,7 @@ class HOTAMetrics:
         if not names:
             return {}
 
-        per_seq = {
-            name: self._compute_hota(*self.accumulators[name]) for name in names
-        }
+        per_seq = {name: self._compute_hota(*self.accumulators[name]) for name in names}
         pooled_gt, pooled_pred = self._pool([self.accumulators[n] for n in names])
         overall = self._compute_hota(pooled_gt, pooled_pred)
         return {
@@ -272,7 +270,9 @@ class HOTAMetrics:
             )
             for alpha in self.iou_thresholds
         ]
-        deta_vals, assa_vals, loca_vals = map(list, zip(*threshold_scores, strict=False))
+        deta_vals, assa_vals, loca_vals = map(
+            list, zip(*threshold_scores, strict=False)
+        )
         hota_vals = [(d * a) ** 0.5 for d, a, _ in threshold_scores]
         return {
             "hota": float(np.mean(hota_vals)),
