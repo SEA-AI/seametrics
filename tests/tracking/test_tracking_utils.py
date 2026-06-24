@@ -284,9 +284,9 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
 
 def test_results_to_df_rejects_overall_sequence_name():
     class _Metrics:
-        accumulators = {"OVERALL": None, "seq-1": None}
+        accumulators: ClassVar = {"OVERALL": None, "seq-1": None}
 
-        def compute(self, sequence=None):
+        def compute(self, _sequence=None):
             return {}
 
     with pytest.raises(ValueError, match="reserved for pooled results"):
