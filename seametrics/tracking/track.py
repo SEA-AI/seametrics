@@ -49,15 +49,20 @@ class TrackingMetrics:
     def compute(self, sequence: "str | list | None" = None) -> dict:
         """Compute MOT metrics.
 
-        Parameters
-        ----------
-        sequence:
-            - ``None``: pool all stored sequences and generate an ``OVERALL`` row
-              (events are pooled before metrics are computed — MOT standard).
-            - ``str``: compute for that single sequence.
-            - ``list``/``tuple`` of names: pool exactly that subset and generate an
-              ``OVERALL`` row. Pooling is identical to ``None`` over that subset, so
-              the per-sequence rows are unchanged.
+        Args:
+            sequence: Which sequences to evaluate.
+                ``None`` pools all stored sequences and generates an ``OVERALL``
+                row (events are pooled before metrics are computed — MOT
+                standard). A ``str`` computes for that single sequence. A
+                ``list``/``tuple`` of names pools exactly that subset and
+                generates an ``OVERALL`` row; pooling is identical to ``None``
+                over that subset, so per-sequence rows are unchanged.
+
+        Returns:
+            Nested motmetrics result dict from ``summary.to_dict()``.
+
+        Raises:
+            ValueError: If *sequence* names an unknown or duplicate sequence.
         """
         mh = mm.metrics.create()
         if sequence is None or isinstance(sequence, (list, tuple)):

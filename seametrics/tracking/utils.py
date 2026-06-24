@@ -915,7 +915,15 @@ def _flatten_result(result: dict, key: str | None) -> dict:
 
 
 def _compute_table_bundle(metrics: object, sequence_list: list) -> dict:
-    """Return one nested result dict covering every table row."""
+    """Return one nested result dict covering every table row.
+
+    Args:
+        metrics: Fitted ``TrackingMetrics`` or ``HOTAMetrics`` instance.
+        sequence_list: Sequence names to include.
+
+    Returns:
+        Raw nested result from ``compute()`` or ``compute_many()``.
+    """
     layout = getattr(metrics, "RESULT_LAYOUT", "nested")
     if layout == "flat":
         return metrics.compute_many(sequence_list)  # type: ignore[attr-defined]
@@ -935,6 +943,9 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
 
     Returns:
         DataFrame with one row per sequence plus a pooled OVERALL row.
+
+    Raises:
+        ValueError: If *sequence_list* contains the reserved ``OVERALL`` label.
     """
     if sequence_list is None:
         sequence_list = list(metrics.accumulators.keys())  # type: ignore[attr-defined]

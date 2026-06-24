@@ -28,14 +28,10 @@ _MODEL_COLORS = [
 def _h(s: str) -> str:
     """Escape *s* for use in an HTML attribute value or text node.
 
-    Parameters
-    ----------
-    s : str
-        Raw string to escape.
+    Args:
+        s: Raw string to escape.
 
     Returns:
-    -------
-    str
         HTML-escaped string.
     """
     return html.escape(s)
@@ -44,21 +40,24 @@ def _h(s: str) -> str:
 def _js(s: str) -> str:
     """Encode *s* as a JS string literal safe for use inside an HTML attribute.
 
-    Parameters
-    ----------
-    s : str
-        Raw string to encode.
+    Args:
+        s: Raw string to encode.
 
     Returns:
-    -------
-    str
         JSON-serialised and HTML-escaped string.
     """
     return html.escape(json.dumps(s))
 
 
 def _json_for_html_script(value: object) -> str:
-    """Serialize *value* as JSON safe to embed inside a ``<script>`` block."""
+    """Serialize *value* as JSON safe to embed inside a ``<script>`` block.
+
+    Args:
+        value: Python object to JSON-encode.
+
+    Returns:
+        JSON string with ``&``, ``<``, and ``>`` escaped for script embedding.
+    """
     return (
         json.dumps(value)
         .replace("&", "\\u0026")
@@ -70,17 +69,12 @@ def _json_for_html_script(value: object) -> str:
 def _overall_value(df: pd.DataFrame, col: str) -> float:
     """Return the pooled ``OVERALL`` row value for *col*, or NaN if absent.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Per-metric DataFrame with a ``sequence`` column, optionally containing
-        a pooled row labelled :data:`OVERALL_LABEL`.
-    col : str
-        Metric column name.
+    Args:
+        df: Per-metric DataFrame with a ``sequence`` column, optionally
+            containing a pooled row labelled :data:`OVERALL_LABEL`.
+        col: Metric column name.
 
     Returns:
-    -------
-    float
         The pooled value, or NaN when no ``OVERALL`` row is present.
     """
     overall = df.loc[df["sequence"] == OVERALL_LABEL, col]
@@ -96,17 +90,12 @@ def _agg(df: pd.DataFrame, col: str) -> float:
     correct aggregate for metrics like ``hota`` and ``idf1``. When no pooled row
     is present (older callers), it falls back to the per-sequence mean.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Per-metric DataFrame with a ``sequence`` column, optionally containing
-        a pooled row labelled :data:`OVERALL_LABEL`.
-    col : str
-        Metric column name; used to decide the aggregation strategy.
+    Args:
+        df: Per-metric DataFrame with a ``sequence`` column, optionally
+            containing a pooled row labelled :data:`OVERALL_LABEL`.
+        col: Metric column name; used to decide the aggregation strategy.
 
     Returns:
-    -------
-    float
         Sum for count-based metrics, pooled ``OVERALL`` value for ratio metrics.
     """
     per_seq = df.loc[df["sequence"] != OVERALL_LABEL, col]
@@ -117,12 +106,28 @@ def _agg(df: pd.DataFrame, col: str) -> float:
 
 
 def _round_or_none(val: float) -> float | None:
-    """Round *val* to two decimal places, or return ``None`` if it is NaN."""
+    """Round *val* to two decimal places, or return ``None`` if it is NaN.
+
+    Args:
+        val: Metric value (may be NaN).
+
+    Returns:
+        Rounded float, or ``None`` when *val* is NaN.
+    """
     return round(float(val), 2) if pd.notna(val) else None
 
 
 def _iter_pf_mn_col(pred_fields: list, metric_names: list, metric_cols: dict) -> chain:
-    """Yield ``(pred_field, metric_name, column)`` triples in display order."""
+    """Yield ``(pred_field, metric_name, column)`` triples in display order.
+
+    Args:
+        pred_fields: Ordered prediction field names.
+        metric_names: Ordered metric group names.
+        metric_cols: Mapping from metric group to column names.
+
+    Returns:
+        Iterator of ``(pred_field, metric_name, column)`` tuples.
+    """
     return chain.from_iterable(
         product([pf], [mn], metric_cols[mn])
         for pf in pred_fields
@@ -131,7 +136,15 @@ def _iter_pf_mn_col(pred_fields: list, metric_names: list, metric_cols: dict) ->
 
 
 def _iter_mn_col(metric_names: list, metric_cols: dict) -> chain:
-    """Yield ``(metric_name, column)`` pairs in display order."""
+    """Yield ``(metric_name, column)`` pairs in display order.
+
+    Args:
+        metric_names: Ordered metric group names.
+        metric_cols: Mapping from metric group to column names.
+
+    Returns:
+        Iterator of ``(metric_name, column)`` tuples.
+    """
     return chain.from_iterable(product([mn], metric_cols[mn]) for mn in metric_names)
 
 
@@ -141,7 +154,17 @@ def _summary_values(
     metric_cols: dict,
     dfs: dict,
 ) -> dict[tuple[str, str, str], float | None]:
-    """Compute pooled summary values once for table and chart consumers."""
+    """Compute pooled summary values once for table and chart consumers.
+
+    Args:
+        pred_fields: Ordered prediction field names.
+        metric_names: Ordered metric group names.
+        metric_cols: Mapping from metric group to column names.
+        dfs: Nested data dict ``{pred_field: {metric_name: df}}``.
+
+    Returns:
+        Mapping ``(pred_field, metric_name, column) -> summary value``.
+    """
     return {
         (pf, mn, col): _round_or_none(_agg(dfs[pf][mn], col))
         for pf, mn, col in _iter_pf_mn_col(pred_fields, metric_names, metric_cols)
@@ -156,7 +179,11 @@ def _sortable_headers(
     pf_idx: dict,
     n_regular_cols: int,
 ) -> str:
-    """Build sortable column header cells."""
+    """Build sortable column header cells.
+
+    Returns:
+        HTML ``<th>`` elements for the third header row.
+    """
     headers = "".join(
         f'<th class="sortable" data-label="{_h(col)}" data-pf="{pf_idx[pf]}"'
         f' onclick="sortTable({i + 1})" title="Sort by {_h(col)}">{_h(col)}</th>'
@@ -181,7 +208,11 @@ def _sequence_rows(
     show_diff: bool,
     pf_idx: dict,
 ) -> str:
-    """Build per-sequence table body rows."""
+    """Build per-sequence table body rows.
+
+    Returns:
+        HTML ``<tr>`` elements for each sequence.
+    """
     return "".join(
         "<tr><td>"
         + _h(seq)
@@ -214,7 +245,11 @@ def _summary_cells(
     show_diff: bool,
     pf_idx: dict,
 ) -> str:
-    """Build summary-row metric cells."""
+    """Build summary-row metric cells.
+
+    Returns:
+        HTML ``<td>`` elements for the OVERALL / SUM row.
+    """
     cells = "".join(
         f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
         f"{_fmt_cell(val) if (val := summary[pf, mn, col]) is not None else ''}</td>"
@@ -232,7 +267,11 @@ def _summary_cells(
 def _pred_field_headers(
     pred_fields: list, n_cols_per_model: int, pf_idx: dict, *, show_diff: bool
 ) -> str:
-    """Build top-row model name headers."""
+    """Build top-row model name headers.
+
+    Returns:
+        HTML ``<th>`` elements spanning each model's columns.
+    """
     headers = "".join(
         f'<th colspan="{n_cols_per_model}" data-pf="{pf_idx[pf]}"'
         f' style="border-left:2px solid #e94560;">{_h(pf)}</th>'
@@ -255,7 +294,11 @@ def _metric_name_headers(
     *,
     show_diff: bool,
 ) -> str:
-    """Build second-row metric group headers."""
+    """Build second-row metric group headers.
+
+    Returns:
+        HTML ``<th>`` elements spanning each metric group's columns.
+    """
     headers = "".join(
         f'<th colspan="{len(metric_cols[mn])}" data-pf="{pf_idx[pf]}"'
         f' style="border-left:2px solid #0f3460;">'
@@ -276,22 +319,14 @@ def _metric_name_headers(
 def _cell_value(dfs: dict, pf: str, mn: str, col: str, seq: str) -> float:
     """Look up a single metric value from the nested data dict.
 
-    Parameters
-    ----------
-    dfs : dict
-        Nested data dict: ``{pred_field: {metric_name: df}}``.
-    pf : str
-        Prediction field name (model identifier).
-    mn : str
-        Metric group name (e.g. ``"TrackingMetrics"``).
-    col : str
-        Metric column name.
-    seq : str
-        Sequence name.
+    Args:
+        dfs: Nested data dict ``{pred_field: {metric_name: df}}``.
+        pf: Prediction field name (model identifier).
+        mn: Metric group name (e.g. ``"TrackingMetrics"``).
+        col: Metric column name.
+        seq: Sequence name.
 
     Returns:
-    -------
-    float
         Metric value, or NaN if the sequence is absent from the DataFrame.
     """
     return dfs[pf][mn].set_index("sequence").reindex([seq]).iloc[0][col]
@@ -300,14 +335,10 @@ def _cell_value(dfs: dict, pf: str, mn: str, col: str, seq: str) -> float:
 def _fmt_cell(val: float) -> str:
     """Format a metric value for display in a table cell.
 
-    Parameters
-    ----------
-    val : float
-        Metric value (may be NaN).
+    Args:
+        val: Metric value (may be NaN).
 
     Returns:
-    -------
-    str
         Empty string for NaN values; ``"{val:.2f}"`` otherwise.
     """
     return "" if pd.isna(val) else f"{val:.2f}"
@@ -316,16 +347,11 @@ def _fmt_cell(val: float) -> str:
 def _build_diff_controls(pred_fields: list, show_diff: bool) -> str:
     """Build the diff model-selector HTML, or return empty string.
 
-    Parameters
-    ----------
-    pred_fields : list
-        Ordered list of prediction field names.
-    show_diff : bool
-        When ``False`` the function returns an empty string immediately.
+    Args:
+        pred_fields: Ordered list of prediction field names.
+        show_diff: When ``False``, returns an empty string immediately.
 
     Returns:
-    -------
-    str
         HTML ``<div>`` containing two ``<select>`` elements, or ``""``.
     """
     if not show_diff:
@@ -348,7 +374,12 @@ def _build_diff_controls(pred_fields: list, show_diff: bool) -> str:
 
 
 def _table_layout(pred_fields: list, metric_names: list, metric_cols: dict) -> dict:
-    """Pre-compute table iteration order and diff-column flags."""
+    """Pre-compute table iteration order and diff-column flags.
+
+    Returns:
+        Layout dict with ``show_diff``, ``pf_idx``, ``n_cols_per_model``,
+        ``pf_mn_col``, and ``mn_col`` keys.
+    """
     return {
         "show_diff": len(pred_fields) >= 2,  # noqa: PLR2004
         "pf_idx": {pf: i for i, pf in enumerate(pred_fields)},
@@ -368,7 +399,11 @@ def _assemble_html_table(
     metric_names: list,
     metric_cols: dict,
 ) -> str:
-    """Assemble the full ``<table>`` HTML string from pre-computed layout values."""
+    """Assemble the full ``<table>`` HTML string from pre-computed layout values.
+
+    Returns:
+        Complete HTML table including diff controls and summary row.
+    """
     pf_mn_col = layout["pf_mn_col"]
     mn_col = layout["mn_col"]
     pf_idx = layout["pf_idx"]
@@ -420,7 +455,11 @@ def _build_chart_section(
     summary: dict[tuple[str, str, str], float | None],
     color_map: dict,
 ) -> tuple[dict, str, str, str]:
-    """Build the chart-data dict, model checkboxes, tab buttons, and chart grids."""
+    """Build the chart-data dict, model checkboxes, tab buttons, and chart grids.
+
+    Returns:
+        Tuple of ``(chart_data, checkboxes_html, tab_buttons, chart_grids)``.
+    """
     chart_data = {
         mn: {
             col: {pf: summary[pf, mn, col] for pf in pred_fields}
@@ -468,7 +507,11 @@ def _overall_data_from_summary(
     metric_names: list,
     metric_cols: dict,
 ) -> dict:
-    """Re-nest flat summary values for client-side diff computation."""
+    """Re-nest flat summary values for client-side diff computation.
+
+    Returns:
+        Nested dict ``{pred_field: {metric_name: {column: value}}}``.
+    """
     return {
         pf: {
             mn: {col: summary[pf, mn, col] for col in metric_cols[mn]}
@@ -488,7 +531,11 @@ def _build_table_html(
     summary: dict[tuple[str, str, str], float | None],
     layout: dict,
 ) -> tuple[dict, str]:
-    """Build the per-sequence table data dict and HTML table string."""
+    """Build the per-sequence table data dict and HTML table string.
+
+    Returns:
+        Tuple of ``(table_data, table_html)``.
+    """
     table_data = {
         pf: {
             mn: {
@@ -515,7 +562,15 @@ def _build_table_html(
 
 
 def _comparison_sections(dfs: dict) -> dict:
-    """Compute every HTML fragment and JSON payload for the comparison report."""
+    """Compute every HTML fragment and JSON payload for the comparison report.
+
+    Args:
+        dfs: Nested dict
+            ``{pred_field: {"TrackingMetrics": df, "HOTAMetrics": df}}``.
+
+    Returns:
+        Dict of pre-rendered HTML fragments and JSON-serialisable payloads.
+    """
     pred_fields = list(dfs.keys())
     metric_names = list(next(iter(dfs.values())).keys())
     sequences = sorted(
@@ -570,21 +625,16 @@ def _comparison_sections(dfs: dict) -> dict:
 def build_comparison_html(dfs: dict) -> str:
     """Build an interactive HTML report with bar charts and a comparison table.
 
-    Parameters
-    ----------
-    dfs : dict
-        Nested dict: ``{pred_field: {"TrackingMetrics": df, "HOTAMetrics": df}}``.
-        Each DataFrame has a ``sequence`` column plus numeric metric columns.
+    Args:
+        dfs: Nested dict
+            ``{pred_field: {"TrackingMetrics": df, "HOTAMetrics": df}}``.
+            Each DataFrame has a ``sequence`` column plus numeric metric columns.
 
     Returns:
-    -------
-    str
         Fully rendered HTML document as a string.
 
     Raises:
-    ------
-    ValueError
-        If *dfs* is empty.
+        ValueError: If *dfs* is empty.
     """
     if not dfs:
         raise ValueError("dfs must contain at least one element")

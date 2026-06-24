@@ -98,22 +98,23 @@ class HOTAMetrics:
     def compute(self, sequence: "str | list | None" = None) -> dict:
         """Compute HOTA metrics.
 
-        Parameters
-        ----------
-        sequence:
-            - ``None``: pool all stored sequences (standard MOT benchmark
-              convention).
-            - ``str``: compute for that single sequence.
-            - ``list``/``tuple`` of names: pool exactly that subset. Pooling is
-              identical to ``None`` over that subset, so single-sequence results
-              are unchanged.
+        Args:
+            sequence: Which sequences to evaluate.
+                ``None`` pools all stored sequences (standard MOT benchmark
+                convention). A ``str`` computes for that single sequence. A
+                ``list``/``tuple`` of names pools exactly that subset; pooling
+                is identical to ``None`` over that subset, so single-sequence
+                results are unchanged.
 
         Returns:
-        -------
-        dict with keys: hota, deta, assa, loca  (values in [0, 1]) and
-        num_unique_objects (integer count of distinct GT track IDs).
-        When sequence is None or a list, TP/FP/FN/association counts are pooled
-        across the selected sequences before computing metrics (MOT standard).
+            Dict with keys ``hota``, ``deta``, ``assa``, ``loca`` (values in
+            ``[0, 1]``) and ``num_unique_objects`` (distinct GT track IDs).
+            When *sequence* is ``None`` or a list, TP/FP/FN/association counts
+            are pooled across the selected sequences before computing metrics
+            (MOT standard).
+
+        Raises:
+            KeyError: If *sequence* names an unknown or duplicate sequence.
         """
         if sequence is None or isinstance(sequence, (list, tuple)):
             if sequence is None:
@@ -141,6 +142,16 @@ class HOTAMetrics:
 
         Per-sequence and pooled results are produced in one call so table
         exporters avoid N+1 ``compute()`` invocations.
+
+        Args:
+            names: Sequence names to include in per-sequence and pooled rows.
+
+        Returns:
+            Nested dict mapping each metric to per-sequence values plus a
+            pooled ``OVERALL`` entry.
+
+        Raises:
+            KeyError: If *names* contains unknown or duplicate sequence names.
         """
         duplicates = sorted(n for n, c in Counter(names).items() if c > 1)
         if duplicates:
@@ -170,6 +181,12 @@ class HOTAMetrics:
         than averaging per-sequence results which biases toward sequences with
         fewer objects. Frame and track IDs are offset per sequence to prevent
         collisions across the concatenated arrays.
+
+        Args:
+            entries: List of ``(gt, pred)`` array pairs, one per sequence.
+
+        Returns:
+            Tuple of pooled ``(gt, pred)`` arrays.
         """
         gt_parts, pred_parts = [], []
         frame_off = gt_off = pred_off = 0
