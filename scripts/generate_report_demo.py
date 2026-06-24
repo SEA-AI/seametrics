@@ -5,13 +5,12 @@ Usage:
     python scripts/generate_report_demo.py before  output.html   # develop behaviour
     python scripts/generate_report_demo.py after   output.html   # this branch
 
-Scenario (hand-built MOT arrays, same as test_hota pooling tests):
-  - seq_short: 2 frames, 1 object, prediction matches GT on both frames
-  - seq_long:  2 frames, 1 object
-      model_a: perfect tracking
-      model_b: misses the object in frame 2
+Scenario:
+  seq_easy — 1 object, 3 frames, tracked perfectly.
+  seq_hard — 5 objects × 5 frames; predictions only appear in frame 1 (rest missed).
 
-Per-sequence HOTA for model_b is 100% then 50%. Pooled HOTA is ~79% (not 75% mean).
+For model_b the per-sequence HOTA mean (~60%) looks tolerable, but the pooled
+dataset score (~38%) reflects that most object-frame associations fail.
 """
 
 from __future__ import annotations
@@ -30,27 +29,40 @@ from seametrics.tracking.utils import OVERALL_LABEL, results_to_df
 if TYPE_CHECKING:
     import pandas as pd
 
-_SEQS = ("seq_short", "seq_long")
+_SEQS = ("seq_easy", "seq_hard")
 _EXPECTED_ARGC = 3  # script name + variant + output path
 
 
-def _det(frame: int, obj_id: int, *box: int) -> list:
-    return [frame, obj_id, *box]
+def _det(
+    frame: int, obj_id: int, x1: int = 0, y1: int = 0, x2: int = 10, y2: int = 10
+) -> list:
+    return [frame, obj_id, x1, y1, x2, y2]
 
 
 def _array(*rows: list) -> np.ndarray:
-    return np.array(rows, dtype=float)
+    return np.array(rows, dtype=float) if rows else np.empty((0, 6))
 
 
-def _perfect_track() -> tuple[np.ndarray, np.ndarray]:
-    gt = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 0, 0, 10, 10))
+def _seq_easy_perfect() -> tuple[np.ndarray, np.ndarray]:
+    """One object, three frames, flawless tracking."""
+    gt = _array(_det(1, 1), _det(2, 1), _det(3, 1))
     return gt, gt.copy()
 
 
-def _one_frame_miss() -> tuple[np.ndarray, np.ndarray]:
-    gt = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 0, 0, 10, 10))
-    pred = _array(_det(1, 1, 0, 0, 10, 10))
+def _seq_hard_many_poor() -> tuple[np.ndarray, np.ndarray]:
+    """Five objects across five frames; only frame-1 detections (rest are misses)."""
+    gt = _array(
+        *[_det(frame, obj_id) for obj_id in range(1, 6) for frame in range(1, 6)]
+    )
+    pred = _array(*[_det(1, obj_id) for obj_id in range(1, 6)])
     return gt, pred
+
+
+def _seq_hard_perfect() -> tuple[np.ndarray, np.ndarray]:
+    gt = _array(
+        *[_det(frame, obj_id) for obj_id in range(1, 6) for frame in range(1, 6)]
+    )
+    return gt, gt.copy()
 
 
 def _model_metrics(
@@ -70,10 +82,10 @@ def _model_metrics(
 def demo_dfs(*, variant: str) -> dict:
     """Nested dfs from real metrics; ``before`` omits the pooled OVERALL row."""
     model_a = _model_metrics(
-        {"seq_short": _perfect_track(), "seq_long": _perfect_track()}
+        {"seq_easy": _seq_easy_perfect(), "seq_hard": _seq_hard_perfect()}
     )
     model_b = _model_metrics(
-        {"seq_short": _perfect_track(), "seq_long": _one_frame_miss()}
+        {"seq_easy": _seq_easy_perfect(), "seq_hard": _seq_hard_many_poor()}
     )
     dfs = {"model_a": model_a, "model_b": model_b}
     if variant == "before":
