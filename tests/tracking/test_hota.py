@@ -245,3 +245,11 @@ class TestHOTASubsetPooling:
         # A duplicate name would pool the same accumulator twice and skew scores.
         with pytest.raises(KeyError, match="Duplicate sequence"):
             self.m.compute(["A", "A"])
+
+    def test_compute_many_matches_single_calls(self):
+        bundle = self.m.compute_many(["A", "B"])
+        assert bundle["hota"]["A"] == pytest.approx(self.m.compute("A")["hota"])
+        assert bundle["hota"]["B"] == pytest.approx(self.m.compute("B")["hota"])
+        assert bundle["hota"]["OVERALL"] == pytest.approx(
+            self.m.compute(["A", "B"])["hota"]
+        )

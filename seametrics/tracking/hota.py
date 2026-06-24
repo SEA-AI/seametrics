@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .utils import failed_sequence_reason
+from .utils import OVERALL_LABEL, failed_sequence_reason
 
 _HOTA_THRESHOLDS = np.arange(0.05, 0.95 + 1e-9, 0.05)  # 19 values: 0.05 … 0.95
 
@@ -76,6 +76,9 @@ class HOTAMetrics:
         [frame_id, obj_id, x1, y1, x2, y2, confidence, ...]
     """
 
+    #: ``compute(str)`` returns flat scalars; use :meth:`compute_many` for tables.
+    RESULT_LAYOUT = "flat"
+
     def __init__(self, **kwargs: object) -> None:
         """Initialise empty accumulators; extra kwargs are set as attributes."""
         self.accumulators: dict = {}  # sequence_name -> (gt_array, pred_array)
@@ -132,6 +135,34 @@ class HOTAMetrics:
             raise KeyError(f"Unknown sequence: {sequence}")
         gt, pred = self.accumulators[sequence]
         return self._compute_hota(gt, pred)
+
+    def compute_many(self, names: list) -> dict:
+        """Return motmetrics-style ``{metric: {seq: val, OVERALL: val}}``.
+
+        Per-sequence and pooled results are produced in one call so table
+        exporters avoid N+1 ``compute()`` invocations.
+        """
+        duplicates = sorted(n for n, c in Counter(names).items() if c > 1)
+        if duplicates:
+            raise KeyError(f"Duplicate sequence: {duplicates}")
+        unknown = [n for n in names if n not in self.accumulators]
+        if unknown:
+            raise KeyError(f"Unknown sequence: {unknown}")
+        if not names:
+            return {}
+
+        per_seq = {
+            name: self._compute_hota(*self.accumulators[name]) for name in names
+        }
+        pooled_gt, pooled_pred = self._pool([self.accumulators[n] for n in names])
+        overall = self._compute_hota(pooled_gt, pooled_pred)
+        return {
+            metric: {
+                **{name: per_seq[name][metric] for name in names},
+                OVERALL_LABEL: overall[metric],
+            }
+            for metric in overall
+        }
 
     @staticmethod
     def _pool(entries: list) -> tuple:
@@ -233,16 +264,16 @@ class HOTAMetrics:
         self, frame_cache: list, gt_track_frames: dict, pred_track_frames: dict
     ) -> dict:
         """Average DetA/AssA/LoCA/HOTA over every IoU threshold."""
-        deta_vals, assa_vals, loca_vals, hota_vals = [], [], [], []
-        for alpha in self.iou_thresholds:
-            tp_list, n_fp, n_fn = self._match_frames(frame_cache, alpha)
-            deta, assa, loca = self._scores_at_alpha(
-                tp_list, n_fp, n_fn, gt_track_frames, pred_track_frames
+        threshold_scores = [
+            self._scores_at_alpha(
+                *self._match_frames(frame_cache, alpha),
+                gt_track_frames,
+                pred_track_frames,
             )
-            deta_vals.append(deta)
-            assa_vals.append(assa)
-            loca_vals.append(loca)
-            hota_vals.append((deta * assa) ** 0.5)
+            for alpha in self.iou_thresholds
+        ]
+        deta_vals, assa_vals, loca_vals = map(list, zip(*threshold_scores, strict=False))
+        hota_vals = [(d * a) ** 0.5 for d, a, _ in threshold_scores]
         return {
             "hota": float(np.mean(hota_vals)),
             "deta": float(np.mean(deta_vals)),

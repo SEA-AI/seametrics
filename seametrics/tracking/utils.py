@@ -864,7 +864,7 @@ def get_sequence_info(
     return sequence_info
 
 
-def _scale_metric_row(flat_result: dict) -> dict:
+def _scale_metric_row(flat_result: dict, *, layout: str) -> dict:
     """Apply metric-specific scaling to a flat ``{metric: scalar}`` result.
 
     TrackingMetrics: ``mota`` is scaled x100 and ``motp`` is converted to
@@ -874,11 +874,12 @@ def _scale_metric_row(flat_result: dict) -> dict:
 
     Args:
         flat_result: Mapping from metric name to a single scalar value.
+        layout: ``"flat"`` for HOTA-style results, ``"nested"`` for MOT.
 
     Returns:
         New dict with scaling applied.
     """
-    if "hota" in flat_result:
+    if layout == "flat":
         return {
             k: (v if k == "num_unique_objects" else v * 100)
             for k, v in flat_result.items()
@@ -892,33 +893,41 @@ def _scale_metric_row(flat_result: dict) -> dict:
 def _flatten_result(result: dict, key: str | None) -> dict:
     """Flatten a ``compute()`` result to a flat ``{metric: scalar}`` mapping.
 
-    HOTAMetrics already returns flat scalars. TrackingMetrics returns
-    ``{metric: {name: scalar}}`` (a ``motmetrics`` summary): *key* selects which
-    inner entry to take — ``OVERALL_LABEL`` for the pooled row, or ``None`` to
-    take the only entry of a single-sequence result.
+    Nested motmetrics-style results (TrackingMetrics and HOTA ``compute_many``)
+    map *key* to each metric's inner entry — ``OVERALL_LABEL`` for the pooled
+    row, or a sequence name for a per-sequence row. Flat HOTA single-sequence
+    results are returned unchanged.
 
     Args:
-        result: Raw dict returned by ``metrics.compute(...)``.
-        key: Inner key to select for TrackingMetrics results, or ``None``.
+        result: Raw dict returned by ``metrics.compute(...)`` or
+            ``metrics.compute_many(...)``.
+        key: Inner key to select for nested results, or ``None`` for flat.
 
     Returns:
         Flat ``{metric: scalar}`` dict.
     """
-    if "hota" in result:
-        return result
     if key is None:
-        return {k: next(iter(v.values())) for k, v in result.items()}
+        sample = next(iter(result.values()))
+        if isinstance(sample, dict):
+            return {k: next(iter(v.values())) for k, v in result.items()}
+        return result
     return {k: v[key] for k, v in result.items()}
+
+
+def _compute_table_bundle(metrics: object, sequence_list: list) -> dict:
+    """Return one nested result dict covering every table row."""
+    layout = getattr(metrics, "RESULT_LAYOUT", "nested")
+    if layout == "flat":
+        return metrics.compute_many(sequence_list)  # type: ignore[attr-defined]
+    return metrics.compute(sequence=sequence_list)  # type: ignore[attr-defined]
 
 
 def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.DataFrame:
     """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
 
-    For TrackingMetrics, one ``compute(sequence_list)`` call returns all
-    per-sequence rows and the OVERALL row. For HOTAMetrics, per-sequence calls
-    are issued individually (HOTA pools internally; no per-sequence breakdown
-    from a list call). Appends a pooled OVERALL row — the MOT-standard
-    dataset-level score, not a mean of per-sequence values.
+    One batched ``compute()`` / ``compute_many()`` call returns all per-sequence
+    rows and the pooled OVERALL row. Appends a pooled OVERALL row — the
+    MOT-standard dataset-level score, not a mean of per-sequence values.
 
     Args:
         metrics: Fitted metric instance with ``accumulators`` and ``compute()``.
@@ -933,27 +942,18 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
     if not sequence_list:
         return pd.DataFrame()
 
-    overall = metrics.compute(sequence=sequence_list)  # type: ignore[attr-defined]
+    layout = getattr(metrics, "RESULT_LAYOUT", "nested")
+    bundle = _compute_table_bundle(metrics, sequence_list)
     rows = []
-
-    if "hota" not in overall:
-        for sequence in sequence_list:
-            row = _scale_metric_row(_flatten_result(overall, key=sequence))
-            row["sequence"] = sequence
-            rows.append(row)
-        row = _scale_metric_row(_flatten_result(overall, key=OVERALL_LABEL))
-        row["sequence"] = OVERALL_LABEL
+    for sequence in sequence_list:
+        row = _scale_metric_row(_flatten_result(bundle, key=sequence), layout=layout)
+        row["sequence"] = sequence
         rows.append(row)
-    else:
-        for sequence in sequence_list:
-            result = metrics.compute(sequence=sequence)  # type: ignore[attr-defined]
-            row = _scale_metric_row(_flatten_result(result, key=None))
-            row["sequence"] = sequence
-            rows.append(row)
-        if overall:
-            row = _scale_metric_row(_flatten_result(overall, key=None))
-            row["sequence"] = OVERALL_LABEL
-            rows.append(row)
+    row = _scale_metric_row(
+        _flatten_result(bundle, key=OVERALL_LABEL), layout=layout
+    )
+    row["sequence"] = OVERALL_LABEL
+    rows.append(row)
 
     return pd.DataFrame(rows)
 
