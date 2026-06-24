@@ -18,20 +18,24 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
 from seametrics.tracking.hota import HOTAMetrics
 from seametrics.tracking.report import build_comparison_html
 from seametrics.tracking.track import TrackingMetrics
 from seametrics.tracking.utils import OVERALL_LABEL, results_to_df
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 _SEQS = ("seq_short", "seq_long")
+_EXPECTED_ARGC = 3  # script name + variant + output path
 
 
-def _det(frame: int, obj_id: int, x1: int, y1: int, x2: int, y2: int) -> list:
-    return [frame, obj_id, x1, y1, x2, y2]
+def _det(frame: int, obj_id: int, *box: int) -> list:
+    return [frame, obj_id, *box]
 
 
 def _array(*rows: list) -> np.ndarray:
@@ -84,12 +88,15 @@ def demo_dfs(*, variant: str) -> dict:
 
 
 def main() -> None:
-    if len(sys.argv) != 3 or sys.argv[1] not in {"before", "after"}:
+    """Parse CLI args and write the demo report to the given path."""
+    if len(sys.argv) != _EXPECTED_ARGC or sys.argv[1] not in {"before", "after"}:
         raise SystemExit(f"Usage: {sys.argv[0]} before|after OUTPUT.html")
 
     variant, out_path = sys.argv[1], Path(sys.argv[2])
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(build_comparison_html(demo_dfs(variant=variant)), encoding="utf-8")
+    out_path.write_text(
+        build_comparison_html(demo_dfs(variant=variant)), encoding="utf-8"
+    )
     print(f"Wrote {variant} demo -> {out_path.resolve()}")
 
 
