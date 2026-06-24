@@ -50,16 +50,9 @@ class TrackingMetrics:
         """Compute MOT metrics.
 
         Args:
-            sequence: Which sequences to evaluate.
-                ``None`` pools all stored sequences and generates an ``OVERALL``
-                row (events are pooled before metrics are computed — MOT
-                standard). A ``str`` computes for that single sequence. A
-                ``list``/``tuple`` of names pools exactly that subset and
-                generates an ``OVERALL`` row; pooling is identical to ``None``
-                over that subset, so per-sequence rows are unchanged.
-
-        Returns:
-            Nested motmetrics result dict from ``summary.to_dict()``.
+            sequence: Which sequences to evaluate. ``None`` pools all stored
+                sequences; a ``str`` computes one sequence; a ``list``/``tuple``
+                pools that subset and adds an ``OVERALL`` row.
 
         Raises:
             ValueError: If *sequence* names an unknown or duplicate sequence.

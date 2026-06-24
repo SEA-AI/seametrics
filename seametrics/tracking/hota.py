@@ -99,19 +99,9 @@ class HOTAMetrics:
         """Compute HOTA metrics.
 
         Args:
-            sequence: Which sequences to evaluate.
-                ``None`` pools all stored sequences (standard MOT benchmark
-                convention). A ``str`` computes for that single sequence. A
-                ``list``/``tuple`` of names pools exactly that subset; pooling
-                is identical to ``None`` over that subset, so single-sequence
-                results are unchanged.
-
-        Returns:
-            Dict with keys ``hota``, ``deta``, ``assa``, ``loca`` (values in
-            ``[0, 1]``) and ``num_unique_objects`` (distinct GT track IDs).
-            When *sequence* is ``None`` or a list, TP/FP/FN/association counts
-            are pooled across the selected sequences before computing metrics
-            (MOT standard).
+            sequence: Which sequences to evaluate. ``None`` pools all stored
+                sequences; a ``str`` computes one sequence; a ``list``/``tuple``
+                pools that subset (same as ``None`` over that subset).
 
         Raises:
             KeyError: If *sequence* names an unknown or duplicate sequence.
@@ -138,17 +128,9 @@ class HOTAMetrics:
         return self._compute_hota(gt, pred)
 
     def compute_many(self, names: list) -> dict:
-        """Return motmetrics-style ``{metric: {seq: val, OVERALL: val}}``.
+        """Return motmetrics-style ``{metric: {seq: val, OVERALL: val}}`` in one call.
 
-        Per-sequence and pooled results are produced in one call so table
-        exporters avoid N+1 ``compute()`` invocations.
-
-        Args:
-            names: Sequence names to include in per-sequence and pooled rows.
-
-        Returns:
-            Nested dict mapping each metric to per-sequence values plus a
-            pooled ``OVERALL`` entry.
+        Per-sequence and pooled results avoid N+1 ``compute()`` in table exporters.
 
         Raises:
             KeyError: If *names* contains unknown or duplicate sequence names.
@@ -181,12 +163,6 @@ class HOTAMetrics:
         than averaging per-sequence results which biases toward sequences with
         fewer objects. Frame and track IDs are offset per sequence to prevent
         collisions across the concatenated arrays.
-
-        Args:
-            entries: List of ``(gt, pred)`` array pairs, one per sequence.
-
-        Returns:
-            Tuple of pooled ``(gt, pred)`` arrays.
         """
         gt_parts, pred_parts = [], []
         frame_off = gt_off = pred_off = 0
