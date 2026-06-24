@@ -949,9 +949,7 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
         row = _scale_metric_row(_flatten_result(bundle, key=sequence), layout=layout)
         row["sequence"] = sequence
         rows.append(row)
-    row = _scale_metric_row(
-        _flatten_result(bundle, key=OVERALL_LABEL), layout=layout
-    )
+    row = _scale_metric_row(_flatten_result(bundle, key=OVERALL_LABEL), layout=layout)
     row["sequence"] = OVERALL_LABEL
     rows.append(row)
 

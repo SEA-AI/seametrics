@@ -111,9 +111,7 @@ def _round_or_none(val: float) -> float | None:
     return round(float(val), 2) if pd.notna(val) else None
 
 
-def _iter_pf_mn_col(
-    pred_fields: list, metric_names: list, metric_cols: dict
-) -> chain:
+def _iter_pf_mn_col(pred_fields: list, metric_names: list, metric_cols: dict) -> chain:
     """Yield ``(pred_field, metric_name, column)`` triples in display order."""
     return chain.from_iterable(
         product([pf], [mn], metric_cols[mn])
@@ -124,9 +122,7 @@ def _iter_pf_mn_col(
 
 def _iter_mn_col(metric_names: list, metric_cols: dict) -> chain:
     """Yield ``(metric_name, column)`` pairs in display order."""
-    return chain.from_iterable(
-        product([mn], metric_cols[mn]) for mn in metric_names
-    )
+    return chain.from_iterable(product([mn], metric_cols[mn]) for mn in metric_names)
 
 
 def _summary_values(
@@ -211,7 +207,7 @@ def _summary_cells(
     """Build summary-row metric cells."""
     cells = "".join(
         f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
-        f"{_fmt_cell(val) if (val := summary[(pf, mn, col)]) is not None else ''}</td>"
+        f"{_fmt_cell(val) if (val := summary[pf, mn, col]) is not None else ''}</td>"
         for pf, mn, col in pf_mn_col
     )
     if show_diff:
@@ -341,9 +337,7 @@ def _build_diff_controls(pred_fields: list, show_diff: bool) -> str:
     )
 
 
-def _table_layout(
-    pred_fields: list, metric_names: list, metric_cols: dict
-) -> dict:
+def _table_layout(pred_fields: list, metric_names: list, metric_cols: dict) -> dict:
     """Pre-compute table iteration order and diff-column flags."""
     return {
         "show_diff": len(pred_fields) >= 2,  # noqa: PLR2004
@@ -369,6 +363,12 @@ def _assemble_html_table(
     mn_col = layout["mn_col"]
     pf_idx = layout["pf_idx"]
     show_diff = layout["show_diff"]
+    body_rows = _sequence_rows(
+        sequences, pf_mn_col, mn_col, dfs, show_diff=show_diff, pf_idx=pf_idx
+    )
+    summary_row = _summary_cells(
+        pf_mn_col, mn_col, summary, show_diff=show_diff, pf_idx=pf_idx
+    )
     return (
         _build_diff_controls(pred_fields, show_diff)
         + f"""<table id="seq-table">
@@ -394,11 +394,9 @@ def _assemble_html_table(
         }</tr>
     </thead>
     <tbody>
-      {_sequence_rows(sequences, pf_mn_col, mn_col, dfs, show_diff=show_diff, pf_idx=pf_idx)}
+      {body_rows}
       <tr id="mean-row" style="font-weight:bold;border-top:2px solid #e94560;">
-        <td>OVERALL / SUM</td>{
-            _summary_cells(pf_mn_col, mn_col, summary, show_diff=show_diff, pf_idx=pf_idx)
-        }
+        <td>OVERALL / SUM</td>{summary_row}
       </tr>
     </tbody>
   </table>"""
@@ -415,7 +413,7 @@ def _build_chart_section(
     """Build the chart-data dict, model checkboxes, tab buttons, and chart grids."""
     chart_data = {
         mn: {
-            col: {pf: summary[(pf, mn, col)] for pf in pred_fields}
+            col: {pf: summary[pf, mn, col] for pf in pred_fields}
             for col in metric_cols[mn]
         }
         for mn in metric_names
@@ -463,7 +461,7 @@ def _overall_data_from_summary(
     """Re-nest flat summary values for client-side diff computation."""
     return {
         pf: {
-            mn: {col: summary[(pf, mn, col)] for col in metric_cols[mn]}
+            mn: {col: summary[pf, mn, col] for col in metric_cols[mn]}
             for mn in metric_names
         }
         for pf in pred_fields
