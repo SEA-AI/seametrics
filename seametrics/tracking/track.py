@@ -14,6 +14,9 @@ RATIO_METRICS = ("mota", "motp", "idf1", "idp", "idr", "precision", "recall")
 class TrackingMetrics:
     """MOT metrics wrapper around ``motmetrics`` with per-sequence accumulators."""
 
+    #: ``compute(list)`` returns motmetrics-style ``{metric: {seq: val, …}}``.
+    RESULT_LAYOUT = "nested"
+
     def __init__(self, **kwargs: object) -> None:
         """Initialise accumulators and defaults; extra kwargs become attributes."""
         self.accumulators = {}

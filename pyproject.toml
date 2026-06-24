@@ -83,7 +83,6 @@ jobs = 0
 ignore-paths = ["^tests/.*$", "^docs/.*$", "^build/.*$", "^\\.venv/.*$"]
 max-args = 10
 max-attributes = 10
-max-locals = 20
 max-line-length = 120
 min-similarity-lines = 6
 disable = [

@@ -227,17 +227,16 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
 def test_results_to_df_formats_hota_and_tracking_outputs():
     class _HotaResults:
         accumulators: ClassVar = {"seq-1": None}
+        RESULT_LAYOUT = "flat"
 
-        def compute(self, sequence=None):
-            # str (per-seq), list (pooled), and None all accepted; the single-seq
-            # fake returns the same flat scalars for each.
-            assert sequence in ("seq-1", ["seq-1"], None)
+        def compute_many(self, sequence_list):
+            assert sequence_list == ["seq-1"]
             return {
-                "hota": 0.5,
-                "deta": 0.75,
-                "assa": 0.25,
-                "loca": 1.0,
-                "num_unique_objects": 2,
+                "hota": {"seq-1": 0.5, "OVERALL": 0.5},
+                "deta": {"seq-1": 0.75, "OVERALL": 0.75},
+                "assa": {"seq-1": 0.25, "OVERALL": 0.25},
+                "loca": {"seq-1": 1.0, "OVERALL": 1.0},
+                "num_unique_objects": {"seq-1": 2, "OVERALL": 2},
             }
 
     hota_df = utils.hota_results_to_df(_HotaResults())
@@ -252,6 +251,7 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
 
     class _TrackingResults:
         accumulators: ClassVar = {"seq-1": None}
+        RESULT_LAYOUT = "nested"
 
         def compute(self, sequence=None):
             # Pooled calls (list/None) carry an explicit OVERALL entry whose
