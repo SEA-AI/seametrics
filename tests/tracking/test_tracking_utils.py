@@ -282,6 +282,17 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
     assert overall.iloc[0]["idf1"] == pytest.approx(0.9)
 
 
+def test_results_to_df_rejects_overall_sequence_name():
+    class _Metrics:
+        accumulators = {"OVERALL": None, "seq-1": None}
+
+        def compute(self, sequence=None):
+            return {}
+
+    with pytest.raises(ValueError, match="reserved for pooled results"):
+        utils.results_to_df(_Metrics(), sequence_list=["OVERALL", "seq-1"])
+
+
 # ---------------------------------------------------------------------------
 # prepare_data_for_det_metrics
 # ---------------------------------------------------------------------------

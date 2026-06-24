@@ -57,6 +57,16 @@ def _js(s: str) -> str:
     return html.escape(json.dumps(s))
 
 
+def _json_for_html_script(value: object) -> str:
+    """Serialize *value* as JSON safe to embed inside a ``<script>`` block."""
+    return (
+        json.dumps(value)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+
+
 def _overall_value(df: pd.DataFrame, col: str) -> float:
     """Return the pooled ``OVERALL`` row value for *col*, or NaN if absent.
 
@@ -585,15 +595,15 @@ def build_comparison_html(dfs: dict) -> str:
     )
 
     return (
-        template.replace("__SUM_METRICS__", json.dumps(sorted(_SUM_METRICS)))
-        .replace("__CHART_DATA__", json.dumps(parts["chart_data"]))
-        .replace("__OVERALL_DATA__", json.dumps(parts["overall_data"]))
-        .replace("__TABLE_DATA__", json.dumps(parts["table_data"]))
-        .replace("__METRIC_COLS__", json.dumps(parts["metric_cols"]))
-        .replace("__SEQUENCES__", json.dumps(parts["sequences"]))
-        .replace("__PRED_FIELDS__", json.dumps(parts["pred_fields"]))
-        .replace("__METRIC_NAMES__", json.dumps(parts["metric_names"]))
-        .replace("__COLOR_MAP__", json.dumps(parts["color_map"]))
+        template.replace("__SUM_METRICS__", _json_for_html_script(sorted(_SUM_METRICS)))
+        .replace("__CHART_DATA__", _json_for_html_script(parts["chart_data"]))
+        .replace("__OVERALL_DATA__", _json_for_html_script(parts["overall_data"]))
+        .replace("__TABLE_DATA__", _json_for_html_script(parts["table_data"]))
+        .replace("__METRIC_COLS__", _json_for_html_script(parts["metric_cols"]))
+        .replace("__SEQUENCES__", _json_for_html_script(parts["sequences"]))
+        .replace("__PRED_FIELDS__", _json_for_html_script(parts["pred_fields"]))
+        .replace("__METRIC_NAMES__", _json_for_html_script(parts["metric_names"]))
+        .replace("__COLOR_MAP__", _json_for_html_script(parts["color_map"]))
         .replace("__CHECKBOXES_HTML__", parts["checkboxes_html"])
         .replace("__TAB_BUTTONS__", parts["tab_buttons"])
         .replace("__CHART_GRIDS__", parts["chart_grids"])

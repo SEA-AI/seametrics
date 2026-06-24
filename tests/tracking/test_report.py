@@ -1,6 +1,8 @@
 """Tests for seametrics.tracking.report."""
 
+import json
 import math
+import re
 
 import pandas as pd
 import pytest
@@ -12,6 +14,7 @@ from seametrics.tracking.report import (
     _fmt_cell,
     _h,
     _js,
+    _json_for_html_script,
     _round_or_none,
     build_comparison_html,
 )
@@ -135,6 +138,64 @@ class TestHtmlEscape:
     def test_js_escapes_html_in_json(self):
         result = _js("<script>")
         assert "<script>" not in result
+
+
+class TestJsonForHtmlScript:
+    """Tests for _json_for_html_script."""
+
+    def test_escapes_angle_brackets_for_script_context(self):
+        payload = ["</script><script>alert(1)</script>"]
+        encoded = _json_for_html_script(payload)
+        assert "<" not in encoded
+        assert ">" not in encoded
+        decoded = encoded.replace("\\u003c", "<").replace("\\u003e", ">")
+        assert json.loads(decoded) == payload
+
+
+def _extract_js_const(html: str, name: str) -> object:
+    match = re.search(rf"const {name}\s*=\s*(.+);\n", html)
+    assert match is not None, f"{name} assignment not found"
+    raw = match.group(1)
+    unescaped = (
+        raw.replace("\\u0026", "&").replace("\\u003c", "<").replace("\\u003e", ">")
+    )
+    return json.loads(unescaped)
+
+
+class TestLegacyOverallConsistency:
+    """Regression tests for CodeRabbit overallData vs summary-row consistency."""
+
+    def test_legacy_df_overall_data_matches_summary_row(self):
+        """Without an OVERALL row, JS overallData must use the same mean as _agg."""
+        dfs = {
+            "model_a": {
+                "TrackingMetrics": pd.DataFrame(
+                    {"sequence": ["s1", "s2"], "mota": [60.0, 80.0]}
+                )
+            }
+        }
+        html = build_comparison_html(dfs)
+        assert "70.00" in html
+        overall = _extract_js_const(html, "overallData")
+        assert overall["model_a"]["TrackingMetrics"]["mota"] == pytest.approx(70.0)
+
+    def test_malicious_pred_field_does_not_break_inline_script(self):
+        evil = "</script><script>alert(1)</script>"
+        dfs = {
+            evil: {
+                "TrackingMetrics": pd.DataFrame({"sequence": ["s1"], "mota": [42.0]})
+            },
+            "model_b": {
+                "TrackingMetrics": pd.DataFrame({"sequence": ["s1"], "mota": [10.0]})
+            },
+        }
+        html = build_comparison_html(dfs)
+        inline_script = html.split(
+            'src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels'
+        )[1]
+        assert evil not in inline_script
+        pred_fields = _extract_js_const(html, "predFields")
+        assert evil in pred_fields
 
 
 class TestAgg:

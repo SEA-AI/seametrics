@@ -246,6 +246,10 @@ class TestHOTASubsetPooling:
         with pytest.raises(KeyError, match="Duplicate sequence"):
             self.m.compute(["A", "A"])
 
+    def test_compute_many_duplicate_sequence_raises(self):
+        with pytest.raises(KeyError, match="Duplicate sequence"):
+            self.m.compute_many(["A", "A"])
+
     def test_compute_many_matches_single_calls(self):
         bundle = self.m.compute_many(["A", "B"])
         assert bundle["hota"]["A"] == pytest.approx(self.m.compute("A")["hota"])

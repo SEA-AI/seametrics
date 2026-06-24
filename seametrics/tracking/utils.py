@@ -942,6 +942,9 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
     if not sequence_list:
         return pd.DataFrame()
 
+    if OVERALL_LABEL in sequence_list:
+        raise ValueError(f"{OVERALL_LABEL!r} is reserved for pooled results")
+
     layout = getattr(metrics, "RESULT_LAYOUT", "nested")
     bundle = _compute_table_bundle(metrics, sequence_list)
     rows = []
