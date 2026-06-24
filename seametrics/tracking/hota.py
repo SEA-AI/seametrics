@@ -5,6 +5,8 @@ from collections import defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from .utils import failed_sequence_reason
+
 _HOTA_THRESHOLDS = np.arange(0.05, 0.95 + 1e-9, 0.05)  # 19 values: 0.05 … 0.95
 
 
@@ -178,17 +180,7 @@ class HOTAMetrics:
         exc: "Exception | None" = None,
     ) -> None:
         """Record why *sequence_name* could not be evaluated."""
-        if len(gt) == 0 and len(pred) == 0:
-            reason = "No ground truth and no predictions"
-        elif len(gt) == 0:
-            reason = "No ground truth"
-        elif len(pred) == 0:
-            reason = "No predictions"
-        elif exc is not None:
-            reason = f"{type(exc).__name__}: {exc}"
-        else:
-            reason = "Missing IDs from GT or Pred"
-        self.failed_sequences[sequence_name] = reason
+        self.failed_sequences[sequence_name] = failed_sequence_reason(gt, pred, exc)
 
     # ------------------------------------------------------------------
     # Core computation

@@ -6,19 +6,11 @@ import pathlib
 
 import pandas as pd
 
-from .utils import OVERALL_LABEL
+from .utils import COUNT_METRICS, OVERALL_LABEL
 
-_SUM_METRICS = {
-    "num_frames",
-    "mostly_tracked",
-    "partially_tracked",
-    "mostly_lost",
-    "num_switches",
-    "num_false_positives",
-    "num_misses",
-    "num_fragmentations",
-    "num_unique_objects",
-}
+#: Metrics aggregated by summation in the summary row (count metrics); all other
+#: columns use the pooled OVERALL value. Sourced from a single shared constant.
+_SUM_METRICS = set(COUNT_METRICS)
 
 _DISPLAY_NAME = {"TrackingMetrics": "MOT Metrics", "HOTAMetrics": "HOTA Metrics"}
 

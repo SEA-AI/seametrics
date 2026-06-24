@@ -3,6 +3,11 @@
 import motmetrics as mm
 import numpy as np
 
+from .utils import COUNT_METRICS, failed_sequence_reason
+
+#: Ratio/derived metrics (pooled across sequences), as opposed to COUNT_METRICS.
+RATIO_METRICS = ("mota", "motp", "idf1", "idp", "idr", "precision", "recall")
+
 
 class TrackingMetrics:
     """MOT metrics wrapper around ``motmetrics`` with per-sequence accumulators."""
@@ -11,24 +16,7 @@ class TrackingMetrics:
         """Initialise accumulators and defaults; extra kwargs become attributes."""
         self.accumulators = {}
         self.max_iou = 0.5
-        self.metrics = [
-            "num_frames",
-            "mota",
-            "motp",
-            "idf1",
-            "idp",
-            "idr",
-            "mostly_tracked",
-            "partially_tracked",
-            "mostly_lost",
-            "num_switches",
-            "num_false_positives",
-            "num_misses",
-            "num_fragmentations",
-            "precision",
-            "recall",
-            "num_unique_objects",
-        ]
+        self.metrics = [*RATIO_METRICS, *COUNT_METRICS]
         self.failed_sequences = {}
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -94,17 +82,7 @@ class TrackingMetrics:
         self, sequence_name: str, gt: list, pred: list, exc: "Exception | None" = None
     ) -> None:
         """Record why *sequence_name* could not be evaluated."""
-        if len(gt) == 0 and len(pred) == 0:
-            reason = "No ground truth and no predictions"
-        elif len(gt) == 0:
-            reason = "No ground truth"
-        elif len(pred) == 0:
-            reason = "No predictions"
-        elif exc is not None:
-            reason = f"{type(exc).__name__}: {exc}"
-        else:
-            reason = "Missing IDs from GT or Pred"
-        self.failed_sequences[sequence_name] = reason
+        self.failed_sequences[sequence_name] = failed_sequence_reason(gt, pred, exc)
 
     @staticmethod
     def metrics_help() -> None:

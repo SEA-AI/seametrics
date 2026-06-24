@@ -17,6 +17,51 @@ from ._box_utils import box_convert, box_denormalize
 #: row so MOT and HOTA DataFrames stay consistent.
 OVERALL_LABEL = "OVERALL"
 
+#: Metric names aggregated by summation across sequences (integer counts), as
+#: opposed to ratio/derived metrics which are pooled. Shared so the metric
+#: classes and the report agree on a single source of truth.
+COUNT_METRICS = (
+    "num_frames",
+    "mostly_tracked",
+    "partially_tracked",
+    "mostly_lost",
+    "num_switches",
+    "num_false_positives",
+    "num_misses",
+    "num_fragmentations",
+    "num_unique_objects",
+)
+
+
+def failed_sequence_reason(
+    gt: "np.ndarray | list",
+    pred: "np.ndarray | list",
+    exc: "Exception | None" = None,
+) -> str:
+    """Return a human-readable reason a sequence could not be evaluated.
+
+    Shared by ``TrackingMetrics`` and ``HOTAMetrics`` so their
+    ``log_failed_sequence`` methods stay consistent.
+
+    Args:
+        gt: Ground-truth array/list for the sequence (may be empty).
+        pred: Prediction array/list for the sequence (may be empty).
+        exc: Optional exception raised while processing the sequence.
+
+    Returns:
+        A short explanation string.
+    """
+    if len(gt) == 0 and len(pred) == 0:
+        return "No ground truth and no predictions"
+    if len(gt) == 0:
+        return "No ground truth"
+    if len(pred) == 0:
+        return "No predictions"
+    if exc is not None:
+        return f"{type(exc).__name__}: {exc}"
+    return "Missing IDs from GT or Pred"
+
+
 try:
     import fiftyone as fo
     from fiftyone import ViewField as F
