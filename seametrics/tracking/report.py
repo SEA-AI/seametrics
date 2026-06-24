@@ -205,6 +205,8 @@ def _assemble_html_table(
     show_diff: bool,
     pf_idx: dict,
     n_cols_per_model: int,
+    pf_mn_col: list,
+    mn_col: list,
 ) -> str:
     """Assemble the full ``<table>`` HTML string from pre-computed layout values.
 
@@ -232,13 +234,6 @@ def _assemble_html_table(
     str
         Complete diff-controls + ``<table>`` HTML.
     """
-    pf_mn_col = [
-        (pf, mn, col)
-        for pf in pred_fields
-        for mn in metric_names
-        for col in metric_cols[mn]
-    ]
-    mn_col = [(mn, col) for mn in metric_names for col in metric_cols[mn]]
     n_regular_cols = len(pf_mn_col)
 
     sortable_headers = "".join(
@@ -448,6 +443,13 @@ def _build_table_html(
     show_diff = len(pred_fields) >= 2  # noqa: PLR2004
     pf_idx = {pf: i for i, pf in enumerate(pred_fields)}
     n_cols_per_model = sum(len(metric_cols[mn]) for mn in metric_names)
+    pf_mn_col = [
+        (pf, mn, col)
+        for pf in pred_fields
+        for mn in metric_names
+        for col in metric_cols[mn]
+    ]
+    mn_col = [(mn, col) for mn in metric_names for col in metric_cols[mn]]
     table_html = _assemble_html_table(
         pred_fields,
         metric_names,
@@ -457,6 +459,8 @@ def _build_table_html(
         show_diff=show_diff,
         pf_idx=pf_idx,
         n_cols_per_model=n_cols_per_model,
+        pf_mn_col=pf_mn_col,
+        mn_col=mn_col,
     )
     return table_data, table_html
 

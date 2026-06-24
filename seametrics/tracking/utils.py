@@ -914,26 +914,18 @@ def _flatten_result(result: dict, key: str | None) -> dict:
 def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.DataFrame:
     """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
 
-    Detects the metric type from the result keys and applies metric-specific
-    scaling (see :func:`_scale_metric_row`).
-
-    In addition to one row per sequence, a final pooled row labelled
-    ``OVERALL_LABEL`` is appended. It is computed via
-    ``metrics.compute(sequence=sequence_list)``, i.e. by pooling raw
-    counts/associations across exactly the included sequences before computing
-    the metric (the MOT-standard dataset-level score). This is the correct
-    aggregate for ratio metrics such as ``hota`` and ``idf1``; a plain mean of
-    per-sequence values would not match the published convention.
+    For TrackingMetrics, one ``compute(sequence_list)`` call returns all
+    per-sequence rows and the OVERALL row. For HOTAMetrics, per-sequence calls
+    are issued individually (HOTA pools internally; no per-sequence breakdown
+    from a list call). Appends a pooled OVERALL row — the MOT-standard
+    dataset-level score, not a mean of per-sequence values.
 
     Args:
-        metrics: Fitted metric instance exposing ``accumulators`` and
-            ``compute(sequence=...)`` (where ``sequence`` accepts a list).
-        sequence_list: Optional list of sequence names to include. Defaults to
-            all accumulators in *metrics*.
+        metrics: Fitted metric instance with ``accumulators`` and ``compute()``.
+        sequence_list: Sequence names to include; defaults to all accumulators.
 
     Returns:
-        DataFrame with one row per sequence plus a pooled ``OVERALL_LABEL`` row,
-        and one column per metric value.
+        DataFrame with one row per sequence plus a pooled OVERALL row.
     """
     if sequence_list is None:
         sequence_list = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
@@ -941,14 +933,10 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
     if not sequence_list:
         return pd.DataFrame()
 
-    # One compute call returns per-sequence + OVERALL for TrackingMetrics (motmetrics
-    # compute_many); for HOTAMetrics it only returns the pooled result, so per-sequence
-    # calls are still needed.
     overall = metrics.compute(sequence=sequence_list)  # type: ignore[attr-defined]
     rows = []
 
     if "hota" not in overall:
-        # TrackingMetrics: extract each sequence's row from the single result dict.
         for sequence in sequence_list:
             row = _scale_metric_row(_flatten_result(overall, key=sequence))
             row["sequence"] = sequence
@@ -957,7 +945,6 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
         row["sequence"] = OVERALL_LABEL
         rows.append(row)
     else:
-        # HOTAMetrics: per-sequence results need individual calls; overall is pooled.
         for sequence in sequence_list:
             result = metrics.compute(sequence=sequence)  # type: ignore[attr-defined]
             row = _scale_metric_row(_flatten_result(result, key=None))
