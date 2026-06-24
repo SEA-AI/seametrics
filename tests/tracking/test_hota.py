@@ -257,3 +257,44 @@ class TestHOTASubsetPooling:
         assert bundle["hota"]["OVERALL"] == pytest.approx(
             self.m.compute(["A", "B"])["hota"]
         )
+
+
+class TestHOTAMeanVsPooledManyObjects:
+    """One easy sequence plus a many-object failure mode.
+
+    A plain mean of per-sequence HOTA can look tolerable while the pooled
+    dataset score reflects most object-frame associations failing.
+    """
+
+    def setup_method(self):
+        easy_gt = _array(
+            _det(1, 1, 0, 0, 10, 10),
+            _det(2, 1, 0, 0, 10, 10),
+            _det(3, 1, 0, 0, 10, 10),
+        )
+        hard_gt = _array(
+            *[
+                _det(frame, obj_id, 0, 0, 10, 10)
+                for obj_id in range(1, 6)
+                for frame in range(1, 6)
+            ]
+        )
+        hard_pred = _array(*[_det(1, obj_id, 0, 0, 10, 10) for obj_id in range(1, 6)])
+
+        self.m = HOTAMetrics()
+        self.m.update(easy_gt, easy_gt.copy(), "seq_easy")
+        self.m.update(hard_gt, hard_pred, "seq_hard")
+
+    def test_per_sequence_scores(self):
+        assert self.m.compute("seq_easy")["hota"] == pytest.approx(1.0, abs=1e-6)
+        assert self.m.compute("seq_hard")["hota"] == pytest.approx(0.2, abs=1e-6)
+
+    def test_pooled_below_naive_mean(self):
+        easy = self.m.compute("seq_easy")["hota"]
+        hard = self.m.compute("seq_hard")["hota"]
+        mean = (easy + hard) / 2
+        pooled = self.m.compute(["seq_easy", "seq_hard"])["hota"]
+        assert mean == pytest.approx(0.6, abs=1e-6)
+        assert pooled == pytest.approx(0.377964473, abs=1e-6)
+        assert pooled < mean
+        assert mean - pooled > 0.15
