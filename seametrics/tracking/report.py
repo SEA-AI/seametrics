@@ -207,26 +207,26 @@ def _assemble_html_table(
     str
         Complete diff-controls + ``<table>`` HTML.
     """
-    n_regular_cols = len(pred_fields) * sum(len(metric_cols[mn]) for mn in metric_names)
+    pf_mn_col = [
+        (pf, mn, col)
+        for pf in pred_fields
+        for mn in metric_names
+        for col in metric_cols[mn]
+    ]
+    mn_col = [(mn, col) for mn in metric_names for col in metric_cols[mn]]
+    n_regular_cols = len(pf_mn_col)
 
     sortable_headers = "".join(
         f'<th class="sortable" data-label="{_h(col)}" data-pf="{pf_idx[pf]}"'
         f' onclick="sortTable({i + 1})" title="Sort by {_h(col)}">{_h(col)}</th>'
-        for i, (pf, _, col) in enumerate(
-            (pf, mn, col)
-            for pf in pred_fields
-            for mn in metric_names
-            for col in metric_cols[mn]
-        )
+        for i, (pf, mn, col) in enumerate(pf_mn_col)
     )
     if show_diff:
         sortable_headers += "".join(
             f'<th class="sortable" data-label="Δ {_h(col)}"'
             f' onclick="sortTable({n_regular_cols + i + 1})"'
             f' title="Sort by Δ {_h(col)}">Δ {_h(col)}</th>'
-            for i, (_, col) in enumerate(
-                (mn, col) for mn in metric_names for col in metric_cols[mn]
-            )
+            for i, (mn, col) in enumerate(mn_col)
         )
 
     table_rows = "".join(
@@ -236,17 +236,14 @@ def _assemble_html_table(
         + "".join(
             f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
             f"{_fmt_cell(_cell_value(dfs, pf, mn, col, seq))}</td>"
-            for pf in pred_fields
-            for mn in metric_names
-            for col in metric_cols[mn]
+            for pf, mn, col in pf_mn_col
         )
         + (
             "".join(
                 f'<td style="text-align:right;" data-diff'
                 f' data-mn="{_h(mn)}" data-col="{_h(col)}"'
                 f' data-seq="{_h(seq)}"></td>'
-                for mn in metric_names
-                for col in metric_cols[mn]
+                for mn, col in mn_col
             )
             if show_diff
             else ""
@@ -258,16 +255,13 @@ def _assemble_html_table(
     agg_cells = "".join(
         f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
         f"{_agg(dfs[pf][mn][col], col):.2f}</td>"
-        for pf in pred_fields
-        for mn in metric_names
-        for col in metric_cols[mn]
+        for pf, mn, col in pf_mn_col
     )
     if show_diff:
         agg_cells += "".join(
             f'<td style="text-align:right;" data-diff-mean'
             f' data-mn="{_h(mn)}" data-col="{_h(col)}"></td>'
-            for mn in metric_names
-            for col in metric_cols[mn]
+            for mn, col in mn_col
         )
 
     pred_field_headers = "".join(

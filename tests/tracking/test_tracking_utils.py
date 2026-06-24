@@ -225,11 +225,14 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
 
 
 def test_results_to_df_formats_hota_and_tracking_outputs():
+    # HOTAMetrics: the new results_to_df calls compute(sequence_list) for the
+    # pooled OVERALL row, then compute(sequence) for each individual sequence.
     class _HotaResults:
         accumulators: ClassVar = {"seq-1": None}
 
         def compute(self, sequence):
-            assert sequence == "seq-1"
+            # Accept both the pooled call (list) and per-sequence calls (str).
+            assert sequence in (["seq-1"], "seq-1")
             return {
                 "hota": 0.5,
                 "deta": 0.75,
@@ -239,26 +242,35 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
             }
 
     hota_df = utils.hota_results_to_df(_HotaResults())
-    assert hota_df.loc[0, "hota"] == 50
-    assert hota_df.loc[0, "deta"] == 75
-    assert hota_df.loc[0, "num_unique_objects"] == 2
-    assert hota_df.loc[0, "sequence"] == "seq-1"
+    seq_row = hota_df.loc[hota_df["sequence"] == "seq-1"].iloc[0]
+    assert seq_row["hota"] == 50
+    assert seq_row["deta"] == 75
+    assert seq_row["num_unique_objects"] == 2
+    # An OVERALL row is also appended from the pooled call.
+    assert utils.OVERALL_LABEL in hota_df["sequence"].values
 
+    # TrackingMetrics: compute(sequence_list) returns per-sequence + OVERALL
+    # in a single call; results_to_df must NOT issue N per-sequence calls.
     class _TrackingResults:
         accumulators: ClassVar = {"seq-1": None}
 
         def compute(self, sequence):
-            assert sequence == "seq-1"
+            # Only the pooled call (list) should be issued.
+            assert sequence == ["seq-1"]
             return {
-                "mota": {"seq-1": 0.25},
-                "motp": {"seq-1": 0.2},
-                "idf1": {"seq-1": 0.8},
+                "mota": {"seq-1": 0.25, utils.OVERALL_LABEL: 0.25},
+                "motp": {"seq-1": 0.2, utils.OVERALL_LABEL: 0.2},
+                "idf1": {"seq-1": 0.8, utils.OVERALL_LABEL: 0.8},
             }
 
     tracking_df = utils.results_to_df(_TrackingResults())
-    assert tracking_df.loc[0, "mota"] == 25
-    assert tracking_df.loc[0, "motp"] == 80
-    assert tracking_df.loc[0, "idf1"] == pytest.approx(0.8)
+    seq_row = tracking_df.loc[tracking_df["sequence"] == "seq-1"].iloc[0]
+    assert seq_row["mota"] == 25
+    assert seq_row["motp"] == 80
+    assert seq_row["idf1"] == pytest.approx(0.8)
+    # OVERALL row is present.
+    overall_row = tracking_df.loc[tracking_df["sequence"] == utils.OVERALL_LABEL].iloc[0]
+    assert overall_row["mota"] == 25
 
 
 # ---------------------------------------------------------------------------
