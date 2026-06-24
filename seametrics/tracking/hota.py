@@ -1,6 +1,6 @@
 """HOTA (Higher Order Tracking Accuracy) metric, mirroring TrackingMetrics."""
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -116,9 +116,7 @@ class HOTAMetrics:
             if sequence is None:
                 entries = list(self.accumulators.values())
             else:
-                duplicates = sorted(
-                    {n for n in sequence if list(sequence).count(n) > 1}
-                )
+                duplicates = sorted(n for n, c in Counter(sequence).items() if c > 1)
                 if duplicates:
                     raise KeyError(f"Duplicate sequence: {duplicates}")
                 unknown = [n for n in sequence if n not in self.accumulators]

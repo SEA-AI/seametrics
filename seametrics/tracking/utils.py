@@ -938,18 +938,33 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
     if sequence_list is None:
         sequence_list = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
 
-    rows = []
-    for sequence in sequence_list:
-        result = metrics.compute(sequence=sequence)  # type: ignore[attr-defined]
-        row = _scale_metric_row(_flatten_result(result, key=None))
-        row["sequence"] = sequence
-        rows.append(row)
+    if not sequence_list:
+        return pd.DataFrame()
 
-    # Pooled, dataset-level aggregate over exactly the included sequences.
-    if sequence_list:
-        overall = metrics.compute(sequence=sequence_list)  # type: ignore[attr-defined]
+    # One compute call returns per-sequence + OVERALL for TrackingMetrics (motmetrics
+    # compute_many); for HOTAMetrics it only returns the pooled result, so per-sequence
+    # calls are still needed.
+    overall = metrics.compute(sequence=sequence_list)  # type: ignore[attr-defined]
+    rows = []
+
+    if "hota" not in overall:
+        # TrackingMetrics: extract each sequence's row from the single result dict.
+        for sequence in sequence_list:
+            row = _scale_metric_row(_flatten_result(overall, key=sequence))
+            row["sequence"] = sequence
+            rows.append(row)
+        row = _scale_metric_row(_flatten_result(overall, key=OVERALL_LABEL))
+        row["sequence"] = OVERALL_LABEL
+        rows.append(row)
+    else:
+        # HOTAMetrics: per-sequence results need individual calls; overall is pooled.
+        for sequence in sequence_list:
+            result = metrics.compute(sequence=sequence)  # type: ignore[attr-defined]
+            row = _scale_metric_row(_flatten_result(result, key=None))
+            row["sequence"] = sequence
+            rows.append(row)
         if overall:
-            row = _scale_metric_row(_flatten_result(overall, key=OVERALL_LABEL))
+            row = _scale_metric_row(_flatten_result(overall, key=None))
             row["sequence"] = OVERALL_LABEL
             rows.append(row)
 

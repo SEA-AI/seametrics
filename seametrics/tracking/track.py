@@ -1,5 +1,7 @@
 """MOT tracking metrics (MOTA/MOTP/IDF1/…) backed by motmetrics."""
 
+from collections import Counter
+
 import motmetrics as mm
 import numpy as np
 
@@ -59,7 +61,7 @@ class TrackingMetrics:
             names = (
                 list(self.accumulators.keys()) if sequence is None else list(sequence)
             )
-            duplicates = sorted({n for n in names if names.count(n) > 1})
+            duplicates = sorted(n for n, c in Counter(names).items() if c > 1)
             if duplicates:
                 raise ValueError(f"Duplicate sequence: {duplicates}")
             unknown = [n for n in names if n not in self.accumulators]
