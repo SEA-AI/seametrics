@@ -127,7 +127,7 @@ def _sequence_rows(
     sequences: list,
     pf_mn_col: list,
     mn_col: list,
-    dfs: dict,
+    indexed_dfs: dict,
     *,
     show_diff: bool,
     pf_idx: dict,
@@ -139,7 +139,7 @@ def _sequence_rows(
         + "</td>"
         + "".join(
             f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
-            f"{_fmt_cell(_cell_value(dfs, pf, mn, col, seq))}</td>"
+            f"{_fmt_cell(_cell_value(indexed_dfs[pf][mn], col, seq))}</td>"
             for pf, mn, col in pf_mn_col
         )
         + (
@@ -224,9 +224,17 @@ def _metric_name_headers(
     return headers
 
 
-def _cell_value(dfs: dict, pf: str, mn: str, col: str, seq: str) -> float:
-    """Look up a single metric value from the nested data dict."""
-    return dfs[pf][mn].set_index("sequence").reindex([seq]).iloc[0][col]
+def _index_dfs_by_sequence(dfs: dict) -> dict:
+    """Return *dfs* with each DataFrame indexed by ``sequence`` once."""
+    return {
+        pf: {mn: df.set_index("sequence") for mn, df in pf_dfs.items()}
+        for pf, pf_dfs in dfs.items()
+    }
+
+
+def _cell_value(indexed: pd.DataFrame, col: str, seq: str) -> float:
+    """Look up a single metric value from a sequence-indexed DataFrame."""
+    return indexed.reindex([seq]).iloc[0][col]
 
 
 def _fmt_cell(val: float) -> str:
@@ -268,7 +276,7 @@ def _table_layout(pred_fields: list, metric_names: list, metric_cols: dict) -> d
 
 def _assemble_html_table(
     sequences: list,
-    dfs: dict,
+    indexed_dfs: dict,
     summary: dict[tuple[str, str, str], float | None],
     layout: dict,
     *,
@@ -282,7 +290,7 @@ def _assemble_html_table(
     pf_idx = layout["pf_idx"]
     show_diff = layout["show_diff"]
     body_rows = _sequence_rows(
-        sequences, pf_mn_col, mn_col, dfs, show_diff=show_diff, pf_idx=pf_idx
+        sequences, pf_mn_col, mn_col, indexed_dfs, show_diff=show_diff, pf_idx=pf_idx
     )
     summary_row = _summary_cells(
         pf_mn_col, mn_col, summary, show_diff=show_diff, pf_idx=pf_idx
@@ -397,11 +405,12 @@ def _build_table_html(
     layout: dict,
 ) -> tuple[dict, str]:
     """Build the per-sequence table data dict and HTML table string."""
+    indexed_dfs = _index_dfs_by_sequence(dfs)
     table_data = {
         pf: {
             mn: {
                 col: {
-                    seq: _round_or_none(_cell_value(dfs, pf, mn, col, seq))
+                    seq: _round_or_none(_cell_value(indexed_dfs[pf][mn], col, seq))
                     for seq in sequences
                 }
                 for col in metric_cols[mn]
@@ -412,7 +421,7 @@ def _build_table_html(
     }
     table_html = _assemble_html_table(
         sequences,
-        dfs,
+        indexed_dfs,
         summary,
         layout,
         pred_fields=pred_fields,

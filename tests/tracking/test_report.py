@@ -277,14 +277,14 @@ class TestCellValue:
 
     def test_returns_correct_value(self):
         df = pd.DataFrame({"sequence": ["s1", "s2"], "mota": [0.5, 0.7]})
-        dfs = {"pred_a": {"TrackingMetrics": df}}
-        val = _cell_value(dfs, "pred_a", "TrackingMetrics", "mota", "s1")
+        indexed = df.set_index("sequence")
+        val = _cell_value(indexed, "mota", "s1")
         assert val == pytest.approx(0.5)
 
     def test_missing_sequence_returns_nan(self):
         df = pd.DataFrame({"sequence": ["s1"], "mota": [0.5]})
-        dfs = {"pred_a": {"TrackingMetrics": df}}
-        val = _cell_value(dfs, "pred_a", "TrackingMetrics", "mota", "s_missing")
+        indexed = df.set_index("sequence")
+        val = _cell_value(indexed, "mota", "s_missing")
         assert math.isnan(val)
 
 
