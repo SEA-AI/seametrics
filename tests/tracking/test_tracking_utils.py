@@ -154,8 +154,43 @@ def test_sequence_skipped_when_pred_field_missing():
     assert "missing_pred" in str(exc)
 
 
-def test_sequence_processed_when_field_exists_but_detections_empty():
-    """Empty detections on an existing field should still be evaluated."""
+def test_sequence_skipped_when_no_true_keyframes():
+    """Sequences without any truthy keyframes are excluded."""
+    failures = []
+
+    class _CapturingMetric:
+        def __init__(self) -> None:
+            self.failed_sequences: dict = {}
+
+        def update(self, _gt, _pred, _seq):
+            raise AssertionError("should not be called")
+
+        def log_failed_sequence(self, seq, _gt, _pred, **_kwargs: object):
+            failures.append((seq, _kwargs.get("exc")))
+            self.failed_sequences[seq] = str(_kwargs.get("exc"))
+
+    class _NoKeyframeView(_FakeVideoView):
+        def values(self, field):
+            if "keyframe" in field:
+                return [False, False, False]
+            return super().values(field)
+
+    with _fo_patch():
+        utils.compute_all_metrics_by_sequence(
+            view=_NoKeyframeView(),
+            gt_field="gt",
+            pred_fields=["pred"],
+            metrics=[(_CapturingMetric, {})],
+        )
+
+    assert len(failures) == 1
+    assert failures[0][0] == "seq-1"
+    assert "No keyframe data" in str(failures[0][1])
+    assert "pred" in str(failures[0][1])
+
+
+def test_sequence_processed_when_keyframes_exist_but_detections_empty():
+    """Empty detections on keyframe frames should still be evaluated."""
     updates = []
 
     class _CapturingMetric:
@@ -171,7 +206,7 @@ def test_sequence_processed_when_field_exists_but_detections_empty():
     class _EmptyDetectionsView(_FakeVideoView):
         def values(self, field):
             if "keyframe" in field:
-                return [False, False, False]
+                return [True, False, True]
             if "bounding_box" in field or "index" in field or "confidence" in field:
                 return [None, None, None]
             return super().values(field)

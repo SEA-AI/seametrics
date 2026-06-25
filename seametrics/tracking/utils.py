@@ -593,6 +593,33 @@ def compute_metrics_by_sequence(
     return metric
 
 
+def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
+    """Return True if any frame in *seq_view* has a truthy keyframe for *pred_field*.
+
+    Args:
+        seq_view: FiftyOne view for a single sequence.
+        pred_field: Prediction field name to check.
+
+    Returns:
+        True if at least one keyframe value is truthy; False otherwise.
+
+    Raises:
+        ImportError: If ``fiftyone`` is not installed.
+    """
+    if not _FIFTYONE_AVAILABLE:
+        raise ImportError("fiftyone is required for this function")
+    video_view = (
+        seq_view.select_group_slices(seq_view.default_group_slice)
+        if seq_view.media_type == "group"
+        else seq_view
+    )
+    try:
+        kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
+        return any(kf for kf in kf_vals if kf)
+    except (ValueError, AttributeError, RuntimeError, TypeError, KeyError):
+        return False
+
+
 def _field_exists(seq_view: fo.DatasetView, field: str) -> bool:
     """Return True when *field* is defined on the sequence view.
 
@@ -630,11 +657,12 @@ def _filter_valid_sequences(
     pred_fields: list,
     instances: dict,
 ) -> list:
-    """Validate field availability and return sequences ready for evaluation.
+    """Validate fields and keyframes before evaluating sequences.
 
-    Sequences where the ground-truth or any prediction field is absent from the
-    schema are logged as failed and excluded. Fields that exist but contain
-    only empty detections are kept — metrics run on empty (gt, pred) arrays.
+    Sequences are excluded when a required field is absent from the schema
+    (``Field not found``) or when a prediction field has no truthy keyframes
+    (``No keyframe data``). Fields that exist with keyframes but empty
+    detections on those frames are kept and evaluated.
 
     Args:
         sequence_list: Candidate sequence names.
@@ -644,7 +672,7 @@ def _filter_valid_sequences(
         instances: Nested dict ``{pred_field: {metric_name: metric_instance}}``.
 
     Returns:
-        List of sequence names where all required fields exist.
+        List of sequence names passing field and keyframe checks.
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
@@ -661,6 +689,16 @@ def _filter_valid_sequences(
         ]
         if missing:
             exc = ValueError(f"Field not found: {missing}")
+        else:
+            no_keyframes = [
+                pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)
+            ]
+            exc = (
+                ValueError(f"No keyframe data for: {no_keyframes}")
+                if no_keyframes
+                else None
+            )
+        if exc is not None:
             for pf in pred_fields:
                 for instance in instances[pf].values():
                     instance.log_failed_sequence(sequence_name, [], [], exc=exc)
