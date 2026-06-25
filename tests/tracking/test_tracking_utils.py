@@ -227,15 +227,16 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
 def test_results_to_df_formats_hota_and_tracking_outputs():
     class _HotaResults:
         accumulators: ClassVar = {"seq-1": None}
+        RESULT_LAYOUT = "flat"
 
-        def compute(self, sequence):
-            assert sequence == "seq-1"
+        def compute_many(self, sequence_list):
+            assert sequence_list == ["seq-1"]
             return {
-                "hota": 0.5,
-                "deta": 0.75,
-                "assa": 0.25,
-                "loca": 1.0,
-                "num_unique_objects": 2,
+                "hota": {"seq-1": 0.5, "OVERALL": 0.5},
+                "deta": {"seq-1": 0.75, "OVERALL": 0.75},
+                "assa": {"seq-1": 0.25, "OVERALL": 0.25},
+                "loca": {"seq-1": 1.0, "OVERALL": 1.0},
+                "num_unique_objects": {"seq-1": 2, "OVERALL": 2},
             }
 
     hota_df = utils.hota_results_to_df(_HotaResults())
@@ -243,11 +244,25 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
     assert hota_df.loc[0, "deta"] == 75
     assert hota_df.loc[0, "num_unique_objects"] == 2
     assert hota_df.loc[0, "sequence"] == "seq-1"
+    # A pooled OVERALL row is appended.
+    overall = hota_df[hota_df["sequence"] == utils.OVERALL_LABEL]
+    assert len(overall) == 1
+    assert overall.iloc[0]["hota"] == 50
 
     class _TrackingResults:
         accumulators: ClassVar = {"seq-1": None}
+        RESULT_LAYOUT = "nested"
 
-        def compute(self, sequence):
+        def compute(self, sequence=None):
+            # Pooled calls (list/None) carry an explicit OVERALL entry whose
+            # values differ from the per-sequence ones, so the test can confirm
+            # results_to_df reads the OVERALL key for the pooled row.
+            if sequence is None or isinstance(sequence, (list, tuple)):
+                return {
+                    "mota": {"seq-1": 0.25, "OVERALL": 0.30},
+                    "motp": {"seq-1": 0.2, "OVERALL": 0.1},
+                    "idf1": {"seq-1": 0.8, "OVERALL": 0.9},
+                }
             assert sequence == "seq-1"
             return {
                 "mota": {"seq-1": 0.25},
@@ -259,6 +274,23 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
     assert tracking_df.loc[0, "mota"] == 25
     assert tracking_df.loc[0, "motp"] == 80
     assert tracking_df.loc[0, "idf1"] == pytest.approx(0.8)
+    # The pooled OVERALL row uses the OVERALL entry (mota 0.30 -> 30, idf1 0.9).
+    overall = tracking_df[tracking_df["sequence"] == utils.OVERALL_LABEL]
+    assert len(overall) == 1
+    assert overall.iloc[0]["mota"] == pytest.approx(30)
+    assert overall.iloc[0]["motp"] == pytest.approx(90)  # (1 - 0.1) * 100
+    assert overall.iloc[0]["idf1"] == pytest.approx(0.9)
+
+
+def test_results_to_df_rejects_overall_sequence_name():
+    class _Metrics:
+        accumulators: ClassVar = {"OVERALL": None, "seq-1": None}
+
+        def compute(self, _sequence=None):
+            return {}
+
+    with pytest.raises(ValueError, match="reserved for pooled results"):
+        utils.results_to_df(_Metrics(), sequence_list=["OVERALL", "seq-1"])
 
 
 # ---------------------------------------------------------------------------

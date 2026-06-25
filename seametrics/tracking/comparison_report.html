@@ -28,6 +28,7 @@
 </style>
 <script>
   const chartData   = __CHART_DATA__;
+  const overallData = __OVERALL_DATA__;
   const tableData   = __TABLE_DATA__;
   const sequences   = __SEQUENCES__;
   const predFields  = __PRED_FIELDS__;
@@ -141,14 +142,13 @@
         const delta = totalB - totalA;
         cell.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2);
       } else {
-        const vals = sequences.map(seq => {
-          const a = tableData[pfA]?.[mn]?.[col]?.[seq];
-          const b = tableData[pfB]?.[mn]?.[col]?.[seq];
-          return (a != null && b != null) ? b - a : null;
-        }).filter(v => v != null);
-        if (!vals.length) { cell.textContent = ""; return; }
-        const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
-        cell.textContent = (mean >= 0 ? "+" : "") + mean.toFixed(2);
+        // Ratio metrics: diff the pooled, dataset-level OVERALL values, matching
+        // the server-rendered summary row (not a mean of per-sequence deltas).
+        const a = overallData[pfA]?.[mn]?.[col];
+        const b = overallData[pfB]?.[mn]?.[col];
+        if (a == null || b == null) { cell.textContent = ""; return; }
+        const delta = b - a;
+        cell.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2);
       }
     });
   }

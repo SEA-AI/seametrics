@@ -77,7 +77,10 @@ exclude_lines = ["if TYPE_CHECKING"]
 [tool.pylint]
 ignored-modules = ["cv2"]
 jobs = 0
-ignore = ["tests", "docs", "build", ".venv"]
+# Exclude non-package dirs. `ignore-paths` (regex on the full path) is used rather
+# than `ignore` because CI passes explicit file paths, which `ignore` does not
+# filter (it only applies during directory discovery).
+ignore-paths = ["^tests/.*$", "^docs/.*$", "^build/.*$", "^\\.venv/.*$"]
 max-args = 10
 max-attributes = 10
 max-line-length = 120
