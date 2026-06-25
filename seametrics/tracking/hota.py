@@ -185,10 +185,10 @@ class HOTAMetrics:
                 pred_off += int(pred[:, 1].max()) + 1
             frame_off += max_frame + 1
         pooled_gt = (
-            np.concatenate(gt_parts) if gt_parts else np.empty((0,), dtype=float)
+            np.concatenate(gt_parts) if gt_parts else np.empty((0, 10), dtype=float)
         )
         pooled_pred = (
-            np.concatenate(pred_parts) if pred_parts else np.empty((0,), dtype=float)
+            np.concatenate(pred_parts) if pred_parts else np.empty((0, 10), dtype=float)
         )
         return pooled_gt, pooled_pred
 

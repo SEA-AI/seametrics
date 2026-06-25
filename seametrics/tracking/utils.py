@@ -166,7 +166,9 @@ def prepare_data_for_det_metrics(  # noqa: C901
                         ]
                     )
 
-        return np.array(target), np.array(preds)
+        # Always return 2-D MOT arrays so downstream code can index ``[:, col]``
+        # even when one side has zero detections.
+        return np.array(target).reshape(-1, 10), np.array(preds).reshape(-1, 10)
 
     def _validate_arrays(data: list | None, data_type: str) -> list:
         """Validate and normalise per-frame annotation arrays.
@@ -817,10 +819,19 @@ def compute_all_metrics_by_sequence(
         for instance in pf_instances.values()
         for seq in instance.failed_sequences
     }
+    failure_reasons = {
+        seq: next(
+            inst.failed_sequences[seq]
+            for pf_instances in instances.values()
+            for inst in pf_instances.values()
+            if seq in inst.failed_sequences
+        )
+        for seq in all_failed
+    }
     for pf_instances in instances.values():
         for instance in pf_instances.values():
             for seq in all_failed - set(instance.failed_sequences):
-                instance.log_failed_sequence(seq, [], [], exc=None)
+                instance.failed_sequences[seq] = failure_reasons[seq]
 
     return instances
 

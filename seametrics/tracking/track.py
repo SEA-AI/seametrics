@@ -28,6 +28,10 @@ class TrackingMetrics:
 
     def update(self, gt: np.ndarray, pred: np.ndarray, sequence_name: str) -> None:
         """Build a MOTAccumulator for *sequence_name* from (gt, pred) arrays."""
+        if len(gt) == 0 and gt.ndim == 1:
+            gt = np.empty((0, 10))
+        if len(pred) == 0 and pred.ndim == 1:
+            pred = np.empty((0, 10))
         gt_max = int(gt[:, 0].max()) if len(gt) > 0 else 0
         pred_max = int(pred[:, 0].max()) if len(pred) > 0 else 0
         num_frames = max(gt_max, pred_max) + 1

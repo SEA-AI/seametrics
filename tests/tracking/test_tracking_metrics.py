@@ -282,3 +282,18 @@ class TestLogFailedSequence:
         m = TrackingMetrics()
         m.log_failed_sequence("s", [1], [1])
         assert m.failed_sequences["s"] == "Missing IDs from GT or Pred"
+
+    def test_update_gt_only_empty_pred_1d(self):
+        """1-D empty pred arrays must not crash update (legacy shape guard)."""
+        m = TrackingMetrics()
+        gt = np.array([[1, 1, 0, 0, 10, 10, 1, -1, -1, -1]])
+        pred = np.array([])
+        m.update(gt, pred, "s")
+        assert "s" in m.accumulators
+
+    def test_update_gt_only_empty_pred_2d(self):
+        m = TrackingMetrics()
+        gt = np.array([[1, 1, 0, 0, 10, 10, 1, -1, -1, -1]])
+        pred = np.empty((0, 10))
+        m.update(gt, pred, "s")
+        assert "s" in m.accumulators

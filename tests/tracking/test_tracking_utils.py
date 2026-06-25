@@ -340,6 +340,36 @@ def test_results_to_df_rejects_overall_sequence_name():
 # ---------------------------------------------------------------------------
 
 
+def test_prepare_data_empty_returns_2d_arrays():
+    """Empty GT and pred must be (0, 10), not 1-D, for MOT indexing."""
+    gt, pred = utils.prepare_data_for_det_metrics(
+        gt_bboxes_per_frame=[],
+        gt_track_ids_per_frame=[],
+        dt_bboxes_per_frame=[],
+        dt_track_ids_per_frame=[],
+        dt_scores_per_frame=[],
+        img_w=100,
+        img_h=100,
+    )
+    assert gt.shape == (0, 10)
+    assert pred.shape == (0, 10)
+
+
+def test_prepare_data_gt_only_empty_pred_is_2d():
+    """GT-only sequences must not produce a 1-D empty pred array."""
+    gt, pred = utils.prepare_data_for_det_metrics(
+        gt_bboxes_per_frame=[[[0.1, 0.1, 0.2, 0.2]]],
+        gt_track_ids_per_frame=[[1]],
+        dt_bboxes_per_frame=[],
+        dt_track_ids_per_frame=[],
+        dt_scores_per_frame=[],
+        img_w=100,
+        img_h=100,
+    )
+    assert gt.shape == (1, 10)
+    assert pred.shape == (0, 10)
+
+
 def test_prepare_data_basic_single_frame():
     """One GT and one pred in one frame produce (1, 10) arrays each."""
     gt, pred = utils.prepare_data_for_det_metrics(
@@ -402,7 +432,7 @@ def test_prepare_data_none_track_id_skipped():
         img_w=100,
         img_h=100,
     )
-    assert gt.shape == (0,)
+    assert gt.shape == (0, 10)
     assert pred.shape == (1, 10)
 
 
