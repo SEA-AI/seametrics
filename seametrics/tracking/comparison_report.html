@@ -105,32 +105,55 @@
     }
   }
 
+  function fmtVal(v) {
+    return (v == null || Number.isNaN(v)) ? "" : v.toFixed(2);
+  }
+
+  function fmtDelta(v) {
+    if (v == null || Number.isNaN(v)) return "";
+    return (v >= 0 ? "+" : "") + v.toFixed(2);
+  }
+
   function updateDiff() {
     const pfA = document.getElementById("diff-a")?.value;
-    const pfB = document.getElementById("diff-b")?.value;
-    if (!pfA || !pfB) return;
+    const pfB = document.getElementById("diff-b")?.value || null;
 
-    const idxA = String(predFields.indexOf(pfA));
-    const idxB = String(predFields.indexOf(pfB));
+    const headerA = document.getElementById("model-header-a");
+    const headerB = document.getElementById("model-header-b");
+    if (headerA) headerA.textContent = pfA || "—";
+    if (headerB) headerB.textContent = pfB || "—";
 
     const label = document.getElementById("diff-label");
-    if (label) label.textContent = `Δ (${pfB} − ${pfA})`;
+    if (label) label.textContent = pfB ? `Δ (${pfB} − ${pfA})` : "Δ";
 
-    // Show only the two selected models' columns, hide all others
-    document.querySelectorAll("[data-pf]").forEach(el => {
-      const show = el.dataset.pf === idxA || el.dataset.pf === idxB;
-      el.style.display = show ? "" : "none";
+    document.querySelectorAll('[data-slot="a"]').forEach(cell => {
+      const { mn, col, seq } = cell.dataset;
+      const src = seq
+        ? tableData[pfA]?.[mn]?.[col]?.[seq]
+        : overallData[pfA]?.[mn]?.[col];
+      cell.textContent = fmtVal(src);
+    });
+
+    document.querySelectorAll('[data-slot="b"]').forEach(cell => {
+      const { mn, col, seq } = cell.dataset;
+      if (!pfB) { cell.textContent = ""; return; }
+      const src = seq
+        ? tableData[pfB]?.[mn]?.[col]?.[seq]
+        : overallData[pfB]?.[mn]?.[col];
+      cell.textContent = fmtVal(src);
     });
 
     document.querySelectorAll("[data-diff]").forEach(cell => {
       const { mn, col, seq } = cell.dataset;
+      if (!pfB) { cell.textContent = ""; return; }
       const a = tableData[pfA]?.[mn]?.[col]?.[seq];
       const b = tableData[pfB]?.[mn]?.[col]?.[seq];
-      cell.textContent = (a == null || b == null) ? "" : ((b - a >= 0 ? "+" : "") + (b - a).toFixed(2));
+      cell.textContent = (a == null || b == null) ? "" : fmtDelta(b - a);
     });
 
     document.querySelectorAll("[data-diff-mean]").forEach(cell => {
       const { mn, col } = cell.dataset;
+      if (!pfB) { cell.textContent = ""; return; }
       if (sumMetrics.has(col)) {
         let totalA = 0, totalB = 0, hasData = false;
         for (const seq of sequences) {
@@ -139,16 +162,12 @@
           if (a != null && b != null) { totalA += a; totalB += b; hasData = true; }
         }
         if (!hasData) { cell.textContent = ""; return; }
-        const delta = totalB - totalA;
-        cell.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2);
+        cell.textContent = fmtDelta(totalB - totalA);
       } else {
-        // Ratio metrics: diff the pooled, dataset-level OVERALL values, matching
-        // the server-rendered summary row (not a mean of per-sequence deltas).
         const a = overallData[pfA]?.[mn]?.[col];
         const b = overallData[pfB]?.[mn]?.[col];
         if (a == null || b == null) { cell.textContent = ""; return; }
-        const delta = b - a;
-        cell.textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2);
+        cell.textContent = fmtDelta(b - a);
       }
     });
   }

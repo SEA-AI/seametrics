@@ -291,21 +291,26 @@ class TestCellValue:
 class TestBuildDiffControls:
     """Tests for _build_diff_controls."""
 
-    def test_disabled_returns_empty_string(self):
-        assert not _build_diff_controls(["a", "b"], False)
-
-    def test_enabled_contains_pred_fields(self):
-        html = _build_diff_controls(["model_a", "model_b"], True)
-        assert "model_a" in html
-        assert "model_b" in html
-
-    def test_enabled_contains_select_elements(self):
-        html = _build_diff_controls(["model_a", "model_b"], True)
+    def test_always_contains_select_elements(self):
+        html = _build_diff_controls(["model_a"])
         assert html.count("<select") == 2
 
-    def test_second_option_selected(self):
-        html = _build_diff_controls(["model_a", "model_b"], True)
-        assert "selected" in html
+    def test_single_field_defaults_b_to_none(self):
+        html = _build_diff_controls(["model_a"])
+        assert 'id="diff-a"' in html
+        assert "<option value=\"\" selected>—</option>" in html
+
+    def test_two_fields_defaults_a_and_b(self):
+        html = _build_diff_controls(["model_a", "model_b"])
+        assert "model_a" in html
+        assert "model_b" in html
+        assert 'value="model_a" selected' in html
+        assert 'value="model_b" selected' in html
+
+    def test_many_fields_lists_all_in_both_dropdowns(self):
+        html = _build_diff_controls(["f0", "f1", "f2", "f3"])
+        assert html.count('value="f0"') == 2
+        assert html.count('value="f3"') == 2
 
 
 # ---------------------------------------------------------------------------
@@ -343,10 +348,26 @@ class TestBuildComparisonHtml:
         result = build_comparison_html(_two_model_dfs())
         assert "diff-a" in result
 
-    def test_single_model_no_diff_select(self):
-        """With one model, the diff <select> widgets must not be rendered."""
+    def test_single_model_has_compare_dropdowns(self):
+        """One field still shows the A vs B table with B defaulting to —."""
         result = build_comparison_html(_one_model_dfs())
-        assert '<select id="diff-a"' not in result
+        assert 'id="diff-a"' in result
+        assert 'id="diff-b"' in result
+        assert 'id="model-header-a"' in result
+        assert 'id="model-header-b"' in result
+        assert 'data-slot="a"' in result
+        assert 'data-slot="b"' in result
+
+    def test_table_is_fixed_ab_layout_not_all_models(self):
+        """Table renders two metric slots, not one column block per model."""
+        many = {
+            f"model_{i}": {"TrackingMetrics": _mot_df(("s1",))}
+            for i in range(4)
+        }
+        result = build_comparison_html(many)
+        assert result.count('data-slot="a"') > 0
+        assert result.count('data-slot="b"') > 0
+        assert 'data-pf="' not in result
 
     def test_html_contains_table_element(self):
         result = build_comparison_html(_two_model_dfs())

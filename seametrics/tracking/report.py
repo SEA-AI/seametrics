@@ -99,129 +99,147 @@ def _summary_values(
     }
 
 
-def _sortable_headers(
-    pf_mn_col: list,
-    mn_col: list,
-    *,
-    show_diff: bool,
-    pf_idx: dict,
-    n_regular_cols: int,
-) -> str:
-    """Build sortable column header cells."""
-    headers = "".join(
-        f'<th class="sortable" data-label="{_h(col)}" data-pf="{pf_idx[pf]}"'
-        f' onclick="sortTable({i + 1})" title="Sort by {_h(col)}">{_h(col)}</th>'
-        for i, (pf, _mn, col) in enumerate(pf_mn_col)
+def _default_compare_pair(pred_fields: list) -> tuple[str, str | None]:
+    """Return initial A/B selection for the comparison table."""
+    pf_a = pred_fields[0]
+    pf_b = pred_fields[1] if len(pred_fields) >= 2 else None  # noqa: PLR2004
+    return pf_a, pf_b
+
+
+def _metric_group_header_block(metric_names: list, metric_cols: dict) -> str:
+    """Build one row of metric-group ``<th>`` cells (MOT, HOTA, …)."""
+    return "".join(
+        f'<th colspan="{len(metric_cols[mn])}" style="border-left:2px solid #0f3460;">'
+        f"{_h(_DISPLAY_NAME.get(mn, mn))}</th>"
+        for mn in metric_names
     )
-    if show_diff:
-        headers += "".join(
+
+
+def _compare_slot_headers(
+    n_cols_per_model: int,
+    *,
+    name_a: str,
+    name_b: str,
+) -> str:
+    """Build top-row A / B / Δ model name headers."""
+    return (
+        f'<th colspan="{n_cols_per_model}" id="model-header-a"'
+        f' style="border-left:2px solid #e94560;">{_h(name_a)}</th>'
+        f'<th colspan="{n_cols_per_model}" id="model-header-b"'
+        f' style="border-left:2px solid #2a2a4a;">{_h(name_b)}</th>'
+        f'<th colspan="{n_cols_per_model}"'
+        f' style="border-left:2px solid #e94560;">'
+        f'<span id="diff-label">Δ</span></th>'
+    )
+
+
+def _sortable_headers(mn_col: list) -> str:
+    """Build sortable column header cells for A, B, and Δ blocks."""
+    headers = []
+    col_idx = 0
+    for _slot in ("a", "b"):
+        for _mn, col in mn_col:
+            col_idx += 1
+            headers.append(
+                f'<th class="sortable" data-label="{_h(col)}"'
+                f' onclick="sortTable({col_idx})" title="Sort by {_h(col)}">'
+                f"{_h(col)}</th>"
+            )
+    for _mn, col in mn_col:
+        col_idx += 1
+        headers.append(
             f'<th class="sortable" data-label="Δ {_h(col)}"'
-            f' onclick="sortTable({n_regular_cols + i + 1})"'
+            f' onclick="sortTable({col_idx})"'
             f' title="Sort by Δ {_h(col)}">Δ {_h(col)}</th>'
-            for i, (_mn, col) in enumerate(mn_col)
         )
-    return headers
+    return "".join(headers)
+
+
+def _slot_cell(
+    dfs: dict,
+    pf: str | None,
+    mn: str,
+    col: str,
+    seq: str,
+) -> str:
+    """Format one per-sequence metric cell for slot A or B."""
+    if pf is None:
+        return ""
+    return _fmt_cell(_cell_value(dfs, pf, mn, col, seq))
 
 
 def _sequence_rows(
     sequences: list,
-    pf_mn_col: list,
     mn_col: list,
     dfs: dict,
     *,
-    show_diff: bool,
-    pf_idx: dict,
+    pf_a: str,
+    pf_b: str | None,
 ) -> str:
-    """Build per-sequence table body rows."""
+    """Build per-sequence table body rows for the A/B comparison layout."""
     return "".join(
         "<tr><td>"
         + _h(seq)
         + "</td>"
         + "".join(
-            f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
-            f"{_fmt_cell(_cell_value(dfs, pf, mn, col, seq))}</td>"
-            for pf, mn, col in pf_mn_col
+            f'<td style="text-align:right;" data-slot="a"'
+            f' data-mn="{_h(mn)}" data-col="{_h(col)}" data-seq="{_h(seq)}">'
+            f"{_slot_cell(dfs, pf_a, mn, col, seq)}</td>"
+            for mn, col in mn_col
         )
-        + (
-            "".join(
-                f'<td style="text-align:right;" data-diff'
-                f' data-mn="{_h(mn)}" data-col="{_h(col)}"'
-                f' data-seq="{_h(seq)}"></td>'
-                for mn, col in mn_col
-            )
-            if show_diff
-            else ""
+        + "".join(
+            f'<td style="text-align:right;" data-slot="b"'
+            f' data-mn="{_h(mn)}" data-col="{_h(col)}" data-seq="{_h(seq)}">'
+            f"{_slot_cell(dfs, pf_b, mn, col, seq)}</td>"
+            for mn, col in mn_col
+        )
+        + "".join(
+            f'<td style="text-align:right;" data-diff'
+            f' data-mn="{_h(mn)}" data-col="{_h(col)}" data-seq="{_h(seq)}"></td>'
+            for mn, col in mn_col
         )
         + "</tr>"
         for seq in sequences
     )
 
 
+def _summary_slot_cell(
+    summary: dict[tuple[str, str, str], float | None],
+    pf: str | None,
+    mn: str,
+    col: str,
+) -> str:
+    """Format one summary-row cell for slot A or B."""
+    if pf is None:
+        return ""
+    val = summary.get((pf, mn, col))
+    return _fmt_cell(val) if val is not None else ""
+
+
 def _summary_cells(
-    pf_mn_col: list,
     mn_col: list,
     summary: dict[tuple[str, str, str], float | None],
     *,
-    show_diff: bool,
-    pf_idx: dict,
+    pf_a: str,
+    pf_b: str | None,
 ) -> str:
-    """Build summary-row metric cells."""
+    """Build summary-row metric cells for the A/B comparison layout."""
     cells = "".join(
-        f'<td style="text-align:right;" data-pf="{pf_idx[pf]}">'
-        f"{_fmt_cell(val) if (val := summary[pf, mn, col]) is not None else ''}</td>"
-        for pf, mn, col in pf_mn_col
+        f'<td style="text-align:right;" data-slot="a" data-mn="{_h(mn)}"'
+        f' data-col="{_h(col)}">{_summary_slot_cell(summary, pf_a, mn, col)}</td>'
+        for mn, col in mn_col
     )
-    if show_diff:
-        cells += "".join(
-            f'<td style="text-align:right;" data-diff-mean'
-            f' data-mn="{_h(mn)}" data-col="{_h(col)}"></td>'
-            for mn, col in mn_col
-        )
+    cells += "".join(
+        f'<td style="text-align:right;" data-slot="b" data-mn="{_h(mn)}"'
+        f' data-col="{_h(col)}">{_summary_slot_cell(summary, pf_b, mn, col)}</td>'
+        for mn, col in mn_col
+    )
+    cells += "".join(
+        f'<td style="text-align:right;" data-diff-mean'
+        f' data-mn="{_h(mn)}" data-col="{_h(col)}"></td>'
+        for mn, col in mn_col
+    )
     return cells
-
-
-def _pred_field_headers(
-    pred_fields: list, n_cols_per_model: int, pf_idx: dict, *, show_diff: bool
-) -> str:
-    """Build top-row model name headers."""
-    headers = "".join(
-        f'<th colspan="{n_cols_per_model}" data-pf="{pf_idx[pf]}"'
-        f' style="border-left:2px solid #e94560;">{_h(pf)}</th>'
-        for pf in pred_fields
-    )
-    if show_diff:
-        headers += (
-            f'<th colspan="{n_cols_per_model}"'
-            f' style="border-left:2px solid #e94560;">'
-            f'<span id="diff-label">Δ</span></th>'
-        )
-    return headers
-
-
-def _metric_name_headers(
-    pred_fields: list,
-    metric_names: list,
-    metric_cols: dict,
-    pf_idx: dict,
-    *,
-    show_diff: bool,
-) -> str:
-    """Build second-row metric group headers."""
-    headers = "".join(
-        f'<th colspan="{len(metric_cols[mn])}" data-pf="{pf_idx[pf]}"'
-        f' style="border-left:2px solid #0f3460;">'
-        f"{_h(_DISPLAY_NAME.get(mn, mn))}</th>"
-        for pf in pred_fields
-        for mn in metric_names
-    )
-    if show_diff:
-        headers += "".join(
-            f'<th colspan="{len(metric_cols[mn])}"'
-            f' style="border-left:2px solid #0f3460;">'
-            f"{_h(_DISPLAY_NAME.get(mn, mn))}</th>"
-            for mn in metric_names
-        )
-    return headers
 
 
 def _cell_value(dfs: dict, pf: str, mn: str, col: str, seq: str) -> float:
@@ -234,15 +252,16 @@ def _fmt_cell(val: float) -> str:
     return "" if pd.isna(val) else f"{val:.2f}"
 
 
-def _build_diff_controls(pred_fields: list, show_diff: bool) -> str:
-    """Build the diff model-selector HTML, or return empty string."""
-    if not show_diff:
-        return ""
+def _build_diff_controls(pred_fields: list) -> str:
+    """Build the A vs B field selectors above the comparison table."""
     opts_a = "".join(
-        f'<option value="{_h(pf)}">{_h(pf)}</option>' for pf in pred_fields
+        f'<option value="{_h(pf)}"{" selected" if i == 0 else ""}>{_h(pf)}</option>'
+        for i, pf in enumerate(pred_fields)
     )
-    opts_b = "".join(
-        f'<option value="{_h(pf)}" {"selected" if i == 1 else ""}>{_h(pf)}</option>'
+    none_selected = len(pred_fields) < 2  # noqa: PLR2004
+    opts_b = f'<option value=""{" selected" if none_selected else ""}>—</option>'
+    opts_b += "".join(
+        f'<option value="{_h(pf)}"{" selected" if i == 1 else ""}>{_h(pf)}</option>'
         for i, pf in enumerate(pred_fields)
     )
     return (
@@ -255,14 +274,12 @@ def _build_diff_controls(pred_fields: list, show_diff: bool) -> str:
     )
 
 
-def _table_layout(pred_fields: list, metric_names: list, metric_cols: dict) -> dict:
-    """Pre-compute table iteration order and diff-column flags."""
+def _table_layout(metric_names: list, metric_cols: dict) -> dict:
+    """Pre-compute table iteration order for the fixed A/B/Δ layout."""
+    mn_col = list(_iter_mn_col(metric_names, metric_cols))
     return {
-        "show_diff": len(pred_fields) >= 2,  # noqa: PLR2004
-        "pf_idx": {pf: i for i, pf in enumerate(pred_fields)},
+        "mn_col": mn_col,
         "n_cols_per_model": sum(len(metric_cols[mn]) for mn in metric_names),
-        "pf_mn_col": list(_iter_pf_mn_col(pred_fields, metric_names, metric_cols)),
-        "mn_col": list(_iter_mn_col(metric_names, metric_cols)),
     }
 
 
@@ -277,39 +294,25 @@ def _assemble_html_table(
     metric_cols: dict,
 ) -> str:
     """Assemble the full ``<table>`` HTML string from pre-computed layout values."""
-    pf_mn_col = layout["pf_mn_col"]
     mn_col = layout["mn_col"]
-    pf_idx = layout["pf_idx"]
-    show_diff = layout["show_diff"]
-    body_rows = _sequence_rows(
-        sequences, pf_mn_col, mn_col, dfs, show_diff=show_diff, pf_idx=pf_idx
-    )
-    summary_row = _summary_cells(
-        pf_mn_col, mn_col, summary, show_diff=show_diff, pf_idx=pf_idx
-    )
+    n_cols = layout["n_cols_per_model"]
+    pf_a, pf_b = _default_compare_pair(pred_fields)
+    group_hdr = _metric_group_header_block(metric_names, metric_cols)
+    body_rows = _sequence_rows(sequences, mn_col, dfs, pf_a=pf_a, pf_b=pf_b)
+    summary_row = _summary_cells(mn_col, summary, pf_a=pf_a, pf_b=pf_b)
     return (
-        _build_diff_controls(pred_fields, show_diff)
+        _build_diff_controls(pred_fields)
         + f"""<table id="seq-table">
     <thead>
       <tr><th rowspan="3">Sequence</th>{
-            _pred_field_headers(
-                pred_fields, layout["n_cols_per_model"], pf_idx, show_diff=show_diff
+            _compare_slot_headers(
+                n_cols,
+                name_a=pf_a,
+                name_b=pf_b or "—",
             )
         }</tr>
-      <tr>{
-            _metric_name_headers(
-                pred_fields, metric_names, metric_cols, pf_idx, show_diff=show_diff
-            )
-        }</tr>
-      <tr>{
-            _sortable_headers(
-                pf_mn_col,
-                mn_col,
-                show_diff=show_diff,
-                pf_idx=pf_idx,
-                n_regular_cols=len(pf_mn_col),
-            )
-        }</tr>
+      <tr>{group_hdr}{group_hdr}{group_hdr}</tr>
+      <tr>{_sortable_headers(mn_col)}</tr>
     </thead>
     <tbody>
       {body_rows}
@@ -444,7 +447,7 @@ def _comparison_sections(dfs: dict) -> dict:
         pf: _MODEL_COLORS[i % len(_MODEL_COLORS)] for i, pf in enumerate(pred_fields)
     }
     summary = _summary_values(pred_fields, metric_names, metric_cols, dfs)
-    layout = _table_layout(pred_fields, metric_names, metric_cols)
+    layout = _table_layout(metric_names, metric_cols)
     chart_data, checkboxes_html, tab_buttons, chart_grids = _build_chart_section(
         pred_fields, metric_names, metric_cols, summary, color_map
     )
