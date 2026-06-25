@@ -51,14 +51,14 @@ def failed_sequence_reason(
     Returns:
         A short explanation string.
     """
+    if exc is not None:
+        return f"{type(exc).__name__}: {exc}"
     if len(gt) == 0 and len(pred) == 0:
         return "No ground truth and no predictions"
     if len(gt) == 0:
         return "No ground truth"
     if len(pred) == 0:
         return "No predictions"
-    if exc is not None:
-        return f"{type(exc).__name__}: {exc}"
     return "Missing IDs from GT or Pred"
 
 
@@ -593,15 +593,18 @@ def compute_metrics_by_sequence(
     return metric
 
 
-def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
-    """Return True if any frame in *seq_view* has keyframe data for *pred_field*.
+def _field_exists(seq_view: fo.DatasetView, field: str) -> bool:
+    """Return True when *field* is defined on the sequence view.
+
+    A field may exist but carry empty detections on every frame; that still
+    counts as present and the sequence should be evaluated.
 
     Args:
         seq_view: FiftyOne view for a single sequence.
-        pred_field: Prediction field name to check.
+        field: Frame field name (e.g. a prediction or ground-truth field).
 
     Returns:
-        True if at least one keyframe value is truthy; False otherwise.
+        True when the field exists on the view schema.
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
@@ -613,32 +616,35 @@ def _has_keyframes(seq_view: fo.DatasetView, pred_field: str) -> bool:
         if seq_view.media_type == "group"
         else seq_view
     )
-    try:
-        kf_vals = video_view.values(f"frames[].{pred_field}.keyframe")
-        return any(kf for kf in kf_vals if kf)
-    except (ValueError, AttributeError, RuntimeError, TypeError, KeyError):
-        return False
+    if video_view.media_type == "video":
+        return video_view.has_frame_field(field)
+    if video_view.media_type == "image":
+        return video_view.has_field(field)
+    return False
 
 
 def _filter_valid_sequences(
     sequence_list: list,
     view: fo.DatasetView,
+    gt_field: str,
     pred_fields: list,
     instances: dict,
 ) -> list:
-    """Validate keyframe availability and return sequences that have all fields.
+    """Validate field availability and return sequences ready for evaluation.
 
-    Sequences missing keyframes for any prediction field are logged as failed
-    on every metric instance and excluded from the returned list.
+    Sequences where the ground-truth or any prediction field is absent from the
+    schema are logged as failed and excluded. Fields that exist but contain
+    only empty detections are kept — metrics run on empty (gt, pred) arrays.
 
     Args:
         sequence_list: Candidate sequence names.
         view: FiftyOne dataset view used to match individual sequences.
+        gt_field: Ground-truth field name.
         pred_fields: Prediction field names to validate.
         instances: Nested dict ``{pred_field: {metric_name: metric_instance}}``.
 
     Returns:
-        List of sequence names where all prediction fields have keyframe data.
+        List of sequence names where all required fields exist.
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
@@ -648,9 +654,13 @@ def _filter_valid_sequences(
     valid = []
     for sequence_name in tqdm(sequence_list, desc="Validating sequences"):
         sequence_view = view.match(F("sequence") == sequence_name)
-        missing = [pf for pf in pred_fields if not _has_keyframes(sequence_view, pf)]
+        missing = [
+            name
+            for name in [gt_field, *pred_fields]
+            if not _field_exists(sequence_view, name)
+        ]
         if missing:
-            exc = ValueError(f"No keyframe data for: {missing}")
+            exc = ValueError(f"Field not found: {missing}")
             for pf in pred_fields:
                 for instance in instances[pf].values():
                     instance.log_failed_sequence(sequence_name, [], [], exc=exc)
@@ -755,7 +765,9 @@ def compute_all_metrics_by_sequence(
         pred_field: {fn.__name__: fn(**kwargs) for fn, kwargs in metrics}
         for pred_field in pred_fields
     }
-    valid_sequences = _filter_valid_sequences(resolved, view, pred_fields, instances)
+    valid_sequences = _filter_valid_sequences(
+        resolved, view, gt_field, pred_fields, instances
+    )
     _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
 
     # Ensure consistent results: any sequence that failed for one pred_field is

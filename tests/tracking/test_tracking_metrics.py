@@ -93,6 +93,23 @@ class TestNoPredictions:
         assert _scalar(r, "num_false_positives") == 1
 
 
+class TestEmptyPredictions:
+    """Fully empty pred array with GT present should still compute."""
+
+    def setup_method(self):
+        gt = _array(
+            _det(1, 1, 0, 0, 10, 10),
+            _det(2, 1, 0, 0, 10, 10),
+        )
+        pred = np.empty((0, 7))
+        self.m = TrackingMetrics()
+        self.m.update(gt, pred, "seq")
+
+    def test_all_gt_missed(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_misses") == 2
+
+
 # ---------------------------------------------------------------------------
 # ID switch
 # ---------------------------------------------------------------------------
@@ -244,6 +261,12 @@ class TestLogFailedSequence:
         m = TrackingMetrics()
         m.log_failed_sequence("s", [], [])
         assert m.failed_sequences["s"] == "No ground truth and no predictions"
+
+    def test_exception_takes_priority_over_empty_arrays(self):
+        m = TrackingMetrics()
+        exc = ValueError("Field not found: ['pred_x']")
+        m.log_failed_sequence("s", [], [], exc=exc)
+        assert m.failed_sequences["s"] == "ValueError: Field not found: ['pred_x']"
 
     def test_no_gt(self):
         m = TrackingMetrics()
