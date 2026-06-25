@@ -104,7 +104,7 @@ class HOTAMetrics:
                 pools that subset (same as ``None`` over that subset).
 
         Raises:
-            KeyError: If *sequence* names an unknown or duplicate sequence.
+            ValueError: If *sequence* names an unknown or duplicate sequence.
         """
         if sequence is None or isinstance(sequence, (list, tuple)):
             if sequence is None:
@@ -112,10 +112,10 @@ class HOTAMetrics:
             else:
                 duplicates = sorted(n for n, c in Counter(sequence).items() if c > 1)
                 if duplicates:
-                    raise KeyError(f"Duplicate sequence: {duplicates}")
+                    raise ValueError(f"Duplicate sequence: {duplicates}")
                 unknown = [n for n in sequence if n not in self.accumulators]
                 if unknown:
-                    raise KeyError(f"Unknown sequence: {unknown}")
+                    raise ValueError(f"Unknown sequence: {unknown}")
                 entries = [self.accumulators[n] for n in sequence]
             if not entries:
                 return {}
@@ -123,7 +123,7 @@ class HOTAMetrics:
             return self._compute_hota(pooled_gt, pooled_pred)
 
         if sequence not in self.accumulators:
-            raise KeyError(f"Unknown sequence: {sequence}")
+            raise ValueError(f"Unknown sequence: {sequence}")
         gt, pred = self.accumulators[sequence]
         return self._compute_hota(gt, pred)
 
@@ -133,14 +133,14 @@ class HOTAMetrics:
         Per-sequence and pooled results avoid N+1 ``compute()`` in table exporters.
 
         Raises:
-            KeyError: If *names* contains unknown or duplicate sequence names.
+            ValueError: If *names* contains unknown or duplicate sequence names.
         """
         duplicates = sorted(n for n, c in Counter(names).items() if c > 1)
         if duplicates:
-            raise KeyError(f"Duplicate sequence: {duplicates}")
+            raise ValueError(f"Duplicate sequence: {duplicates}")
         unknown = [n for n in names if n not in self.accumulators]
         if unknown:
-            raise KeyError(f"Unknown sequence: {unknown}")
+            raise ValueError(f"Unknown sequence: {unknown}")
         if not names:
             return {}
 

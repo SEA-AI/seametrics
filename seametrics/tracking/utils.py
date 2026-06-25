@@ -890,27 +890,22 @@ def _scale_metric_row(flat_result: dict, *, layout: str) -> dict:
     return row
 
 
-def _flatten_result(result: dict, key: str | None) -> dict:
+def _flatten_result(result: dict, key: str) -> dict:
     """Flatten a ``compute()`` result to a flat ``{metric: scalar}`` mapping.
 
     Nested motmetrics-style results (TrackingMetrics and HOTA ``compute_many``)
     map *key* to each metric's inner entry — ``OVERALL_LABEL`` for the pooled
-    row, or a sequence name for a per-sequence row. Flat HOTA single-sequence
-    results are returned unchanged.
+    row, or a sequence name for a per-sequence row.
 
     Args:
         result: Raw dict returned by ``metrics.compute(...)`` or
             ``metrics.compute_many(...)``.
-        key: Inner key to select for nested results, or ``None`` for flat.
+        key: Inner key to select for nested results (sequence name or
+            ``OVERALL_LABEL``).
 
     Returns:
         Flat ``{metric: scalar}`` dict.
     """
-    if key is None:
-        sample = next(iter(result.values()))
-        if isinstance(sample, dict):
-            return {k: next(iter(v.values())) for k, v in result.items()}
-        return result
     return {k: v[key] for k, v in result.items()}
 
 

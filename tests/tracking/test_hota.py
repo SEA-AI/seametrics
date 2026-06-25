@@ -184,7 +184,7 @@ class TestHOTAGlobalAggregation:
         assert r["hota"] == pytest.approx(0.5**0.5, abs=1e-6)
 
     def test_unknown_sequence_raises(self):
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="Unknown sequence"):
             self.m.compute("nonexistent")
 
 
@@ -238,16 +238,16 @@ class TestHOTASubsetPooling:
         )
 
     def test_unknown_sequence_in_list_raises(self):
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="Unknown sequence"):
             self.m.compute(["A", "nonexistent"])
 
     def test_duplicate_sequence_in_list_raises(self):
         # A duplicate name would pool the same accumulator twice and skew scores.
-        with pytest.raises(KeyError, match="Duplicate sequence"):
+        with pytest.raises(ValueError, match="Duplicate sequence"):
             self.m.compute(["A", "A"])
 
     def test_compute_many_duplicate_sequence_raises(self):
-        with pytest.raises(KeyError, match="Duplicate sequence"):
+        with pytest.raises(ValueError, match="Duplicate sequence"):
             self.m.compute_many(["A", "A"])
 
     def test_compute_many_matches_single_calls(self):
