@@ -144,6 +144,48 @@ class TestTrackingNoGT:
         assert _scalar(r, "mota") == float("-inf")
 
 
+class TestTrackingNoGTOverallPooling:
+    """Pool a perfect sequence with an empty-GT sequence.
+
+    motmetrics OVERALL recomputes ratio metrics from summed counts, so B's
+    per-sequence NaN recall does not poison the dataset-level score.
+    """
+
+    def setup_method(self):
+        gt_a = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 1, 1, 11, 11))
+        pred_a = gt_a.copy()
+        gt_b = np.empty((0, 6))
+        pred_b = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 1, 1, 11, 11))
+
+        self.m = TrackingMetrics()
+        self.m.update(gt_a, pred_a, "A")
+        self.m.update(gt_b, pred_b, "B")
+        self.r = self.m.compute(["A", "B"])
+
+    def test_empty_gt_sequence_recall_is_nan(self):
+        assert math.isnan(self.r["recall"]["B"])
+
+    def test_overall_precision(self):
+        # pooled: TP=2, FP=2 → 2 / (2 + 2)
+        assert self.r["precision"]["OVERALL"] == pytest.approx(0.5)
+
+    def test_overall_recall(self):
+        # pooled: TP=2, num_objects=2 → not NaN despite B's undefined recall
+        assert self.r["recall"]["OVERALL"] == pytest.approx(1.0)
+
+    def test_overall_mota(self):
+        # pooled: 1 - (misses + switches + FP) / num_objects = 1 - 2/2
+        assert self.r["mota"]["OVERALL"] == pytest.approx(0.0)
+
+    def test_overall_false_positives_summed(self):
+        assert self.r["num_false_positives"]["OVERALL"] == 2
+
+    def test_overall_mota_differs_from_per_sequence_mean(self):
+        # Naive mean of per-sequence MOTA (1.0, -inf) is not the MOT-standard pool.
+        per_seq_mean = np.mean([self.r["mota"]["A"], self.r["mota"]["B"]])
+        assert self.r["mota"]["OVERALL"] != pytest.approx(per_seq_mean)
+
+
 # ---------------------------------------------------------------------------
 # ID switch
 # ---------------------------------------------------------------------------
