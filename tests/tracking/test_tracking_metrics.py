@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -91,6 +93,55 @@ class TestNoPredictions:
     def test_false_positives(self):
         r = self.m.compute("seq")
         assert _scalar(r, "num_false_positives") == 1
+
+
+# ---------------------------------------------------------------------------
+# No ground truth
+# ---------------------------------------------------------------------------
+
+
+class TestTrackingNoGT:
+    """All predictions, no ground truth — motmetrics counts every pred as FP.
+
+    With zero GT objects, recall is undefined (NaN) and MOTA divides by zero
+    (-inf). Precision is well-defined: TP / (TP + FP) = 0 / N = 0.
+    """
+
+    def setup_method(self):
+        gt = np.empty((0, 6))
+        pred = _array(
+            _det(1, 1, 0, 0, 10, 10),
+            _det(2, 1, 1, 1, 11, 11),
+        )
+        self.m = TrackingMetrics()
+        self.m.update(gt, pred, "seq")
+
+    def test_false_positives(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_false_positives") == 2
+
+    def test_no_gt_objects(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_unique_objects") == 0
+
+    def test_no_misses(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_misses") == 0
+
+    def test_precision_is_zero(self):
+        # precision = TP / (TP + FP) = 0 / 2
+        r = self.m.compute("seq")
+        assert _scalar(r, "precision") == pytest.approx(0.0)
+
+    def test_recall_is_nan(self):
+        # recall = TP / num_objects = 0 / 0 → undefined
+        r = self.m.compute("seq")
+        assert math.isnan(_scalar(r, "recall"))
+
+    def test_mota_is_negative_inf(self):
+        # MOTA = 1 - FP / num_objects = 1 - 2/0
+        r = self.m.compute("seq")
+        assert _scalar(r, "mota") == float("-inf")
 
 
 # ---------------------------------------------------------------------------
