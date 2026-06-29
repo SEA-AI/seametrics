@@ -95,6 +95,39 @@ class TestNoPredictions:
         assert _scalar(r, "num_false_positives") == 1
 
 
+class TestTrackingEmptyPred:
+    """GT present, empty pred array → all GT objects missed."""
+
+    def setup_method(self):
+        gt = _array(
+            _det(1, 1, 0, 0, 10, 10),
+            _det(2, 1, 0, 0, 10, 10),
+            _det(3, 1, 0, 0, 10, 10),
+        )
+        pred = np.empty((0, 6))
+        self.m = TrackingMetrics()
+        self.m.update(gt, pred, "seq")
+
+    def test_misses(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_misses") == 3
+
+    def test_recall_is_zero(self):
+        # recall = TP / num_objects = 0 / 3
+        r = self.m.compute("seq")
+        assert _scalar(r, "recall") == pytest.approx(0.0)
+
+    def test_mota_is_zero(self):
+        # Three misses, no false positives or switches over three GT appearances.
+        r = self.m.compute("seq")
+        assert _scalar(r, "mota") == pytest.approx(0.0)
+
+    def test_precision_is_nan(self):
+        # precision = TP / (TP + FP) = 0 / 0 → undefined
+        r = self.m.compute("seq")
+        assert math.isnan(_scalar(r, "precision"))
+
+
 # ---------------------------------------------------------------------------
 # No ground truth
 # ---------------------------------------------------------------------------
