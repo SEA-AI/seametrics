@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0 # Ensures we get commit history for diffing
 
       - name: 🔄 Cache repository
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: . # Cache the entire repo
           key: repo-${{ github.sha }}
@@ -32,7 +32,7 @@ jobs:
       changed_files: ${{ steps.changed-python-files.outputs.all_changed_files }}
     steps:
       - name: 🔄 Restore repository from cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .
           key: repo-${{ github.sha }}
@@ -54,7 +54,7 @@ jobs:
       pull-requests: write
     steps:
       - name: 🔄 Restore repository from cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .
           key: repo-${{ github.sha }}
@@ -75,7 +75,7 @@ jobs:
       pull-requests: write
     steps:
       - name: 🔄 Restore repository from cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .
           key: repo-${{ github.sha }}
@@ -96,7 +96,7 @@ jobs:
       pull-requests: write
     steps:
       - name: 🔄 Restore repository from cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .
           key: repo-${{ github.sha }}
@@ -127,7 +127,7 @@ jobs:
     if: ${{ needs.changed-files.outputs.changed_files != '' }}
     steps:
       - name: 🔄 Restore repository from cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .
           key: repo-${{ github.sha }}
