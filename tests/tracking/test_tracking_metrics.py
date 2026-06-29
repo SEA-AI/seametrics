@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 
@@ -91,6 +93,130 @@ class TestNoPredictions:
     def test_false_positives(self):
         r = self.m.compute("seq")
         assert _scalar(r, "num_false_positives") == 1
+
+
+class TestTrackingEmptyPred:
+    """GT present, empty pred array → all GT objects missed."""
+
+    def setup_method(self):
+        gt = _array(
+            _det(1, 1, 0, 0, 10, 10),
+            _det(2, 1, 0, 0, 10, 10),
+            _det(3, 1, 0, 0, 10, 10),
+        )
+        pred = np.empty((0, 6))
+        self.m = TrackingMetrics()
+        self.m.update(gt, pred, "seq")
+
+    def test_misses(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_misses") == 3
+
+    def test_recall_is_zero(self):
+        # recall = TP / num_objects = 0 / 3
+        r = self.m.compute("seq")
+        assert _scalar(r, "recall") == pytest.approx(0.0)
+
+    def test_mota_is_zero(self):
+        # Three misses, no false positives or switches over three GT appearances.
+        r = self.m.compute("seq")
+        assert _scalar(r, "mota") == pytest.approx(0.0)
+
+    def test_precision_is_nan(self):
+        # precision = TP / (TP + FP) = 0 / 0 → undefined
+        r = self.m.compute("seq")
+        assert math.isnan(_scalar(r, "precision"))
+
+
+# ---------------------------------------------------------------------------
+# No ground truth
+# ---------------------------------------------------------------------------
+
+
+class TestTrackingNoGT:
+    """All predictions, no ground truth — motmetrics counts every pred as FP.
+
+    With zero GT objects, recall is undefined (NaN) and MOTA divides by zero
+    (-inf). Precision is well-defined: TP / (TP + FP) = 0 / N = 0.
+    """
+
+    def setup_method(self):
+        gt = np.empty((0, 6))
+        pred = _array(
+            _det(1, 1, 0, 0, 10, 10),
+            _det(2, 1, 1, 1, 11, 11),
+        )
+        self.m = TrackingMetrics()
+        self.m.update(gt, pred, "seq")
+
+    def test_false_positives(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_false_positives") == 2
+
+    def test_no_gt_objects(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_unique_objects") == 0
+
+    def test_no_misses(self):
+        r = self.m.compute("seq")
+        assert _scalar(r, "num_misses") == 0
+
+    def test_precision_is_zero(self):
+        # precision = TP / (TP + FP) = 0 / 2
+        r = self.m.compute("seq")
+        assert _scalar(r, "precision") == pytest.approx(0.0)
+
+    def test_recall_is_nan(self):
+        # recall = TP / num_objects = 0 / 0 → undefined
+        r = self.m.compute("seq")
+        assert math.isnan(_scalar(r, "recall"))
+
+    def test_mota_is_negative_inf(self):
+        # MOTA = 1 - FP / num_objects = 1 - 2/0
+        r = self.m.compute("seq")
+        assert _scalar(r, "mota") == float("-inf")
+
+
+class TestTrackingNoGTOverallPooling:
+    """Pool a perfect sequence with an empty-GT sequence.
+
+    motmetrics OVERALL recomputes ratio metrics from summed counts, so B's
+    per-sequence NaN recall does not poison the dataset-level score.
+    """
+
+    def setup_method(self):
+        gt_a = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 1, 1, 11, 11))
+        pred_a = gt_a.copy()
+        gt_b = np.empty((0, 6))
+        pred_b = _array(_det(1, 1, 0, 0, 10, 10), _det(2, 1, 1, 1, 11, 11))
+
+        self.m = TrackingMetrics()
+        self.m.update(gt_a, pred_a, "A")
+        self.m.update(gt_b, pred_b, "B")
+        self.r = self.m.compute(["A", "B"])
+
+    def test_empty_gt_sequence_recall_is_nan(self):
+        assert math.isnan(self.r["recall"]["B"])
+
+    def test_overall_precision(self):
+        # pooled: TP=2, FP=2 → 2 / (2 + 2)
+        assert self.r["precision"]["OVERALL"] == pytest.approx(0.5)
+
+    def test_overall_recall(self):
+        # pooled: TP=2, num_objects=2 → not NaN despite B's undefined recall
+        assert self.r["recall"]["OVERALL"] == pytest.approx(1.0)
+
+    def test_overall_mota(self):
+        # Two pooled false positives against two GT object appearances.
+        assert self.r["mota"]["OVERALL"] == pytest.approx(0.0)
+
+    def test_overall_false_positives_summed(self):
+        assert self.r["num_false_positives"]["OVERALL"] == 2
+
+    def test_overall_mota_differs_from_per_sequence_mean(self):
+        # Naive mean of per-sequence MOTA (1.0, -inf) is not the MOT-standard pool.
+        per_seq_mean = np.mean([self.r["mota"]["A"], self.r["mota"]["B"]])
+        assert self.r["mota"]["OVERALL"] != pytest.approx(per_seq_mean)
 
 
 # ---------------------------------------------------------------------------
