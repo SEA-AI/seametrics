@@ -174,7 +174,7 @@ class TestTrackingNoGTOverallPooling:
         assert self.r["recall"]["OVERALL"] == pytest.approx(1.0)
 
     def test_overall_mota(self):
-        # pooled: 1 - (misses + switches + FP) / num_objects = 1 - 2/2
+        # Two pooled false positives against two GT object appearances.
         assert self.r["mota"]["OVERALL"] == pytest.approx(0.0)
 
     def test_overall_false_positives_summed(self):
