@@ -11,32 +11,12 @@ import pandas as pd
 from tqdm import tqdm
 
 from ._box_utils import box_convert, box_denormalize
-
-#: Re-exported from :mod:`constants` for backward compatibility.
-
-#: Metric names aggregated by summation across sequences (integer counts), as
-#: opposed to ratio/derived metrics which are pooled. Shared so the metric
-#: classes and the report agree on a single source of truth.
-COUNT_METRICS = (
-    "num_frames",
-    "mostly_tracked",
-    "partially_tracked",
-    "mostly_lost",
-    "num_switches",
-    "num_false_positives",
-    "num_misses",
-    "num_fragmentations",
-    "num_unique_objects",
-)
-
-#: Column width for MOT tracker-format arrays produced by
-#: :func:`prepare_data_for_det_metrics`.
-_TRACKER_ARRAY_COLS = 10
+from .constants import TRACKER_ARRAY_COLS
 
 
 def _as_tracker_array(rows: list) -> np.ndarray:
-    """Return a ``(N, _TRACKER_ARRAY_COLS)`` array, including empty sides."""
-    return np.array(rows) if rows else np.empty((0, _TRACKER_ARRAY_COLS))
+    """Return a ``(N, TRACKER_ARRAY_COLS)`` array, including empty sides."""
+    return np.array(rows) if rows else np.empty((0, TRACKER_ARRAY_COLS))
 
 
 def failed_sequence_reason(
@@ -917,6 +897,10 @@ def __getattr__(name: str) -> object:
         from .constants import OVERALL_LABEL
 
         return OVERALL_LABEL
+    if name == "COUNT_METRICS":
+        from .constants import COUNT_METRICS
+
+        return COUNT_METRICS
     if name == "results_to_df":
         from .results_df import results_to_df
 

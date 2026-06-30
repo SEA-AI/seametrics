@@ -7,23 +7,11 @@ from itertools import chain, product
 
 import pandas as pd
 
-from .constants import OVERALL_LABEL
-from .utils import COUNT_METRICS
+from .constants import COUNT_METRICS, DISPLAY_NAMES, MODEL_COLORS, OVERALL_LABEL
 
 #: Metrics aggregated by summation in the summary row (count metrics); all other
 #: columns use the pooled OVERALL value. Sourced from a single shared constant.
 _SUM_METRICS = set(COUNT_METRICS)
-
-_DISPLAY_NAME = {"TrackingMetrics": "MOT Metrics", "HOTAMetrics": "HOTA Metrics"}
-
-_MODEL_COLORS = [
-    "rgba(233,69,96,0.8)",
-    "rgba(52,168,235,0.8)",
-    "rgba(52,211,153,0.8)",
-    "rgba(251,191,36,0.8)",
-    "rgba(167,139,250,0.8)",
-    "rgba(251,146,60,0.8)",
-]
 
 
 def _h(s: str) -> str:
@@ -211,7 +199,7 @@ def _metric_name_headers(
     headers = "".join(
         f'<th colspan="{len(metric_cols[mn])}" data-pf="{pf_idx[pf]}"'
         f' style="border-left:2px solid #0f3460;">'
-        f"{_h(_DISPLAY_NAME.get(mn, mn))}</th>"
+        f"{_h(DISPLAY_NAMES.get(mn, mn))}</th>"
         for pf in pred_fields
         for mn in metric_names
     )
@@ -219,7 +207,7 @@ def _metric_name_headers(
         headers += "".join(
             f'<th colspan="{len(metric_cols[mn])}"'
             f' style="border-left:2px solid #0f3460;">'
-            f"{_h(_DISPLAY_NAME.get(mn, mn))}</th>"
+            f"{_h(DISPLAY_NAMES.get(mn, mn))}</th>"
             for mn in metric_names
         )
     return headers
@@ -359,7 +347,7 @@ def _build_chart_section(
         f'style="margin-right:8px;padding:6px 14px;cursor:pointer;'
         f"background:{'#e94560' if i == 0 else '#1a1a2e'};"
         f'color:#fff;border:1px solid #e94560;border-radius:4px;">'
-        f"{_h(_DISPLAY_NAME.get(mn, mn))}</button>"
+        f"{_h(DISPLAY_NAMES.get(mn, mn))}</button>"
         for i, mn in enumerate(metric_names)
     )
 
@@ -451,7 +439,7 @@ def _comparison_sections(dfs: dict) -> dict:
         for m in metric_names
     }
     color_map = {
-        pf: _MODEL_COLORS[i % len(_MODEL_COLORS)] for i, pf in enumerate(pred_fields)
+        pf: MODEL_COLORS[i % len(MODEL_COLORS)] for i, pf in enumerate(pred_fields)
     }
     summary = _summary_values(pred_fields, metric_names, metric_cols, dfs)
     layout = _table_layout(pred_fields, metric_names, metric_cols)

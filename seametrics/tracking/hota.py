@@ -5,10 +5,8 @@ from collections import Counter, defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .constants import OVERALL_LABEL
+from .constants import HOTA_THRESHOLDS, OVERALL_LABEL
 from .utils import failed_sequence_reason
-
-_HOTA_THRESHOLDS = np.arange(0.05, 0.95 + 1e-9, 0.05)  # 19 values: 0.05 … 0.95
 
 
 def _iou_matrix(gt_boxes: np.ndarray, pred_boxes: np.ndarray) -> np.ndarray:
@@ -83,7 +81,7 @@ class HOTAMetrics:
     def __init__(self, **kwargs: object) -> None:
         """Initialise empty accumulators; extra kwargs are set as attributes."""
         self.accumulators: dict = {}  # sequence_name -> (gt_array, pred_array)
-        self.iou_thresholds: np.ndarray = _HOTA_THRESHOLDS
+        self.iou_thresholds: np.ndarray = HOTA_THRESHOLDS
         self.failed_sequences: dict = {}
         self.comparison_excluded: frozenset[str] = frozenset()
         for key, value in kwargs.items():

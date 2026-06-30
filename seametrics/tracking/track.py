@@ -5,10 +5,8 @@ from collections import Counter
 import motmetrics as mm
 import numpy as np
 
-from .utils import COUNT_METRICS, failed_sequence_reason
-
-#: Ratio/derived metrics (pooled across sequences), as opposed to COUNT_METRICS.
-RATIO_METRICS = ("mota", "motp", "idf1", "idp", "idr", "precision", "recall")
+from .constants import COUNT_METRICS, RATIO_METRICS
+from .utils import failed_sequence_reason
 
 
 class TrackingMetrics:
