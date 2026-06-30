@@ -5,7 +5,8 @@ from collections import Counter, defaultdict
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .utils import OVERALL_LABEL, failed_sequence_reason
+from .constants import OVERALL_LABEL
+from .utils import failed_sequence_reason
 
 _HOTA_THRESHOLDS = np.arange(0.05, 0.95 + 1e-9, 0.05)  # 19 values: 0.05 … 0.95
 

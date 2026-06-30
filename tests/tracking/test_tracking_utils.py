@@ -86,10 +86,10 @@ def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
     view = _FakeGroupView()
 
     instances = utils.compute_all_metrics_by_sequence(
-            view=view,
-            gt_field="gt",
-            pred_fields="pred",
-            metrics=[(_RecordingMetric, {"label": "ok"})],
+        view=view,
+        gt_field="gt",
+        pred_fields="pred",
+        metrics=[(_RecordingMetric, {"label": "ok"})],
     )
 
     recording = instances["pred"]["_RecordingMetric"]

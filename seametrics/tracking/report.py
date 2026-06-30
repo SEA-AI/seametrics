@@ -7,7 +7,8 @@ from itertools import chain, product
 
 import pandas as pd
 
-from .utils import COUNT_METRICS, OVERALL_LABEL
+from .constants import OVERALL_LABEL
+from .utils import COUNT_METRICS
 
 #: Metrics aggregated by summation in the summary row (count metrics); all other
 #: columns use the pooled OVERALL value. Sourced from a single shared constant.
