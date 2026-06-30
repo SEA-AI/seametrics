@@ -799,6 +799,11 @@ def compute_all_metrics_by_sequence(
     valid_sequences = _filter_valid_sequences(resolved, view, pred_fields, instances)
     _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
 
+    excluded = get_excluded_sequences(instances)
+    for pf_instances in instances.values():
+        for instance in pf_instances.values():
+            instance.comparison_excluded = excluded
+
     return instances
 
 
@@ -953,13 +958,18 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
 
     Args:
         metrics: Fitted metric instance with ``accumulators`` and ``compute()``.
-        sequence_list: Sequence names to include; defaults to all accumulators.
+        sequence_list: Sequence names to include; defaults to all accumulators
+            minus ``comparison_excluded`` when that attribute is set (after
+            :func:`compute_all_metrics_by_sequence`).
 
     Raises:
         ValueError: If *sequence_list* contains the reserved ``OVERALL`` label.
     """
     if sequence_list is None:
         sequence_list = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
+        excluded = getattr(metrics, "comparison_excluded", None)
+        if excluded:
+            sequence_list = [s for s in sequence_list if s not in excluded]
 
     if not sequence_list:
         return pd.DataFrame()

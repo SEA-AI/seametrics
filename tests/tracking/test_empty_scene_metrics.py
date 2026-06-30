@@ -6,6 +6,7 @@ import math
 from contextlib import contextmanager
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
 from seametrics.tracking import TrackingMetrics, utils
@@ -137,3 +138,17 @@ def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
     assert next(iter(result["num_misses"].values())) == 2
     assert next(iter(result["recall"].values())) == pytest.approx(0.0)
     assert math.isnan(next(iter(result["precision"].values())))
+
+
+def test_results_to_df_when_comparison_excluded_omits_failed_sequences_from_pool():
+    """If any model failed on a sequence, OVERALL must not pool it for others."""
+    metric_ok = TrackingMetrics(max_iou=0.5)
+    gt = np.array([[1, 1, 0, 0, 10, 10, 1, -1, -1, -1]], dtype=float)
+    metric_ok.update(gt, gt.copy(), "seq-ok")
+    metric_ok.update(gt, gt.copy(), "seq-drop")
+    metric_ok.comparison_excluded = {"seq-drop"}
+
+    df = utils.results_to_df(metric_ok)
+
+    assert set(df["sequence"]) == {"seq-ok", utils.OVERALL_LABEL}
+    assert "seq-drop" not in df["sequence"].values
