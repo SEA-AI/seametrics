@@ -120,7 +120,7 @@ def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
     view = _EmptyPredVideoView()
 
     with _fo_patch():
-        instances, excluded = utils.compute_all_metrics_by_sequence(
+        instances = utils.compute_all_metrics_by_sequence(
             view=view,
             gt_field="gt",
             pred_fields=["pred"],
@@ -129,7 +129,7 @@ def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
 
     metric = instances["pred"]["TrackingMetrics"]
 
-    assert excluded == set()
+    assert utils.get_excluded_sequences(instances) == set()
     assert metric.failed_sequences == {}
     assert "seq-empty" in metric.accumulators
 

@@ -729,7 +729,7 @@ def compute_all_metrics_by_sequence(
     pred_fields: "str | list",
     metrics: list,
     sequence_list: list | None = None,
-) -> tuple[dict, set[str]]:
+) -> dict:
     """Run multiple metrics across multiple prediction fields in a single pass.
 
     Args:
@@ -744,22 +744,23 @@ def compute_all_metrics_by_sequence(
             Defaults to all sequences found in the view.
 
     Returns:
-        Tuple of ``(instances, excluded_sequences)`` where *instances* is a nested
-        dict ``{pred_field: {metric_class_name: metric_instance}}`` and
-        *excluded_sequences* is the union of every ``failed_sequences`` entry
-        across all models and metrics (for fair cross-model comparison).
+        Nested dict ``{pred_field: {metric_class_name: metric_instance}}``.
+        For fair cross-model comparison, call :func:`get_excluded_sequences` on
+        the return value and pass a filtered ``sequence_list`` to
+        :func:`results_to_df`.
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
         ValueError: If duplicate metric class names are found in *metrics*.
 
     Example:
-        instances, excluded = compute_all_metrics_by_sequence(
+        instances = compute_all_metrics_by_sequence(
             view=view,
             gt_field="ground_truth_det_fused_id",
             pred_fields=["model_a", "model_b"],
             metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
         )
+        excluded = get_excluded_sequences(instances)
         valid = [
             s
             for s in instances["model_a"]["TrackingMetrics"].accumulators
@@ -798,7 +799,7 @@ def compute_all_metrics_by_sequence(
     valid_sequences = _filter_valid_sequences(resolved, view, pred_fields, instances)
     _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
 
-    return instances, get_excluded_sequences(instances)
+    return instances
 
 
 def compute_sizes(view: fo.DatasetView, gt_field: str) -> list:
