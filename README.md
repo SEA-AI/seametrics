@@ -135,7 +135,7 @@ view = dataset.load_saved_view("my_view")
 
 results = compute_all_metrics_by_sequence(
     view=view,
-    gt_field="ground_truth_det_fused_id",
+    gt_field="ground_truth",
     pred_fields=["model_a", "model_b"],
     metrics=[
         (TrackingMetrics, {"max_iou": 0.5}),
