@@ -912,7 +912,7 @@ def classify_num_objects(x: int | float) -> str | None:
     return category
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     if name == "OVERALL_LABEL":
         from .constants import OVERALL_LABEL
 
