@@ -177,7 +177,7 @@ def test_sequence_skipped_when_no_true_keyframes():
             return super().values(field)
 
     with _fo_patch():
-        utils.compute_all_metrics_by_sequence(
+        instances, excluded = utils.compute_all_metrics_by_sequence(
             view=_NoKeyframeView(),
             gt_field="gt",
             pred_fields=["pred"],
@@ -187,6 +187,7 @@ def test_sequence_skipped_when_no_true_keyframes():
     assert len(failures) == 1
     assert failures[0][0] == "seq-1"
     assert "pred" in str(failures[0][1])
+    assert excluded == {"seq-1"}
 
 
 def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
