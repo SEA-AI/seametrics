@@ -1,10 +1,8 @@
-"""Tests for empty-scene tracking evaluation (tracking-fused-gt-fixes plan)."""
+"""Tests for empty-scene tracking evaluation."""
 
 from __future__ import annotations
 
 import math
-from contextlib import contextmanager
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -12,15 +10,6 @@ import pytest
 from seametrics.tracking import TrackingMetrics, utils
 
 _MOT_COLS = 10
-
-
-@contextmanager
-def _fo_patch():
-    with (
-        patch("seametrics.tracking.utils._FIFTYONE_AVAILABLE", True),
-        patch("seametrics.tracking.utils.F", lambda field: field, create=True),
-    ):
-        yield
 
 
 class _EmptyPredVideoView:
@@ -120,13 +109,12 @@ def test_prepare_data_when_side_empty_returns_2d_array(
 def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
     view = _EmptyPredVideoView()
 
-    with _fo_patch():
-        instances = utils.compute_all_metrics_by_sequence(
+    instances = utils.compute_all_metrics_by_sequence(
             view=view,
             gt_field="gt",
             pred_fields=["pred"],
             metrics=[(TrackingMetrics, {"max_iou": 0.5})],
-        )
+    )
 
     metric = instances["pred"]["TrackingMetrics"]
 

@@ -1,8 +1,6 @@
 """Tests for seametrics.tracking.utils."""
 
-from contextlib import contextmanager
 from typing import ClassVar
-from unittest.mock import patch
 
 import pytest
 
@@ -84,26 +82,15 @@ class _RecordingMetric:
         raise AssertionError(f"unexpected failure for {sequence_name}: {exc}")
 
 
-@contextmanager
-def _fo_patch():
-    """Context manager that fakes fiftyone availability without an install."""
-    with (
-        patch("seametrics.tracking.utils._FIFTYONE_AVAILABLE", True),
-        patch("seametrics.tracking.utils.F", lambda field: field, create=True),
-    ):
-        yield
-
-
 def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
     view = _FakeGroupView()
 
-    with _fo_patch():
-        instances = utils.compute_all_metrics_by_sequence(
+    instances = utils.compute_all_metrics_by_sequence(
             view=view,
             gt_field="gt",
             pred_fields="pred",
             metrics=[(_RecordingMetric, {"label": "ok"})],
-        )
+    )
 
     recording = instances["pred"]["_RecordingMetric"]
 
@@ -143,13 +130,12 @@ def test_sequence_skipped_when_keyframe_lookup_raises():
                 raise RuntimeError("field not found")
             return super().values(field)
 
-    with _fo_patch():
-        instances = utils.compute_all_metrics_by_sequence(
-            view=_ErrorView(),
-            gt_field="gt",
-            pred_fields=["pred"],
-            metrics=[(_CapturingMetric, {})],
-        )
+    instances = utils.compute_all_metrics_by_sequence(
+        view=_ErrorView(),
+        gt_field="gt",
+        pred_fields=["pred"],
+        metrics=[(_CapturingMetric, {})],
+    )
 
     assert len(failures) == 1
     seq, exc = failures[0]
@@ -179,13 +165,12 @@ def test_sequence_skipped_when_no_true_keyframes():
                 return [False, False, False]
             return super().values(field)
 
-    with _fo_patch():
-        instances = utils.compute_all_metrics_by_sequence(
-            view=_NoKeyframeView(),
-            gt_field="gt",
-            pred_fields=["pred"],
-            metrics=[(_CapturingMetric, {})],
-        )
+    instances = utils.compute_all_metrics_by_sequence(
+        view=_NoKeyframeView(),
+        gt_field="gt",
+        pred_fields=["pred"],
+        metrics=[(_CapturingMetric, {})],
+    )
 
     assert len(failures) == 1
     assert failures[0][0] == "seq-1"
@@ -216,13 +201,12 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
                 return [False, False, False]
             return super().values(field)
 
-    with _fo_patch():
-        instances = utils.compute_all_metrics_by_sequence(
-            view=_PartialKeyframeView(),
-            gt_field="gt",
-            pred_fields=["pred_a", "pred_b"],
-            metrics=[(_CapturingMetric, {})],
-        )
+    instances = utils.compute_all_metrics_by_sequence(
+        view=_PartialKeyframeView(),
+        gt_field="gt",
+        pred_fields=["pred_a", "pred_b"],
+        metrics=[(_CapturingMetric, {})],
+    )
 
     assert len(failures) == 2
     assert all(seq == "seq-1" for seq in failures)
