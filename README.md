@@ -129,9 +129,9 @@ from seametrics.tracking.utils import compute_all_metrics_by_sequence, results_t
 dataset = fo.load_dataset("my_dataset")
 view = dataset.load_saved_view("my_view")
 
-results = compute_all_metrics_by_sequence(
+instances, excluded = compute_all_metrics_by_sequence(
     view=view,
-    gt_field="ground_truth",
+    gt_field="ground_truth_det_fused_id",
     pred_fields=["model_a", "model_b"],
     metrics=[
         (TrackingMetrics, {"max_iou": 0.5}),
@@ -140,11 +140,20 @@ results = compute_all_metrics_by_sequence(
 )
 ```
 
-Returns a nested dict `{pred_field: {metric_class_name: metric_instance}}`. Convert any entry to a per-sequence DataFrame with `results_to_df`:
+Returns ``(instances, excluded_sequences)`` where *instances* is a nested dict
+``{pred_field: {metric_class_name: metric_instance}}`` and *excluded_sequences*
+is the union of hard failures across all models (use it to align comparison
+tables). Convert any entry to a per-sequence DataFrame with ``results_to_df``,
+passing the same filtered sequence list to every model:
 
 ```python
-mot_df  = results_to_df(results["model_a"]["TrackingMetrics"])
-hota_df = results_to_df(results["model_a"]["HOTAMetrics"])
+valid = [
+    s
+    for s in instances["model_a"]["TrackingMetrics"].accumulators
+    if s not in excluded
+]
+mot_df  = results_to_df(instances["model_a"]["TrackingMetrics"], sequence_list=valid)
+hota_df = results_to_df(instances["model_a"]["HOTAMetrics"], sequence_list=valid)
 ```
 
 `TrackingMetrics` DataFrame columns: `sequence`, `num_frames`, `num_unique_objects`, `mota`, `motp`, `idf1`, `idp`, `idr`, `mostly_tracked`, `partially_tracked`, `mostly_lost`, `num_switches`, `num_false_positives`, `num_misses`, `num_fragmentations`, `precision`, `recall`.
@@ -160,6 +169,11 @@ weighted_hota = (
 )
 ```
 
-Failed sequences (empty GT, empty predictions, or unexpected errors) are logged rather than raising, and are accessible via `metric_instance.failed_sequences`.
+Hard failures (missing keyframes, missing track IDs, unexpected errors) are logged
+rather than raised, and are accessible via ``metric_instance.failed_sequences``.
+Empty GT or empty predictions on keyframes are valid evaluation cases (metrics
+may be ``NaN``/``-inf`` per motmetrics rules) and are not logged as failures.
+Use ``excluded_sequences`` to drop any sequence that failed for any model from
+cross-model comparison tables.
 
 </details>

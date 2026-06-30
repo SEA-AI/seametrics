@@ -32,6 +32,15 @@ COUNT_METRICS = (
     "num_unique_objects",
 )
 
+#: Column width for MOT tracker-format arrays produced by
+#: :func:`prepare_data_for_det_metrics`.
+_TRACKER_ARRAY_COLS = 10
+
+
+def _as_tracker_array(rows: list) -> np.ndarray:
+    """Return a ``(N, _TRACKER_ARRAY_COLS)`` array, including empty sides."""
+    return np.array(rows) if rows else np.empty((0, _TRACKER_ARRAY_COLS))
+
 
 def failed_sequence_reason(
     gt: "np.ndarray | list",
@@ -166,7 +175,7 @@ def prepare_data_for_det_metrics(  # noqa: C901
                         ]
                     )
 
-        return np.array(target), np.array(preds)
+        return _as_tracker_array(target), _as_tracker_array(preds)
 
     def _validate_arrays(data: list | None, data_type: str) -> list:
         """Validate and normalise per-frame annotation arrays.
@@ -693,13 +702,34 @@ def _run_metric_updates(
                     instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
 
 
+def get_excluded_sequences(instances: dict) -> set[str]:
+    """Return sequence names that failed for any model or metric instance.
+
+    Use this set to filter ``sequence_list`` passed to :func:`results_to_df` so
+    every model is compared on the same sequences.
+
+    Args:
+        instances: Nested dict returned by :func:`compute_all_metrics_by_sequence`
+            mapping ``{pred_field: {metric_class_name: metric_instance}}``.
+
+    Returns:
+        Set of sequence names that should be excluded from cross-model comparison.
+    """
+    return {
+        seq
+        for pf_instances in instances.values()
+        for instance in pf_instances.values()
+        for seq in instance.failed_sequences
+    }
+
+
 def compute_all_metrics_by_sequence(
     view: fo.DatasetView,
     gt_field: str,
     pred_fields: "str | list",
     metrics: list,
     sequence_list: list | None = None,
-) -> dict:
+) -> tuple[dict, set[str]]:
     """Run multiple metrics across multiple prediction fields in a single pass.
 
     Args:
@@ -714,20 +744,30 @@ def compute_all_metrics_by_sequence(
             Defaults to all sequences found in the view.
 
     Returns:
-        Nested dict of the form ``{pred_field: {metric_class_name: metric_instance}}``.
+        Tuple of ``(instances, excluded_sequences)`` where *instances* is a nested
+        dict ``{pred_field: {metric_class_name: metric_instance}}`` and
+        *excluded_sequences* is the union of every ``failed_sequences`` entry
+        across all models and metrics (for fair cross-model comparison).
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
         ValueError: If duplicate metric class names are found in *metrics*.
 
     Example:
-        results = compute_all_metrics_by_sequence(
+        instances, excluded = compute_all_metrics_by_sequence(
             view=view,
-            gt_field="ground_truth_det",
+            gt_field="ground_truth_det_fused_id",
             pred_fields=["model_a", "model_b"],
             metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
         )
-        mot_df = results_to_df(results["model_a"]["TrackingMetrics"])
+        valid = [
+            s
+            for s in instances["model_a"]["TrackingMetrics"].accumulators
+            if s not in excluded
+        ]
+        mot_df = results_to_df(
+            instances["model_a"]["TrackingMetrics"], sequence_list=valid
+        )
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
@@ -758,21 +798,7 @@ def compute_all_metrics_by_sequence(
     valid_sequences = _filter_valid_sequences(resolved, view, pred_fields, instances)
     _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
 
-    # Ensure consistent results: any sequence that failed for one pred_field is
-    # marked as failed for all, so results_to_df returns the same sequence set
-    # across every pred_field.
-    all_failed: set[str] = {
-        seq
-        for pf_instances in instances.values()
-        for instance in pf_instances.values()
-        for seq in instance.failed_sequences
-    }
-    for pf_instances in instances.values():
-        for instance in pf_instances.values():
-            for seq in all_failed - set(instance.failed_sequences):
-                instance.log_failed_sequence(seq, [], [], exc=None)
-
-    return instances
+    return instances, get_excluded_sequences(instances)
 
 
 def compute_sizes(view: fo.DatasetView, gt_field: str) -> list:

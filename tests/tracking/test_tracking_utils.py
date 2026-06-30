@@ -98,14 +98,16 @@ def test_compute_all_metrics_by_sequence_uses_group_slice_and_keyframes():
     view = _FakeGroupView()
 
     with _fo_patch():
-        all_metrics = utils.compute_all_metrics_by_sequence(
+        instances, excluded = utils.compute_all_metrics_by_sequence(
             view=view,
             gt_field="gt",
             pred_fields="pred",
             metrics=[(_RecordingMetric, {"label": "ok"})],
         )
 
-    recording = all_metrics["pred"]["_RecordingMetric"]
+    recording = instances["pred"]["_RecordingMetric"]
+
+    assert excluded == set()
 
     assert view.selected_slice == "rgb"
     assert recording.label == "ok"
@@ -142,7 +144,7 @@ def test_sequence_skipped_when_keyframe_lookup_raises():
             return super().values(field)
 
     with _fo_patch():
-        utils.compute_all_metrics_by_sequence(
+        _instances, excluded = utils.compute_all_metrics_by_sequence(
             view=_ErrorView(),
             gt_field="gt",
             pred_fields=["pred"],
@@ -153,6 +155,7 @@ def test_sequence_skipped_when_keyframe_lookup_raises():
     seq, exc = failures[0]
     assert seq == "seq-1"
     assert "pred" in str(exc)
+    assert excluded == {"seq-1"}
 
 
 def test_sequence_skipped_when_no_true_keyframes():
@@ -177,7 +180,7 @@ def test_sequence_skipped_when_no_true_keyframes():
             return super().values(field)
 
     with _fo_patch():
-        instances, excluded = utils.compute_all_metrics_by_sequence(
+        _instances, excluded = utils.compute_all_metrics_by_sequence(
             view=_NoKeyframeView(),
             gt_field="gt",
             pred_fields=["pred"],
@@ -214,7 +217,7 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
             return super().values(field)
 
     with _fo_patch():
-        utils.compute_all_metrics_by_sequence(
+        _instances, excluded = utils.compute_all_metrics_by_sequence(
             view=_PartialKeyframeView(),
             gt_field="gt",
             pred_fields=["pred_a", "pred_b"],
@@ -223,6 +226,7 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
 
     assert len(failures) == 2
     assert all(seq == "seq-1" for seq in failures)
+    assert excluded == {"seq-1"}
 
 
 def test_results_to_df_formats_hota_and_tracking_outputs():

@@ -61,7 +61,15 @@ class _EmptyPredVideoView:
 
 
 @pytest.mark.parametrize(
-    "gt_boxes,gt_ids,pred_boxes,pred_ids,pred_scores,expected_gt,expected_pred",
+    (
+        "gt_boxes",
+        "gt_ids",
+        "pred_boxes",
+        "pred_ids",
+        "pred_scores",
+        "expected_gt",
+        "expected_pred",
+    ),
     [
         pytest.param(
             [],
@@ -126,6 +134,6 @@ def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
     assert "seq-empty" in metric.accumulators
 
     result = metric.compute("seq-empty")
-    assert list(result["num_misses"].values())[0] == 2
-    assert list(result["recall"].values())[0] == pytest.approx(0.0)
-    assert math.isnan(list(result["precision"].values())[0])
+    assert next(iter(result["num_misses"].values())) == 2
+    assert next(iter(result["recall"].values())) == pytest.approx(0.0)
+    assert math.isnan(next(iter(result["precision"].values())))
