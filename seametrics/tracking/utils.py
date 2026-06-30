@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import pathlib
+from typing import Protocol
 
 import numpy as np
 import pandas as pd
@@ -35,6 +36,18 @@ COUNT_METRICS = (
 #: Column width for MOT tracker-format arrays produced by
 #: :func:`prepare_data_for_det_metrics`.
 _TRACKER_ARRAY_COLS = 10
+
+
+class _MetricsForDf(Protocol):
+    """Structural type for :func:`results_to_df` metric instances."""
+
+    accumulators: dict[str, object]
+    comparison_excluded: frozenset[str]
+    RESULT_LAYOUT: str
+
+    def compute(self, sequence: list[str] | str | None = ...) -> dict: ...
+
+    def compute_many(self, sequence_list: list[str]) -> dict: ...
 
 
 def _as_tracker_array(rows: list) -> np.ndarray:
@@ -705,8 +718,9 @@ def _run_metric_updates(
 def get_excluded_sequences(instances: dict) -> set[str]:
     """Return sequence names that failed for any model or metric instance.
 
-    Use this set to filter ``sequence_list`` passed to :func:`results_to_df` so
-    every model is compared on the same sequences.
+    Useful for logging or warnings. :func:`results_to_df` already omits these
+    from OVERALL pooling when instances come from
+    :func:`compute_all_metrics_by_sequence`.
 
     Args:
         instances: Nested dict returned by :func:`compute_all_metrics_by_sequence`
@@ -745,9 +759,9 @@ def compute_all_metrics_by_sequence(
 
     Returns:
         Nested dict ``{pred_field: {metric_class_name: metric_instance}}``.
-        For fair cross-model comparison, call :func:`get_excluded_sequences` on
-        the return value and pass a filtered ``sequence_list`` to
-        :func:`results_to_df`.
+        Each metric instance's ``comparison_excluded`` is set so
+        :func:`results_to_df` pools OVERALL over the same sequences for every
+        model.
 
     Raises:
         ImportError: If ``fiftyone`` is not installed.
@@ -760,15 +774,7 @@ def compute_all_metrics_by_sequence(
             pred_fields=["model_a", "model_b"],
             metrics=[(TrackingMetrics, {"max_iou": 0.5}), (HOTAMetrics, {})],
         )
-        excluded = get_excluded_sequences(instances)
-        valid = [
-            s
-            for s in instances["model_a"]["TrackingMetrics"].accumulators
-            if s not in excluded
-        ]
-        mot_df = results_to_df(
-            instances["model_a"]["TrackingMetrics"], sequence_list=valid
-        )
+        mot_df = results_to_df(instances["model_a"]["TrackingMetrics"])
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
@@ -809,14 +815,14 @@ def compute_all_metrics_by_sequence(
 
 
 def _sequence_list_for_df(
-    metrics: object,
+    metrics: _MetricsForDf,
     sequence_list: list[str] | None,
 ) -> list[str]:
     """Resolve per-sequence rows to include before pooling OVERALL."""
     if sequence_list is not None:
         return sequence_list
-    names = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
-    excluded = getattr(metrics, "comparison_excluded", frozenset())
+    names = list(metrics.accumulators.keys())
+    excluded = metrics.comparison_excluded
     if not excluded:
         return names
     return [name for name in names if name not in excluded]
@@ -956,15 +962,16 @@ def _flatten_result(result: dict, key: str) -> dict:
     return {k: v[key] for k, v in result.items()}
 
 
-def _compute_table_bundle(metrics: object, sequence_list: list) -> dict:
+def _compute_table_bundle(metrics: _MetricsForDf, sequence_list: list) -> dict:
     """Return one nested result dict covering every table row."""
-    layout = getattr(metrics, "RESULT_LAYOUT", "nested")
-    if layout == "flat":
-        return metrics.compute_many(sequence_list)  # type: ignore[attr-defined]
-    return metrics.compute(sequence=sequence_list)  # type: ignore[attr-defined]
+    if metrics.RESULT_LAYOUT == "flat":
+        return metrics.compute_many(sequence_list)
+    return metrics.compute(sequence=sequence_list)
 
 
-def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.DataFrame:
+def results_to_df(
+    metrics: _MetricsForDf, sequence_list: list | None = None
+) -> pd.DataFrame:
     """Convert TrackingMetrics or HOTAMetrics results to a DataFrame.
 
     One batched ``compute()`` / ``compute_many()`` call returns all per-sequence
@@ -988,7 +995,7 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
     if OVERALL_LABEL in sequence_list:
         raise ValueError(f"{OVERALL_LABEL!r} is reserved for pooled results")
 
-    layout = getattr(metrics, "RESULT_LAYOUT", "nested")
+    layout = metrics.RESULT_LAYOUT
     bundle = _compute_table_bundle(metrics, sequence_list)
     rows = []
     for sequence in sequence_list:
@@ -1003,7 +1010,7 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
 
 
 def hota_results_to_df(
-    metrics: object, sequence_list: list | None = None
+    metrics: _MetricsForDf, sequence_list: list | None = None
 ) -> pd.DataFrame:
     """Alias for results_to_df for backward compatibility.
 

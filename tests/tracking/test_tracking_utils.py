@@ -216,6 +216,7 @@ def test_sequence_skipped_logs_all_pred_fields_when_one_missing():
 def test_results_to_df_formats_hota_and_tracking_outputs():
     class _HotaResults:
         accumulators: ClassVar = {"seq-1": None}
+        comparison_excluded: ClassVar = frozenset()
         RESULT_LAYOUT = "flat"
 
         def compute_many(self, sequence_list):
@@ -240,6 +241,7 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
 
     class _TrackingResults:
         accumulators: ClassVar = {"seq-1": None}
+        comparison_excluded: ClassVar = frozenset()
         RESULT_LAYOUT = "nested"
 
         def compute(self, sequence=None):
@@ -274,6 +276,7 @@ def test_results_to_df_formats_hota_and_tracking_outputs():
 def test_results_to_df_rejects_overall_sequence_name():
     class _Metrics:
         accumulators: ClassVar = {"OVERALL": None, "seq-1": None}
+        comparison_excluded: ClassVar = frozenset()
 
         def compute(self, _sequence=None):
             return {}
