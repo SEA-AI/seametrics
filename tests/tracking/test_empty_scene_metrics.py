@@ -133,10 +133,15 @@ def test_results_to_df_when_comparison_excluded_omits_failed_sequences_from_pool
     metric_ok = TrackingMetrics(max_iou=0.5)
     gt = np.array([[1, 1, 0, 0, 10, 10, 1, -1, -1, -1]], dtype=float)
     metric_ok.update(gt, gt.copy(), "seq-ok")
-    metric_ok.update(gt, gt.copy(), "seq-drop")
+    pred_bad = np.array([[1, 2, 50, 50, 60, 60, 1, -1, -1, -1]], dtype=float)
+    metric_ok.update(gt, pred_bad, "seq-drop")
     metric_ok.comparison_excluded = frozenset({"seq-drop"})
 
     df = utils.results_to_df(metric_ok)
 
     assert set(df["sequence"]) == {"seq-ok", utils.OVERALL_LABEL}
     assert "seq-drop" not in df["sequence"].values
+    overall = df[df["sequence"] == utils.OVERALL_LABEL].iloc[0]
+    seq_ok = df[df["sequence"] == "seq-ok"].iloc[0]
+    assert overall["mota"] == pytest.approx(seq_ok["mota"])
+    assert overall["mota"] == pytest.approx(100.0)
