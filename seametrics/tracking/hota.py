@@ -84,6 +84,7 @@ class HOTAMetrics:
         self.accumulators: dict = {}  # sequence_name -> (gt_array, pred_array)
         self.iou_thresholds: np.ndarray = _HOTA_THRESHOLDS
         self.failed_sequences: dict = {}
+        self.comparison_excluded: frozenset[str] = frozenset()
         for key, value in kwargs.items():
             setattr(self, key, value)
 

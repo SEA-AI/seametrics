@@ -23,6 +23,7 @@ class TrackingMetrics:
         self.max_iou = 0.5
         self.metrics = [*RATIO_METRICS, *COUNT_METRICS]
         self.failed_sequences = {}
+        self.comparison_excluded: frozenset[str] = frozenset()
         for key, value in kwargs.items():
             setattr(self, key, value)
 

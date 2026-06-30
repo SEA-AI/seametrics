@@ -800,11 +800,26 @@ def compute_all_metrics_by_sequence(
     _run_metric_updates(valid_sequences, view, pred_fields, gt_field, instances)
 
     excluded = get_excluded_sequences(instances)
+    excluded_frozen = frozenset(excluded)
     for pf_instances in instances.values():
         for instance in pf_instances.values():
-            instance.comparison_excluded = excluded
+            instance.comparison_excluded = excluded_frozen
 
     return instances
+
+
+def _sequence_list_for_df(
+    metrics: object,
+    sequence_list: list[str] | None,
+) -> list[str]:
+    """Resolve per-sequence rows to include before pooling OVERALL."""
+    if sequence_list is not None:
+        return sequence_list
+    names = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
+    excluded = getattr(metrics, "comparison_excluded", frozenset())
+    if not excluded:
+        return names
+    return [name for name in names if name not in excluded]
 
 
 def compute_sizes(view: fo.DatasetView, gt_field: str) -> list:
@@ -958,18 +973,14 @@ def results_to_df(metrics: object, sequence_list: list | None = None) -> pd.Data
 
     Args:
         metrics: Fitted metric instance with ``accumulators`` and ``compute()``.
-        sequence_list: Sequence names to include; defaults to all accumulators
-            minus ``comparison_excluded`` when that attribute is set (after
-            :func:`compute_all_metrics_by_sequence`).
+        sequence_list: Sequence names to include. Defaults to all accumulators
+            minus :attr:`~TrackingMetrics.comparison_excluded` (set by
+            :func:`compute_all_metrics_by_sequence` for fair cross-model pooling).
 
     Raises:
         ValueError: If *sequence_list* contains the reserved ``OVERALL`` label.
     """
-    if sequence_list is None:
-        sequence_list = list(metrics.accumulators.keys())  # type: ignore[attr-defined]
-        excluded = getattr(metrics, "comparison_excluded", None)
-        if excluded:
-            sequence_list = [s for s in sequence_list if s not in excluded]
+    sequence_list = _sequence_list_for_df(metrics, sequence_list)
 
     if not sequence_list:
         return pd.DataFrame()

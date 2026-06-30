@@ -110,10 +110,10 @@ def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
     view = _EmptyPredVideoView()
 
     instances = utils.compute_all_metrics_by_sequence(
-            view=view,
-            gt_field="gt",
-            pred_fields=["pred"],
-            metrics=[(TrackingMetrics, {"max_iou": 0.5})],
+        view=view,
+        gt_field="gt",
+        pred_fields=["pred"],
+        metrics=[(TrackingMetrics, {"max_iou": 0.5})],
     )
 
     metric = instances["pred"]["TrackingMetrics"]
@@ -129,12 +129,12 @@ def test_compute_all_metrics_when_empty_pred_scene_computes_without_failure():
 
 
 def test_results_to_df_when_comparison_excluded_omits_failed_sequences_from_pool():
-    """If any model failed on a sequence, OVERALL must not pool it for others."""
+    """Sequences in comparison_excluded are omitted from OVERALL pooling."""
     metric_ok = TrackingMetrics(max_iou=0.5)
     gt = np.array([[1, 1, 0, 0, 10, 10, 1, -1, -1, -1]], dtype=float)
     metric_ok.update(gt, gt.copy(), "seq-ok")
     metric_ok.update(gt, gt.copy(), "seq-drop")
-    metric_ok.comparison_excluded = {"seq-drop"}
+    metric_ok.comparison_excluded = frozenset({"seq-drop"})
 
     df = utils.results_to_df(metric_ok)
 

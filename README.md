@@ -124,11 +124,7 @@ Both classes share the same interface and can be evaluated together in a single 
 ```python
 import fiftyone as fo
 from seametrics.tracking import TrackingMetrics, HOTAMetrics
-from seametrics.tracking.utils import (
-    compute_all_metrics_by_sequence,
-    get_excluded_sequences,
-    results_to_df,
-)
+from seametrics.tracking.utils import compute_all_metrics_by_sequence, results_to_df
 
 dataset = fo.load_dataset("my_dataset")
 view = dataset.load_saved_view("my_view")
@@ -145,16 +141,12 @@ results = compute_all_metrics_by_sequence(
 ```
 
 Returns a nested dict ``{pred_field: {metric_class_name: metric_instance}}``.
-For fair cross-model comparison, call ``get_excluded_sequences(results)`` and pass
-the same filtered sequence list to every ``results_to_df`` call:
+Convert any entry to a per-sequence DataFrame with ``results_to_df`` — sequences
+that failed for any model are omitted from OVERALL pooling automatically:
 
 ```python
-excluded = get_excluded_sequences(results)
-valid = [
-    s for s in results["model_a"]["TrackingMetrics"].accumulators if s not in excluded
-]
-mot_df  = results_to_df(results["model_a"]["TrackingMetrics"], sequence_list=valid)
-hota_df = results_to_df(results["model_a"]["HOTAMetrics"], sequence_list=valid)
+mot_df  = results_to_df(results["model_a"]["TrackingMetrics"])
+hota_df = results_to_df(results["model_a"]["HOTAMetrics"])
 ```
 
 `TrackingMetrics` DataFrame columns: `sequence`, `num_frames`, `num_unique_objects`, `mota`, `motp`, `idf1`, `idp`, `idr`, `mostly_tracked`, `partially_tracked`, `mostly_lost`, `num_switches`, `num_false_positives`, `num_misses`, `num_fragmentations`, `precision`, `recall`.
@@ -174,7 +166,6 @@ Hard failures (missing keyframes, missing track IDs, unexpected errors) are logg
 rather than raised, and are accessible via ``metric_instance.failed_sequences``.
 Empty GT or empty predictions on keyframes are valid evaluation cases (metrics
 may be ``NaN``/``-inf`` per motmetrics rules) and are not logged as failures.
-Use ``get_excluded_sequences(results)`` to drop any sequence that failed for any
-model from cross-model comparison tables.
+Use ``get_excluded_sequences(results)`` when you need the failed set for logging.
 
 </details>
