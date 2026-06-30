@@ -360,7 +360,7 @@ def test_prepare_data_none_track_id_skipped():
         img_w=100,
         img_h=100,
     )
-    assert gt.shape == (0,)
+    assert gt.shape == (0, 10)
     assert pred.shape == (1, 10)
 
 
