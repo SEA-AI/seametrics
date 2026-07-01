@@ -140,26 +140,14 @@ results = compute_all_metrics_by_sequence(
 )
 ```
 
-Returns a nested dict `{pred_field: {metric_class_name: metric_instance}}`. Convert any entry to a per-sequence DataFrame with `results_to_df`:
+Convert any entry to a per-sequence DataFrame with ``results_to_df``:
 
 ```python
 mot_df  = results_to_df(results["model_a"]["TrackingMetrics"])
 hota_df = results_to_df(results["model_a"]["HOTAMetrics"])
 ```
 
-`TrackingMetrics` DataFrame columns: `sequence`, `num_frames`, `num_unique_objects`, `mota`, `motp`, `idf1`, `idp`, `idr`, `mostly_tracked`, `partially_tracked`, `mostly_lost`, `num_switches`, `num_false_positives`, `num_misses`, `num_fragmentations`, `precision`, `recall`.
-
-`HOTAMetrics` DataFrame columns: `sequence`, `hota`, `deta`, `assa`, `loca`, `num_unique_objects`. Scores are expressed as percentages (0–100).
-
-`num_unique_objects` is included in both DataFrames so you can compute a track-count-weighted global score:
-
-```python
-weighted_hota = (
-    (hota_df["hota"] * hota_df["num_unique_objects"]).sum()
-    / hota_df["num_unique_objects"].sum()
-)
-```
-
-Failed sequences (empty GT, empty predictions, or unexpected errors) are logged rather than raising, and are accessible via `metric_instance.failed_sequences`.
+Sequences that cannot be evaluated are logged on ``metric_instance.failed_sequences``
+rather than raised.
 
 </details>
