@@ -5,6 +5,7 @@ from collections import Counter
 import motmetrics as mm
 import numpy as np
 
+from ._box_utils import box_convert
 from .constants import COUNT_METRICS, RATIO_METRICS
 from .utils import failed_sequence_reason
 
@@ -26,7 +27,10 @@ class TrackingMetrics:
             setattr(self, key, value)
 
     def update(self, gt: np.ndarray, pred: np.ndarray, sequence_name: str) -> None:
-        """Build a MOTAccumulator for *sequence_name* from (gt, pred) arrays."""
+        """Build a MOTAccumulator for *sequence_name* from (gt, pred) arrays.
+
+        Rows are ``[frame, id, x1, y1, x2, y2, …]`` with boxes in xyxy format.
+        """
         gt_max_frame = gt[:, 0].max() if gt.size > 0 else 0
         pred_max_frame = pred[:, 0].max() if pred.size > 0 else 0
         num_frames = max(gt_max_frame, pred_max_frame) + 1
@@ -36,8 +40,11 @@ class TrackingMetrics:
             gt_dets = gt[gt[:, 0] == i, 1:6]
             pred_dets = pred[pred[:, 0] == i, 1:6]
 
+            # motmetrics expects xywh boxes; our public contract is xyxy.
             dist_matrix = mm.distances.iou_matrix(
-                gt_dets[:, 1:], pred_dets[:, 1:], max_iou=self.max_iou
+                box_convert(gt_dets[:, 1:], in_fmt="xyxy", out_fmt="xywh"),
+                box_convert(pred_dets[:, 1:], in_fmt="xyxy", out_fmt="xywh"),
+                max_iou=self.max_iou,
             )
             acc.update(
                 gt_dets[:, 0].astype("int").tolist(),

@@ -220,6 +220,64 @@ class TestTrackingNoGTOverallPooling:
 
 
 # ---------------------------------------------------------------------------
+# Box-format regression (xyxy contract)
+# ---------------------------------------------------------------------------
+
+
+class TestBoxFormatRegression:
+    """Boxes are xyxy; update() must convert to xywh for motmetrics.
+
+    Feeding xyxy straight to ``motmetrics.distances.iou_matrix`` (which reads
+    (x, y, w, h)) turns x2/y2 into phantom widths/heights, so disjoint boxes
+    far from the origin can overlap almost entirely and get matched. The
+    origin-anchored, GT==pred boxes used elsewhere in this file are degenerate
+    under that misreading, which is why these cases live off-origin.
+    """
+
+    def test_disjoint_boxes_do_not_match(self):
+        # Two 10x10 boxes with a 5 px gap: true IoU = 0. Misread as xywh they
+        # become [2400,400,4810,810] and [2415,400,4840,810] (IoU ~0.98).
+        gt = _array(_det(1, 1, 2400, 400, 2410, 410))
+        pred = _array(_det(1, 7, 2415, 400, 2425, 410))
+        m = TrackingMetrics()
+        m.update(gt, pred, "seq")
+        r = m.compute("seq")
+        assert _scalar(r, "recall") == pytest.approx(0.0)
+        assert _scalar(r, "num_false_positives") == 1
+        assert _scalar(r, "num_misses") == 1
+
+    def test_far_apart_boxes_do_not_match(self):
+        # Two 10x10 boxes ~800 px apart.
+        gt = _array(_det(1, 1, 2400, 400, 2410, 410))
+        pred = _array(_det(1, 7, 3200, 450, 3210, 460))
+        m = TrackingMetrics()
+        m.update(gt, pred, "seq")
+        r = m.compute("seq")
+        assert _scalar(r, "recall") == pytest.approx(0.0)
+        assert _scalar(r, "num_false_positives") == 1
+        assert _scalar(r, "num_misses") == 1
+
+    def test_partial_overlap_iou_reaches_motp(self):
+        # 20x20 boxes shifted 5 px: IoU = (15*20) / (400+400-300) = 0.6.
+        # motmetrics MOTP is the mean matched distance, 1 - IoU = 0.4.
+        gt = _array(_det(1, 1, 2400, 400, 2420, 420))
+        pred = _array(_det(1, 1, 2405, 400, 2425, 420))
+        m = TrackingMetrics()
+        m.update(gt, pred, "seq")
+        r = m.compute("seq")
+        assert _scalar(r, "recall") == pytest.approx(1.0)
+        assert _scalar(r, "motp") == pytest.approx(0.4)
+
+    def test_identical_off_origin_boxes_match(self):
+        gt = _array(_det(1, 1, 2400, 400, 2410, 410))
+        m = TrackingMetrics()
+        m.update(gt, gt.copy(), "seq")
+        r = m.compute("seq")
+        assert _scalar(r, "mota") == pytest.approx(1.0)
+        assert _scalar(r, "motp") == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
 # ID switch
 # ---------------------------------------------------------------------------
 
