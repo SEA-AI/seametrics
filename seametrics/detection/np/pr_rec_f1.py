@@ -76,9 +76,9 @@ class PrecisionRecallF1Support:
         - iscrowd: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0/1 values
         indicating whether the bounding box/masks indicate a crowd of objects. Value is optional,
         and if not provided it will automatically be set to 0.
-        - area: :class:`~np.ndarray` of shape ``(num_boxes)`` containing the area of the
-        object. Value if optional, and if not provided will be automatically calculated based
-        on the bounding box/masks provided. Only affects when 'area_ranges' is provided.
+        - area: accepted for backwards compatibility but IGNORED. The area of every
+        object is always computed from its bounding box (or mask), so area-range
+        bucketing uses the same geometry as the IoU.
 
     As output of ``forward`` and ``compute`` the metric returns the following output:
 
@@ -192,7 +192,6 @@ class PrecisionRecallF1Support:
     groundtruths: List[np.ndarray]
     groundtruth_labels: List[np.ndarray]
     groundtruth_crowds: List[np.ndarray]
-    groundtruth_area: List[np.ndarray]
 
     def __init__(
         self,
@@ -317,7 +316,6 @@ class PrecisionRecallF1Support:
         self.groundtruths = []
         self.groundtruth_labels = []
         self.groundtruth_crowds = []
-        self.groundtruth_area = []
 
     def update(
         self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]
@@ -357,9 +355,6 @@ class PrecisionRecallF1Support:
             self.groundtruth_crowds.append(
                 item.get("iscrowd", np.zeros_like(item["labels"]))
             )
-            self.groundtruth_area.append(
-                item.get("area", np.zeros_like(item["labels"]))
-            )
 
     def compute(self) -> dict:
         """Computes the metric."""
@@ -369,7 +364,6 @@ class PrecisionRecallF1Support:
             self.groundtruths,
             self.groundtruth_labels,
             crowds=self.groundtruth_crowds,
-            area=self.groundtruth_area,
         )
         coco_preds.dataset = self._get_coco_format(
             self.detections, self.detection_labels, scores=self.detection_scores
@@ -596,11 +590,15 @@ class PrecisionRecallF1Support:
         labels: List[np.ndarray],
         scores: Optional[List[np.ndarray]] = None,
         crowds: Optional[List[np.ndarray]] = None,
-        area: Optional[List[np.ndarray]] = None,
     ) -> Dict:
         """Transforms and returns all cached targets or predictions in COCO format.
 
         Format is defined at https://cocodataset.org/#format-data
+
+        The ``area`` of every annotation is always derived from the bounding box
+        (or the mask, for ``iou_type="segm"``). Any ``area`` supplied by the
+        caller is ignored, so area-range bucketing depends only on the geometry
+        that is also used for the IoU.
         """
         images = []
         annotations = []
@@ -641,14 +639,11 @@ class PrecisionRecallF1Support:
                     else {"size": image_box[0], "counts": image_box[1]}
                 )
 
-                if area is not None and area[image_id][k].tolist() > 0:
-                    area_stat = area[image_id][k].tolist()
-                else:
-                    area_stat = (
-                        image_box[2] * image_box[3]
-                        if self.iou_type == "bbox"
-                        else mask_utils.area(stat)
-                    )
+                area_stat = (
+                    image_box[2] * image_box[3]
+                    if self.iou_type == "bbox"
+                    else mask_utils.area(stat)
+                )
 
                 annotation = {
                     "id": annotation_id,

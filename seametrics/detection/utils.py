@@ -1,7 +1,7 @@
 import contextlib
 import io
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import fiftyone as fo
 import numpy as np
@@ -19,7 +19,12 @@ if _TORCHMETRICS_AVAILABLE:
 
 # payload functions
 
-error_code = None
+# Key under which the pooled result is stored alongside the per-sequence results.
+OVERALL_KEY = "OVERALL"
+
+# Count fields that are additive across sequences. Ratios (precision/recall/f1)
+# are NOT additive and must be recomputed from the pooled counts.
+_ADDITIVE_KEYS = ("tp", "fp", "fn", "duplicates", "fpi", "nImgs")
 
 
 def payload_to_det_metric(
@@ -43,7 +48,9 @@ def payload_to_det_metric(
 
     Returns:
         Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
-            A tuple containing the converted (predictions, references).
+            A tuple containing the converted (predictions, references). Boxes are
+            in absolute ``xywh`` pixel coordinates, so the metric consuming them
+            must be created with ``box_format="xywh"``.
     """
     if class_agnostic and label_mapping is not None:
         raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
@@ -79,6 +86,240 @@ def payload_to_det_metric(
     return predictions, references
 
 
+def payload_to_det_metrics_by_sequence(
+    payload: Payload,
+    model_name: Optional[str] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
+    class_agnostic: bool = True,
+    include_overall: bool = True,
+    **metric_kwargs: object,
+) -> Dict[str, dict]:
+    """Evaluate every sequence of a payload separately, plus a pooled total.
+
+    Unlike :func:`payload_to_det_metric`, which flattens all sequences into one
+    pooled evaluation, this runs an independent ``PrecisionRecallF1Support`` per
+    sequence. Use it to see which sequences regressed: the pooled precision and
+    recall are support-weighted, so a single long sequence can hide a regression
+    in a short one.
+
+    Boxes are converted with :func:`frame_dets_to_det_metrics`, which emits
+    absolute ``xywh``, so ``box_format`` is fixed to ``"xywh"`` and may not be
+    overridden.
+
+    Args:
+        payload (Payload): The payload containing sequences, models and the
+            ground truth field name.
+        model_name (str, optional): The name of the model to evaluate. If not
+            provided, the first model in the payload is used.
+        label_mapping (Dict[str, int], optional): Dictionary mapping string labels
+            to numbers, required for class-specific metrics. Defaults to None.
+        class_agnostic (bool, optional): Flag indicating if the metrics should be
+            calculated in a class-agnostic way. Defaults to True.
+        include_overall (bool, optional): Add an ``"OVERALL"`` entry holding the
+            pooled result. Computed by summing the per-sequence counts, so the
+            data is still traversed exactly once. Defaults to True.
+        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support`` (e.g.
+            ``iou_thresholds``, ``area_ranges``, ``area_ranges_labels``). When
+            *label_mapping* is given and ``labels`` is not, ``labels`` defaults to
+            the sorted mapping values so that every sequence reports the same
+            classes in the same order — otherwise per-sequence result arrays would
+            have different lengths and could not be compared.
+
+    Returns:
+        Dict[str, dict]: ``{sequence_name: results}``, where each value is the
+            full ``PrecisionRecallF1Support.compute()`` output. When
+            *include_overall* is set, a final ``"OVERALL"`` entry holds the pooled
+            result and is byte-for-byte what :func:`payload_to_det_metric` plus a
+            single metric would produce. Pass the whole dict straight to
+            :func:`sequence_results_to_df` to get one row per
+            (sequence, area range) with OVERALL last.
+
+    Raises:
+        ValueError: If *label_mapping* is combined with ``class_agnostic=True``,
+            if ``box_format`` is passed in *metric_kwargs*, or if a sequence is
+            literally named ``"OVERALL"`` while *include_overall* is set.
+
+    Note:
+        A sequence that fails to evaluate propagates the exception, aborting the
+        whole call. This differs from ``seametrics.tracking``, where per-sequence
+        errors are routed to ``metric.failed_sequences``.
+    """
+    from seametrics.detection import PrecisionRecallF1Support
+
+    if class_agnostic and label_mapping is not None:
+        raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
+
+    if "box_format" in metric_kwargs:
+        raise ValueError(
+            "`box_format` cannot be overridden: frame_dets_to_det_metrics always"
+            " produces absolute xywh boxes."
+        )
+
+    if include_overall and OVERALL_KEY in payload.sequences:
+        raise ValueError(
+            f"A sequence is named {OVERALL_KEY!r}, which collides with the pooled"
+            f" entry. Rename it or pass include_overall=False."
+        )
+
+    if model_name is None:
+        model_name = payload.models[0]
+
+    if label_mapping is not None:
+        metric_kwargs.setdefault("labels", sorted(set(label_mapping.values())))
+
+    sequence_results = {}
+    for sequence_name, sequence in payload.sequences.items():
+        w, h = sequence.resolution.width, sequence.resolution.height
+
+        predictions = payload_sequence_to_det_metrics(
+            sequence_dets=sequence[model_name],
+            w=w,
+            h=h,
+            label_mapping=label_mapping,
+        )
+        references = payload_sequence_to_det_metrics(
+            sequence_dets=sequence[payload.gt_field_name],
+            w=w,
+            h=h,
+            is_gt=True,
+            label_mapping=label_mapping,
+        )
+
+        metric = PrecisionRecallF1Support(
+            box_format="xywh",
+            class_agnostic=class_agnostic,
+            **metric_kwargs,
+        )
+        metric.update(predictions, references)
+        sequence_results[sequence_name] = metric.compute()
+
+    if include_overall and sequence_results:
+        sequence_results[OVERALL_KEY] = aggregate_sequence_results(sequence_results)
+
+    return sequence_results
+
+
+def _pool_area_range_metrics(entries: List[dict]) -> dict:
+    """Pool one area range's per-sequence metric dicts into a single dict.
+
+    Counts are summed; precision, recall and f1 are recomputed from those sums
+    using the same ``-1`` sentinel rules as ``COCOeval._summarize_pr_rec_f1``, so
+    the result is indistinguishable from evaluating every frame in one metric.
+
+    Args:
+        entries (List[dict]): One metric dict per sequence, all for the same area
+            range and produced with the same metric configuration.
+
+    Returns:
+        dict: A pooled metric dict with the same keys as its inputs.
+
+    Raises:
+        ValueError: If a count field has inconsistent shapes across sequences,
+            which happens in class-specific mode when the sequences were not
+            evaluated against a shared ``labels`` list.
+    """
+    totals = {}
+    for key in _ADDITIVE_KEYS:
+        values = [np.asarray(entry[key]) for entry in entries]
+        shapes = {value.shape for value in values}
+        if len(shapes) > 1:
+            raise ValueError(
+                f"Inconsistent `{key}` shapes across sequences ({sorted(shapes)})."
+                " In class-specific mode pass a shared `labels` list so every"
+                " sequence reports the same classes."
+            )
+        totals[key] = np.sum(values, axis=0)
+
+    tp, fp, fn = totals["tp"], totals["fp"], totals["fn"]
+    support = tp + fn
+
+    # mirror COCOeval: compute, then overwrite undefined entries with -1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        precision = np.where(tp + fp == 0, -1.0, tp / (tp + fp))
+        recall = np.where(tp + fn == 0, -1.0, tp / (tp + fn))
+        f1 = np.where(
+            (precision == -1) | (recall == -1) | (precision + recall == 0),
+            -1.0,
+            2 * precision * recall / (precision + recall),
+        )
+
+    def _as_scalar_or_array(
+        value: np.ndarray, cast: type
+    ) -> Union[int, float, np.ndarray]:
+        """Return a python scalar for 0-d input, else the array, like COCOeval."""
+        return cast(value) if value.ndim == 0 else value
+
+    first = entries[0]
+    return {
+        "range": first["range"],
+        "iouThr": first["iouThr"],
+        "maxDets": first["maxDets"],
+        "tp": _as_scalar_or_array(tp, int),
+        "fp": _as_scalar_or_array(fp, int),
+        "fn": _as_scalar_or_array(fn, int),
+        "duplicates": _as_scalar_or_array(totals["duplicates"], int),
+        "precision": _as_scalar_or_array(precision, float),
+        "recall": _as_scalar_or_array(recall, float),
+        "f1": _as_scalar_or_array(f1, float),
+        "support": _as_scalar_or_array(support, int),
+        "fpi": _as_scalar_or_array(totals["fpi"], int),
+        "nImgs": int(np.sum([entry["nImgs"] for entry in entries])),
+    }
+
+
+def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
+    """Pool per-sequence detection results into one overall result.
+
+    Detection counts are additive across sequences because matching never crosses
+    a frame boundary, so the pooled numbers can be obtained by summing tp, fp, fn,
+    duplicates and fpi and recomputing the ratios once. No second pass over the
+    detections is needed.
+
+    Each area range is pooled independently, mirroring ``COCOeval.summarize``.
+    Note that area ranges are not nested pools: "small" + "large" does not sum to
+    "all", because ground truth outside a range is ignored rather than counted.
+
+    Args:
+        sequence_results (Dict[str, dict]): ``{sequence_name: results}`` as
+            returned by :func:`payload_to_det_metrics_by_sequence`. Any existing
+            ``"OVERALL"`` entry is skipped so the function is idempotent.
+
+    Returns:
+        dict: A results dict shaped like ``PrecisionRecallF1Support.compute()``,
+            containing only the ``"metrics"`` key (the per-sequence ``params`` and
+            ``eval`` objects cannot be meaningfully pooled).
+
+    Raises:
+        ValueError: If *sequence_results* holds no poolable sequences, if the
+            sequences disagree on their area-range labels, or if a count field has
+            inconsistent shapes across sequences.
+    """
+    poolable = {
+        name: results
+        for name, results in sequence_results.items()
+        if name != OVERALL_KEY
+    }
+    if not poolable:
+        raise ValueError("No sequence results to pool.")
+
+    area_label_sets = {tuple(results["metrics"]) for results in poolable.values()}
+    if len(area_label_sets) > 1:
+        raise ValueError(
+            f"Sequences disagree on area-range labels: {sorted(area_label_sets)}."
+            " Pool only results produced with the same metric configuration."
+        )
+
+    area_labels = next(iter(area_label_sets))
+    return {
+        "metrics": {
+            area_label: _pool_area_range_metrics(
+                [results["metrics"][area_label] for results in poolable.values()]
+            )
+            for area_label in area_labels
+        }
+    }
+
+
 def payload_sequence_to_det_metrics(
     sequence_dets: List[List[fo.Detection]],
     w: int,
@@ -99,7 +340,9 @@ def payload_sequence_to_det_metrics(
             calculated in a class-specific way. Defaults to None.
 
     Returns:
-        List[Dict[str, np.ndarray]]: A list containing the converted detections.
+        List[Dict[str, np.ndarray]]: A list containing the converted detections,
+            one dict per frame. Boxes are absolute ``xywh`` — see
+            :func:`frame_dets_to_det_metrics`.
     """
     output = []
 
@@ -108,6 +351,22 @@ def payload_sequence_to_det_metrics(
         output.append(frame_dict)
 
     return output
+
+
+def _denormalize_fo_bbox(bounding_box: List[float], w: int, h: int) -> List[float]:
+    """Scale a relative fiftyone bounding box to absolute pixel coordinates.
+
+    Args:
+        bounding_box (List[float]): Relative ``[x, y, width, height]`` as stored
+            by fiftyone, with ``(x, y)`` the top-left corner.
+        w (int): Width in pixels of the image.
+        h (int): Height in pixels of the image.
+
+    Returns:
+        List[float]: ``[x, y, width, height]`` in absolute pixel coordinates.
+    """
+    rel_x, rel_y, rel_w, rel_h = bounding_box
+    return [rel_x * w, rel_y * h, rel_w * w, rel_h * h]
 
 
 def frame_dets_to_det_metrics(
@@ -119,53 +378,56 @@ def frame_dets_to_det_metrics(
 ) -> Dict[str, np.ndarray]:
     """Convert a list of fiftyone detections to format of PrecisionRecallF1.
 
+    FiftyOne stores ``Detection.bounding_box`` as ``[x, y, width, height]``
+    *relative* to the image size, with ``(x, y)`` the top-left corner. The boxes
+    returned here keep that ``xywh`` layout but are scaled to absolute pixel
+    coordinates, so the consuming metric must be constructed with
+    ``box_format="xywh"``.
+
     Args:
-        fo_dets (List[fo.Detection]): A list of fiftyone detections.
+        fo_dets (List[fo.Detection]): A list of fiftyone detections belonging to
+            a single frame.
         w (int): Width in pixels of the image.
         h (int): Height in pixels of the image.
         is_gt (bool, optional): Flag indicating if the input data is ground truth.
             Defaults to False.
         label_mapping (Dict[str, int], optional): Dictionary mapping string labels to
-            numbers, which should be provided if the detection metrics should be 
-            calculated in a class-specific way. Defaults to None.
+            numbers, which should be provided if the detection metrics should be
+            calculated in a class-specific way. Detections whose label is missing
+            from the mapping are dropped. Defaults to None.
 
     Returns:
-        Dict[str, np.ndarray]: A dictionary containing the converted detections.
-    """
-    global error_code
+        Dict[str, np.ndarray]: ``boxes`` of shape ``(N, 4)`` in absolute ``xywh``
+            pixel coordinates and ``labels`` of shape ``(N,)``. Predictions
+            additionally carry ``scores`` (``1.0`` when a detection has no
+            confidence). Empty input yields empty (1-D) arrays.
 
-    detections = []
+            No ``area`` is emitted: ``PrecisionRecallF1Support`` always derives
+            the area from the bounding box, so a fiftyone ``area`` attribute
+            would be silently discarded. Area-range bucketing therefore uses the
+            same geometry as the IoU.
+    """
+    boxes = []
     labels = []
     scores = []
-    areas = []
 
     for det in fo_dets:
-        bbox = det["bounding_box"]
         if label_mapping and det["label"] not in label_mapping:
             print(f"could not add sample w/ label {det['label']}, \
                   as label is not in label mapping")
             continue
 
-        detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
+        boxes.append(_denormalize_fo_bbox(det["bounding_box"], w, h))
         labels.append(0 if label_mapping is None else label_mapping[det["label"]])
-        scores.append(det["confidence"] if det["confidence"] else 1.0)  # None for gt
 
-        if is_gt:
-            if "area" in det.field_names:
-                areas.append(det["area"])
-            else:
-                areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3] - bbox[1]))
-                if error_code is None:
-                    print("⚠️WARNING: Area not found in ground truth annotation(s), \
-                          using bbox area instead for these cases.")
-                    error_code = 1
+        if not is_gt:
+            scores.append(1.0 if det["confidence"] is None else det["confidence"])
+
     metrics_dict = {
-        "boxes": np.array(detections),
+        "boxes": np.array(boxes),
         "labels": np.array(labels),
     }
-    if is_gt:
-        metrics_dict["area"] = np.array(areas)
-    else:
+    if not is_gt:
         metrics_dict["scores"] = np.array(scores)
     return metrics_dict
 
@@ -655,15 +917,21 @@ def get_confidence_metric_vals(
 
 
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
-    """Denormalizes boxes from [0, 1] to [0, img_w] and [0, img_h].
+    """Denormalize boxes from [0, 1] to [0, img_w] and [0, img_h].
+
+    The box layout only matters insofar as x-like values must sit at even column
+    indices and y-like values at odd ones, which holds for ``xyxy``, ``xywh`` and
+    ``cxcywh``. Boxes containing any value greater than ``1.0`` are assumed to be
+    in pixel coordinates already and are returned untouched.
 
     Args:
-        boxes (Tensor[N, 4]): boxes which will be denormalized.
-        img_w (int): Width of image.
-        img_h (int): Height of image.
+        boxes (np.ndarray): Boxes which will be denormalized, shape ``(N, 4)``.
+        img_w (int): Width of image in pixels.
+        img_h (int): Height of image in pixels.
 
     Returns:
-        Tensor[N, 4]: Denormalized boxes.
+        np.ndarray: Denormalized boxes of shape ``(N, 4)`` and floating-point
+            dtype. The input array is never modified in place.
     """
     if boxes.size == 0:
         return boxes
@@ -672,6 +940,9 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     if np.any(boxes > 1.0):
         return boxes
 
+    # copy so callers keep their normalized boxes, and cast so that integer
+    # inputs (e.g. an all-zero/one box) do not truncate the scaled values
+    boxes = boxes.astype(np.float64)
     boxes[:, 0::2] *= img_w
     boxes[:, 1::2] *= img_h
     return boxes

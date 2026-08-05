@@ -221,7 +221,6 @@ class PrecisionRecallF1Support(Metric):
     groundtruths: List[Tensor]
     groundtruth_labels: List[Tensor]
     groundtruth_crowds: List[Tensor]
-    groundtruth_area: List[Tensor]
 
     def __init__(
         self,
@@ -333,7 +332,6 @@ class PrecisionRecallF1Support(Metric):
         self.add_state("groundtruths", default=[], dist_reduce_fx=None)
         self.add_state("groundtruth_labels", default=[], dist_reduce_fx=None)
         self.add_state("groundtruth_crowds", default=[], dist_reduce_fx=None)
-        self.add_state("groundtruth_area", default=[], dist_reduce_fx=None)
 
     def update(self, preds: List[Dict[str, Tensor]], target: List[Dict[str, Tensor]]) -> None:
         """Update metric state.
@@ -371,15 +369,13 @@ class PrecisionRecallF1Support(Metric):
             self.groundtruth_labels.append(item["labels"])
             self.groundtruth_crowds.append(
                 item.get("iscrowd", torch.zeros_like(item["labels"])))
-            self.groundtruth_area.append(
-                item.get("area", torch.zeros_like(item["labels"])))
 
     def compute(self) -> dict:
         """Computes the metric."""
         coco_target, coco_preds = COCO(), COCO()
 
         coco_target.dataset = self._get_coco_format(
-            self.groundtruths, self.groundtruth_labels, crowds=self.groundtruth_crowds, area=self.groundtruth_area
+            self.groundtruths, self.groundtruth_labels, crowds=self.groundtruth_crowds
         )
         coco_preds.dataset = self._get_coco_format(
             self.detections, self.detection_labels, scores=self.detection_scores)
@@ -590,11 +586,15 @@ class PrecisionRecallF1Support(Metric):
         labels: List[torch.Tensor],
         scores: Optional[List[torch.Tensor]] = None,
         crowds: Optional[List[torch.Tensor]] = None,
-        area: Optional[List[torch.Tensor]] = None,
     ) -> Dict:
         """Transforms and returns all cached targets or predictions in COCO format.
 
         Format is defined at https://cocodataset.org/#format-data
+
+        The ``area`` of every annotation is always derived from the bounding box
+        (or the mask, for ``iou_type="segm"``). Any ``area`` supplied by the
+        caller is ignored, so area-range bucketing depends only on the geometry
+        that is also used for the IoU.
         """
         images = []
         annotations = []
@@ -627,12 +627,9 @@ class PrecisionRecallF1Support(Metric):
                 stat = image_box if self.iou_type == "bbox" else {
                     "size": image_box[0], "counts": image_box[1]}
 
-                if area is not None and area[image_id][k].cpu().tolist() > 0:
-                    area_stat = area[image_id][k].cpu().tolist()
-                else:
-                    area_stat = image_box[2] * \
-                        image_box[3] if self.iou_type == "bbox" else mask_utils.area(
-                            stat)
+                area_stat = image_box[2] * \
+                    image_box[3] if self.iou_type == "bbox" else mask_utils.area(
+                        stat)
 
                 annotation = {
                     "id": annotation_id,
