@@ -5,6 +5,31 @@ Read the repo-root `AGENTS.md` first; this file adds what is specific to detecti
 
 ## The recipe
 
+`report.evaluate_models` wraps the whole thing — batched fetching, per-sequence
+evaluation, and pooling every model over the sequences they all managed:
+
+```python
+from seametrics.detection.report import evaluate_models
+
+report = evaluate_models(
+    dataset_name="<dataset>",
+    gt_field="<gt field>",
+    models=["<model_a>", "<model_b>"],
+    slices=["<slice>"],
+    keyframes_only=True,
+    iou_threshold=1e-9,
+)
+df = report.to_df()            # one row per (model, sequence, area range) + OVERALL
+report.excluded_sequences      # what could not be evaluated, and so was left out
+```
+
+Pooling uses the intersection of what every model evaluated, so the models cover
+the same sequences. `to_df` keeps a row for every evaluated sequence and flags
+`in_overall` — a sequence one model could measure and another could not is a
+finding, not noise.
+
+To drive it yourself:
+
 ```python
 from seametrics.detection.utils import (
     OVERALL_KEY, aggregate_sequence_results,
@@ -133,6 +158,46 @@ MongoDB rejects the result. Two limits are in play:
 
 Deserialisation dominates, not round trips: one field across 106 sequences took
 ~90s regardless of batching. Expect ~10 minutes for a 106-sequence, 3-field run.
+
+## Tagging predictions as TP / FP
+
+To see the outcome per detection in the FiftyOne app, write it as label tags:
+
+```python
+from seametrics.detection.utils import payload_to_detection_verdicts, tag_detections
+
+verdicts = payload_to_detection_verdicts(
+    payload, model_name="<model>", keyframes_only=True, iou_thresholds=[1e-9],
+)
+tag_detections(dataset_or_view, "<model>", verdicts)   # mutates the dataset
+```
+
+Verdicts are keyed by fiftyone detection id, not frame index — with
+`keyframes_only` the metric's indices address the filtered frame list, so id
+keying avoids translating back. They reconcile with the aggregates: the TP count
+equals `tp` and the FP count equals `fp` for the same threshold and area range.
+
+Three things to expect:
+
+- **There is a third outcome.** A detection matched to ignored ground truth, or
+  outside the active area range, is `"ignored"` — neither TP nor FP, and untagged
+  unless you pass `tags=("TP", "FP", "ignored")`. Tags will not sum to the totals
+  otherwise.
+- **Verdicts are per IoU threshold and per area range.** Use the same threshold
+  you reported with or the tags will not match the numbers.
+- **False negatives cannot be tagged this way.** They are ground-truth objects
+  with no detection to attach a tag to; they would have to go on the GT field.
+
+`tag_detections` clears its own tags before writing, so re-running replaces rather
+than accumulates, and it leaves unrelated tags alone. Budget roughly 30s per video
+sequence — the cost is FiftyOne saving frames, not the metric.
+
+## Backend asymmetry
+
+`detection_verdicts` exists only on the numpy backend. The torchmetrics copy in
+`tm/` is unreachable (`_TORCHMETRICS_AVAILABLE` is hardcoded `False` in
+`imports.py`) and cannot be exercised, so mirroring ~80 lines there would add
+untested code. Mirror it if that backend is ever revived.
 
 ## Reporting
 
