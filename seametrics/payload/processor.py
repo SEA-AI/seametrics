@@ -12,6 +12,12 @@ from seametrics.payload import Payload, Resolution, Sequence
 logger = logging.getLogger(__name__)
 
 
+def _is_result_too_large(exc: Exception) -> bool:
+    """Return True if *exc* is MongoDB rejecting a result for exceeding 16 MB."""
+    message = str(exc)
+    return "BSONObj size" in message or "BSONObjectTooLarge" in message
+
+
 class PayloadProcessor:
     """
     Class to process a payload and generate sequence data.
@@ -30,7 +36,8 @@ class PayloadProcessor:
         tags: List[str] = None,
         start_frame_id: int = None,
         end_frame_id: int = None,
-        confidence_threshold: float = 0
+        confidence_threshold: float = 0,
+        batch_size: int = 8,
     ):
         """
         Initializes a PayloadProcessor object.
@@ -57,6 +64,10 @@ class PayloadProcessor:
                 Defaults to None.
             confidence_threshold (float, optional): Confidence threshold to filter the model fields.
                 Defaults to 0.
+            batch_size (int, optional): How many sequences to fetch per query. Larger
+                batches mean fewer queries but more memory, and are split
+                automatically when they exceed MongoDB's 16 MB result limit.
+                Defaults to 8.
         """
         self.dataset_name = dataset_name
         self.gt_field = gt_field
@@ -67,6 +78,7 @@ class PayloadProcessor:
         self.slices = slices
         self.tags = tags
         self.confidence_threshold = confidence_threshold
+        self.batch_size = batch_size
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
         self.validate_input_parameters()
         self.dataset: fo.Dataset = None
@@ -260,12 +272,8 @@ class PayloadProcessor:
             return field_name
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
-    def process_sequence(
-        self,
-        sequence: str,
-    ) -> Sequence:
-        """
-        Retrieves the sequence data from the dataset view.
+    def process_sequence(self, sequence: str) -> Sequence:
+        """Retrieve the sequence data from the dataset view.
 
         Args:
             sequence (str): The name of the sequence.
@@ -273,101 +281,236 @@ class PayloadProcessor:
         Returns:
             Sequence: The sequence data.
         """
-        sequence_view = self.dataset.match(F("sequence") == sequence).filter_labels(
-            self.get_field_name(self.dataset, self.gt_field),
-            ~F("label").is_in(self.excluded_classes),
-            only_matches=False,
-        )
+        return self.fetch_sequences([sequence])[sequence]
 
-        detections = {}
-        keyframes = {}
+    def label_filter(self, field_name: str) -> object:
+        """Build the label filter expression for one field.
 
-        for field_name in self.models + [self.gt_field]:
-            filter_expression = ~(F("label").is_in(self.excluded_classes))
+        Args:
+            field_name (str): Detection field the filter applies to.
 
-            if self.confidence_threshold > 0 and field_name != self.gt_field:
-                filter_expression &= F("confidence") > self.confidence_threshold
+        Returns:
+            ViewExpression: Excludes the configured classes, and for prediction
+                fields also drops detections below the confidence threshold.
+        """
+        expression = ~(F("label").is_in(self.excluded_classes))
+        if self.confidence_threshold > 0 and field_name != self.gt_field:
+            expression &= F("confidence") > self.confidence_threshold
+        return expression
 
-            filter_view = sequence_view.filter_labels(
-                self.get_field_name(sequence_view, field_name),
-                filter_expression,
-                only_matches=False,
-            )
+    @staticmethod
+    def normalize_keyframes(values: list) -> "List[bool] | None":
+        """Turn raw keyframe values for one sequence into a mask.
 
-            det_values = filter_view.values(
-                f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
-            )[self.start_frame_id:self.end_frame_id]
-
-            if field_name != self.gt_field:
-                mask = self.get_keyframes(sequence_view, filter_view, field_name)
-                if mask is not None:
-                    keyframes[field_name] = mask
-
-            if self.tracking_mode:
-                keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, self.models[0], unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
-                detections[field_name] = [d if d is not None and k else [] for d, k in zip(det_values, keyframe_values)]
-            else:
-                detections[field_name] = [d if d is not None else [] for d in det_values]
-
-        return Sequence(
-            resolution=self.get_resolution(sequence_view),
-            keyframes=keyframes,
-            **detections,
-        )
-
-    def get_keyframes(
-        self,
-        sequence_view: fo.DatasetView,
-        filter_view: fo.DatasetView,
-        field_name: str,
-    ) -> "List[bool] | None":
-        """Read the per-frame keyframe flags of a prediction field.
-
-        The flags are recorded on the `Sequence` rather than applied, so that each
+        The flags are recorded on the `Sequence` rather than applied, so each
         metric family can decide what to do with them: `seametrics.tracking`
         evaluates keyframes only, while detection evaluates every frame unless the
         caller opts in.
 
         Args:
-            sequence_view (fo.DatasetView): View for the sequence, used to resolve
-                the field name for the media type.
-            filter_view (fo.DatasetView): Label-filtered view to read values from.
-            field_name (str): Prediction field whose keyframe flags to read.
+            values (list): Raw per-frame keyframe values, already sliced to the
+                configured frame range.
 
         Returns:
-            List[bool] | None: One flag per frame in the sequence, or None if the
-                field carries no keyframe data (the common case for plain
-                detection models).
+            List[bool] | None: One flag per frame, or None when the field carries
+                no usable keyframe data (no attribute, or no frame flagged) — the
+                common case for a plain detection model.
         """
-        field = self.get_field_name(sequence_view, field_name, unwinding=True)
-        path = f"{field}.keyframe"
-        try:
-            values = filter_view.values(path)
-        except Exception:  # pylint: disable=broad-except
-            # field has no `keyframe` attribute; nothing to record
+        if not values or not any(values):
             return None
-
-        if values is None:
-            return None
-
-        values = values[self.start_frame_id:self.end_frame_id]
-        if not any(value for value in values):
-            return None
-
         return [bool(value) for value in values]
 
-    def process_sequences(self) -> Dict[str, Sequence]:
+    def group_by_sequence(self, names: list, values: list) -> Dict[str, list]:
+        """Group per-sample values by sequence name.
+
+        For video data every sample already holds a whole sequence, so its value
+        is a list of frames. For image data each sample is a single frame and the
+        samples of a sequence have to be collected in order.
+
+        Args:
+            names (list): Sequence name of each sample, in view order.
+            values (list): Value of each sample, in the same order.
+
+        Returns:
+            Dict[str, list]: Per-frame values keyed by sequence name.
         """
-        Processes the sequences and generates sequence data.
+        if values is None:
+            return {}
+        if self.dataset.media_type == "video":
+            return {name: (values[i] or []) for i, name in enumerate(names)}
+        grouped: Dict[str, list] = {}
+        for name, value in zip(names, values, strict=True):
+            grouped.setdefault(name, []).append(value)
+        return grouped
+
+    def group_values(self, names: list, values: list, unwound: bool) -> Dict[str, list]:
+        """Group fetched values by sequence name.
+
+        Args:
+            names (list): Sequence name of each sample, in view order.
+            values (list): Fetched values.
+            unwound (bool): True when the query unwound frames, in which case
+                *values* is already the flat frame list of the single sequence.
+
+        Returns:
+            Dict[str, list]: Per-frame values keyed by sequence name.
+        """
+        if unwound:
+            return {names[0]: values or []}
+        return self.group_by_sequence(names, values)
+
+    def fetch_sequences(self, batch: List[str]) -> Dict[str, Sequence]:
+        """Fetch a batch of sequences with one query per field.
+
+        Querying once per field for a whole batch is far cheaper than querying
+        per sequence, but the aggregation result has to fit inside MongoDB's 16 MB
+        BSON limit. Dense sequences exceed it, so rather than guessing a safe batch
+        size the batch is halved whenever the server rejects the result, down to a
+        single sequence.
+
+        Args:
+            batch (List[str]): Sequence names to fetch.
+
+        Returns:
+            Dict[str, Sequence]: The fetched sequences, keyed by name.
+
+        Note:
+            Any query error that is not the BSON size limit propagates unchanged,
+            as does the size limit itself once a single sequence is still too big.
+        """
+        try:
+            return self._fetch_sequences(batch)
+        except Exception as exc:  # pylint: disable=broad-except
+            if not _is_result_too_large(exc):
+                raise
+            if len(batch) == 1:
+                # A nested query packs a whole sequence into one BSON document,
+                # which cannot exceed 16 MB. Unwinding streams the frames as
+                # separate documents instead, so a dense sequence still fits.
+                return self._fetch_sequences(batch, unwound=True)
+            middle = len(batch) // 2
+            logger.debug(
+                f"Batch of {len(batch)} exceeded the BSON limit; splitting in two"
+            )
+            fetched = self.fetch_sequences(batch[:middle])
+            fetched.update(self.fetch_sequences(batch[middle:]))
+            return fetched
+
+    def _fetch_sequences(
+        self, batch: List[str], unwound: bool = False
+    ) -> Dict[str, Sequence]:
+        """Fetch a batch of sequences without the size fallback.
+
+        Args:
+            batch (List[str]): Sequence names to fetch.
+            unwound (bool): Query frames as separate documents rather than one
+                document per sequence. Sidesteps the per-document BSON limit, and
+                is only valid for a single sequence.
+
+        Returns:
+            Dict[str, Sequence]: The fetched sequences, keyed by name.
+        """
+        view = self.dataset.match(F("sequence").is_in(batch))
+        names = view.values("sequence")
+        if not names:
+            return {}
+
+        frame_range = slice(self.start_frame_id, self.end_frame_id)
+        detections: Dict[str, Dict[str, list]] = {}
+        keyframes: Dict[str, Dict[str, list]] = {}
+
+        for field_name in [*self.models, self.gt_field]:
+            filter_view = view.filter_labels(
+                self.get_field_name(view, field_name),
+                self.label_filter(field_name),
+                only_matches=False,
+            )
+            path = self.get_field_name(view, field_name, unwinding=unwound)
+            detections[field_name] = self.group_values(
+                names, filter_view.values(f"{path}.detections"), unwound
+            )
+            if field_name == self.gt_field:
+                continue
+            try:
+                raw = filter_view.values(f"{path}.keyframe")
+            except Exception:  # pylint: disable=broad-except
+                continue  # field has no `keyframe` attribute; nothing to record
+            keyframes[field_name] = self.group_values(names, raw, unwound)
+
+        resolutions = self.get_resolutions(view, names)
+        keyframe_source = self.models[0] if self.tracking_mode else None
+
+        sequences = {}
+        for name in dict.fromkeys(names):
+            fields = {
+                field: [frame or [] for frame in per_seq.get(name, [])][frame_range]
+                for field, per_seq in detections.items()
+            }
+            masks = {}
+            for field, per_seq in keyframes.items():
+                mask = self.normalize_keyframes(per_seq.get(name, [])[frame_range])
+                if mask is not None:
+                    masks[field] = mask
+
+            if keyframe_source is not None:
+                blanking = masks.get(keyframe_source)
+                if blanking is not None:
+                    fields = {
+                        field: [
+                            frame if keep else []
+                            for frame, keep in zip(frames, blanking, strict=False)
+                        ]
+                        for field, frames in fields.items()
+                    }
+
+            sequences[name] = Sequence(
+                resolution=resolutions[name], keyframes=masks, **fields
+            )
+        return sequences
+
+    @staticmethod
+    def get_resolutions(view: fo.DatasetView, names: list) -> Dict[str, Resolution]:
+        """Read the frame resolution of every sequence in a view.
+
+        Args:
+            view (fo.DatasetView): View covering the sequences.
+            names (list): Sequence name of each sample, in view order.
+
+        Returns:
+            Dict[str, Resolution]: Resolution keyed by sequence name.
+
+        Raises:
+            ValueError: If the media type of *view* is not "video" or "image".
+        """
+        if view.media_type == "video":
+            widths = view.values("metadata.frame_width")
+            heights = view.values("metadata.frame_height")
+        elif view.media_type == "image":
+            widths = view.values("metadata.width")
+            heights = view.values("metadata.height")
+        else:
+            raise ValueError(f"Unsupported media type: {view.media_type}")
+        return {
+            name: Resolution(height=heights[i], width=widths[i])
+            for i, name in enumerate(names)
+        }
+
+    def process_sequences(self) -> Dict[str, Sequence]:
+        """Process the sequences and generate sequence data.
+
+        Sequences are fetched in batches so that each field costs one query per
+        batch rather than one per sequence.
 
         Returns:
             Dict: A dictionary containing sequence data.
         """
         sequences = {}
-        for sequence in tqdm(self.sequence_list, desc="Processing sequences"):
-            seq_data = self.process_sequence(sequence)
-            if seq_data:
-                sequences[sequence] = seq_data
+        batches = [
+            self.sequence_list[i : i + self.batch_size]
+            for i in range(0, len(self.sequence_list), self.batch_size)
+        ]
+        for batch in tqdm(batches, desc="Processing sequences"):
+            sequences.update(self.fetch_sequences(batch))
         return sequences
 
     def print_info(self):

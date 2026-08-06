@@ -1,6 +1,5 @@
 # test_payload_processor.py
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -211,64 +210,32 @@ def _processor(**kwargs: object):
     return PayloadProcessor(**defaults)
 
 
-KEYFRAME_PATH = "frames[].model1.keyframe"
-
-
 @pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
-class TestGetKeyframes:
-    """Reading prediction keyframe flags so they can be stored on the Sequence."""
+class TestNormalizeKeyframes:
+    """Turning raw keyframe values into a mask."""
 
     def test_returns_flags(self):
-        """A prediction field with keyframe data yields one bool per frame."""
-        processor = _processor()
-        view = _FakeView({KEYFRAME_PATH: [True, False, True, False]})
-
-        assert processor.get_keyframes(view, view, "model1") == [
+        assert _processor().normalize_keyframes([True, False, True]) == [
             True,
             False,
             True,
-            False,
         ]
 
     def test_coerces_truthy_values_to_bool(self):
         """None/0/1 from fiftyone become real bools so downstream masks are clean."""
-        processor = _processor()
-        view = _FakeView({KEYFRAME_PATH: [1, None, 1, 0]})
-
-        assert processor.get_keyframes(view, view, "model1") == [
+        assert _processor().normalize_keyframes([1, None, 1, 0]) == [
             True,
             False,
             True,
             False,
         ]
 
-    def test_returns_none_when_field_missing(self):
-        """A plain detection model has no keyframe attribute; that is not an error."""
-        processor = _processor()
-        view = _FakeView(raises=True)
-
-        assert processor.get_keyframes(view, view, "model1") is None
-
-    def test_returns_none_when_values_are_none(self):
-        processor = _processor()
-        view = _FakeView({KEYFRAME_PATH: None})
-
-        assert processor.get_keyframes(view, view, "model1") is None
+    def test_returns_none_for_empty(self):
+        assert _processor().normalize_keyframes([]) is None
 
     def test_returns_none_when_no_frame_is_flagged(self):
         """An all-False mask carries no information and must not be recorded."""
-        processor = _processor()
-        view = _FakeView({KEYFRAME_PATH: [False, False, False]})
-
-        assert processor.get_keyframes(view, view, "model1") is None
-
-    def test_respects_frame_id_range(self):
-        """The mask must be sliced like the detections, or it would misalign."""
-        processor = _processor(start_frame_id=1, end_frame_id=3)
-        view = _FakeView({KEYFRAME_PATH: [True, False, True, True, False]})
-
-        # end_frame_id is stored as end + 1, so frames 1..3 inclusive
-        assert processor.get_keyframes(view, view, "model1") == [False, True, True]
+        assert _processor().normalize_keyframes([False, False, False]) is None
 
 
 # ---------------------------------------------------------------------------
@@ -277,28 +244,62 @@ class TestGetKeyframes:
 
 
 class _FakeSequenceView:
-    """Stand-in for the per-sequence view chain used by process_sequence."""
+    """Stand-in for the batched view chain used by fetch_sequences."""
 
     media_type = "video"
 
-    def __init__(self, values_by_path) -> None:
+    def __init__(self, values_by_path, too_large_above=None, _stats=None) -> None:
         self._values_by_path = values_by_path
+        self._too_large_above = too_large_above
+        self._stats = _stats if _stats is not None else {"queries": 0}
 
-    def match(self, *_args: object, **_kwargs: object):
-        return self
+    @property
+    def query_count(self):
+        return self._stats["queries"]
+
+    def match(self, expression=None, *_args: object, **_kwargs: object):
+        """Honour `F("sequence").is_in([...])` so batch splitting really narrows."""
+        if expression is None:
+            return self
+        wanted = expression.to_mongo()["$in"][1]
+        names = self._values_by_path["sequence"]
+        keep = [i for i, name in enumerate(names) if name in wanted]
+        narrowed = {
+            path: ([value[i] for i in keep] if isinstance(value, list) else value)
+            for path, value in self._values_by_path.items()
+        }
+        return _FakeSequenceView(narrowed, self._too_large_above, self._stats)
 
     def filter_labels(self, *_args: object, **_kwargs: object):
         return self
 
-    def first(self):
-        return SimpleNamespace(
-            metadata=SimpleNamespace(frame_height=50, frame_width=100)
-        )
-
     def values(self, path):
+        self._stats["queries"] += 1
         if path not in self._values_by_path:
             raise ValueError(f"no such field: {path}")
-        return self._values_by_path[path]
+        value = self._values_by_path[path]
+        if (
+            self._too_large_above is not None
+            and isinstance(value, list)
+            and len(value) > self._too_large_above
+        ):
+            raise RuntimeError(
+                "Executor error during getMore :: caused by :: BSONObj size:"
+                " 17355147 is invalid. Size must be between 0 and 16793600(16MB)"
+            )
+        return value
+
+
+def _nest(values_by_path: dict, names=("seq-1",)) -> dict:
+    """Convert the unwound single-sequence fixtures to the nested batch shape."""
+    nested = {
+        "sequence": list(names),
+        "metadata.frame_width": [100] * len(names),
+        "metadata.frame_height": [50] * len(names),
+    }
+    for path, value in values_by_path.items():
+        nested[path.replace("frames[].", "frames.")] = [value]
+    return nested
 
 
 @pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
@@ -309,7 +310,7 @@ class TestProcessSequenceKeyframes:
 
     def _run(self, values_by_path, **kwargs: object):
         processor = _processor(**kwargs)
-        processor.dataset = _FakeSequenceView(values_by_path)
+        processor.dataset = _FakeSequenceView(_nest(values_by_path))
         return processor.process_sequence("seq-1")
 
     def test_keyframes_recorded_per_model(self):
@@ -394,3 +395,84 @@ class TestProcessSequenceKeyframes:
             }
         )
         assert sorted(sequence.field_names) == sorted([self.GT, "model1"])
+
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+class TestBatchedFetching:
+    """One query per field per batch, with a fallback for oversized results."""
+
+    GT = "ground_truth_det"
+
+    def _view(self, n_sequences, **kwargs: object):
+        names = [f"seq-{i}" for i in range(n_sequences)]
+        paths = {
+            "sequence": names,
+            "metadata.frame_width": [100] * n_sequences,
+            "metadata.frame_height": [50] * n_sequences,
+            "frames.model1.detections": [[["d"]] for _ in names],
+            f"frames.{self.GT}.detections": [[["g"]] for _ in names],
+            "frames.model1.keyframe": [[True] for _ in names],
+        }
+        return names, _FakeSequenceView(paths, **kwargs)
+
+    def test_one_query_per_field_not_per_sequence(self):
+        """4 sequences cost the same number of queries as 1."""
+        names, view = self._view(4)
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        assert sorted(sequences) == sorted(names)
+        # sequence + 2 resolutions + (detections + keyframe) for model1 + gt dets
+        assert view.query_count == 6
+
+    def test_every_sequence_gets_its_own_data(self):
+        names, view = self._view(3)
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        for name in names:
+            assert sequences[name]["model1"] == [["d"]]
+            assert sequences[name].keyframes == {"model1": [True]}
+
+    def test_oversized_batch_is_split_and_still_complete(self):
+        """A BSON size error halves the batch until the result fits."""
+        names, view = self._view(4, too_large_above=2)
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        assert sorted(sequences) == sorted(names)
+
+    def test_single_sequence_too_large_still_raises(self):
+        """Splitting cannot help below one sequence, so the error surfaces."""
+        names, view = self._view(1, too_large_above=0)
+        processor = _processor()
+        processor.dataset = view
+
+        with pytest.raises(RuntimeError, match="BSONObj size"):
+            processor.fetch_sequences(names)
+
+    def test_unrelated_query_errors_are_not_retried(self):
+        """Only the size limit triggers the split; other failures propagate."""
+        processor = _processor()
+        processor.dataset = _FakeSequenceView({"sequence": ["seq-0", "seq-1"]})
+
+        with pytest.raises(ValueError, match="no such field"):
+            processor.fetch_sequences(["seq-0", "seq-1"])
+
+    def test_process_sequences_batches_the_sequence_list(self):
+        names, view = self._view(5)
+        processor = _processor(batch_size=2)
+        processor.dataset = view
+        processor.sequence_list = names
+
+        sequences = processor.process_sequences()
+
+        assert sorted(sequences) == sorted(names)
+        # 3 batches x 6 queries, versus 5 x 6 if it queried per sequence
+        assert view.query_count == 18
