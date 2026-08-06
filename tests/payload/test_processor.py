@@ -1,7 +1,10 @@
 # test_payload_processor.py
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from seametrics.payload.processor import PayloadProcessor
 
 # Mock EXCLUDED_CLASSES if necessary
@@ -266,3 +269,128 @@ class TestGetKeyframes:
 
         # end_frame_id is stored as end + 1, so frames 1..3 inclusive
         assert processor.get_keyframes(view, view, "model1") == [False, True, True]
+
+
+# ---------------------------------------------------------------------------
+# process_sequence: the keyframe mask must reach the Sequence
+# ---------------------------------------------------------------------------
+
+
+class _FakeSequenceView:
+    """Stand-in for the per-sequence view chain used by process_sequence."""
+
+    media_type = "video"
+
+    def __init__(self, values_by_path) -> None:
+        self._values_by_path = values_by_path
+
+    def match(self, *_args: object, **_kwargs: object):
+        return self
+
+    def filter_labels(self, *_args: object, **_kwargs: object):
+        return self
+
+    def first(self):
+        return SimpleNamespace(
+            metadata=SimpleNamespace(frame_height=50, frame_width=100)
+        )
+
+    def values(self, path):
+        if path not in self._values_by_path:
+            raise ValueError(f"no such field: {path}")
+        return self._values_by_path[path]
+
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+class TestProcessSequenceKeyframes:
+    """The mask is recorded on the Sequence rather than applied."""
+
+    GT = "ground_truth_det"
+
+    def _run(self, values_by_path, **kwargs: object):
+        processor = _processor(**kwargs)
+        processor.dataset = _FakeSequenceView(values_by_path)
+        return processor.process_sequence("seq-1")
+
+    def test_keyframes_recorded_per_model(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"], ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            }
+        )
+        assert sequence.keyframes == {"model1": [True, False, True]}
+
+    def test_detections_are_not_blanked_outside_tracking_mode(self):
+        """Recording the mask must not change what detections come out."""
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"], ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            }
+        )
+        assert sequence["model1"] == [["d0"], ["d1"], ["d2"]]
+        assert sequence[self.GT] == [["g0"], ["g1"], ["g2"]]
+
+    def test_no_keyframe_entry_for_the_ground_truth_field(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"]],
+                "frames[].model1.keyframe": [True, False],
+                f"frames[].{self.GT}.keyframe": [True, True],
+            }
+        )
+        assert self.GT not in sequence.keyframes
+
+    def test_keyframes_empty_when_model_has_no_flags(self):
+        """A plain detection model yields an empty mapping, not a crash."""
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"]],
+            }
+        )
+        assert sequence.keyframes == {}
+
+    def test_keyframes_recorded_for_every_model(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["a0"], ["a1"]],
+                "frames[].model2.detections": [["b0"], ["b1"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"]],
+                "frames[].model1.keyframe": [True, False],
+                "frames[].model2.keyframe": [False, True],
+            },
+            models=["model1", "model2"],
+        )
+        assert sequence.keyframes == {
+            "model1": [True, False],
+            "model2": [False, True],
+        }
+
+    def test_tracking_mode_still_blanks_non_keyframes(self):
+        """The pre-existing blanking behaviour is unchanged."""
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"], ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            },
+            tracking_mode=True,
+        )
+        assert sequence["model1"] == [["d0"], [], ["d2"]]
+        assert sequence[self.GT] == [["g0"], [], ["g2"]]
+        assert sequence.keyframes == {"model1": [True, False, True]}
+
+    def test_keyframes_excluded_from_field_names(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"]],
+                f"frames[].{self.GT}.detections": [["g0"]],
+                "frames[].model1.keyframe": [True],
+            }
+        )
+        assert sorted(sequence.field_names) == sorted([self.GT, "model1"])
