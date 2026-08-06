@@ -11,6 +11,23 @@ from collections import defaultdict
 from pycocotools import mask as maskUtils
 import copy
 
+# below this, two-decimal formatting collapses the value to "0.00"
+_IOU_DECIMAL_FLOOR = 0.005
+
+
+def _format_iou(value: float) -> str:
+    """Render an IoU threshold without rounding small values away.
+
+    ``'{:0.2f}'`` turns any threshold below 0.005 into ``"0.00"``, so a report run
+    at 1e-5 records the same string as one run at 0 and ``results_to_df`` parses
+    it back as 0.0. Values that survive two decimals keep the familiar format; the
+    rest fall back to a representation that round-trips through ``float()``.
+    """
+    if value >= _IOU_DECIMAL_FLOOR:
+        return '{:0.2f}'.format(value)
+    return '{:g}'.format(value)
+
+
 class COCOeval:
     # Interface for evaluating detection on the Microsoft COCO dataset.
     #
@@ -621,8 +638,8 @@ class COCOeval:
             ]
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
-            iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
-                if iouThr is None else '{:0.2f}'.format(iouThr)
+            iouStr = '{}:{}'.format(_format_iou(p.iouThrs[0]), _format_iou(p.iouThrs[-1])) \
+                if iouThr is None else _format_iou(iouThr)
             if self.params.useCats == 0:
                 metrics_str = f"{tp:>6.0f}, {fp:>6.0f}, {fn:>6.0f}, {dup:>6.0f}, "
                 metrics_str += f"{pr:>5.2f}, {rec:>5.2f}, {f1:>5.2f}, {support:>6.0f}, "
