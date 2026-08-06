@@ -1,7 +1,7 @@
 import contextlib
 import io
 import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 import fiftyone as fo
 import numpy as np
@@ -424,12 +424,191 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
     }
 
 
+def payload_to_detection_verdicts(
+    payload: Payload,
+    model_name: Optional[str] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
+    class_agnostic: bool = True,
+    keyframes_only: bool = False,
+    area_range_label: str = "all",
+    **metric_kwargs: object,
+) -> Dict[str, Dict[str, str]]:
+    """Classify every prediction in a payload as TP, FP or ignored.
+
+    Runs the same evaluation as :func:`payload_to_det_metrics_by_sequence` but
+    returns the per-detection outcome instead of the aggregates, keyed by the
+    fiftyone detection id so the result can be written back to a dataset without
+    any frame arithmetic. Feed it to :func:`tag_detections`.
+
+    Args:
+        payload (Payload): The payload containing sequences, models and the
+            ground truth field name.
+        model_name (str, optional): Model to classify. Defaults to the first.
+        label_mapping (Dict[str, int], optional): As for
+            :func:`payload_to_det_metrics_by_sequence`.
+        class_agnostic (bool, optional): As for
+            :func:`payload_to_det_metrics_by_sequence`. Defaults to True.
+        keyframes_only (bool, optional): Classify only the frames the model
+            flagged as keyframes. Detections on other frames get no verdict at
+            all, because they were never evaluated. Defaults to False.
+        area_range_label (str, optional): Which area range the verdicts describe.
+            A detection outside the range is ignored rather than scored, so the
+            verdict is range-specific. Defaults to "all".
+        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support``.
+
+    Returns:
+        Dict[str, Dict[str, str]]: ``{sequence_name: {detection_id: verdict}}``
+            where verdict is ``"TP"``, ``"FP"`` or ``"ignored"``.
+
+    Raises:
+        ValueError: If *label_mapping* is combined with ``class_agnostic=True``,
+            or if ``box_format`` is passed in *metric_kwargs*.
+    """
+    from seametrics.detection import PrecisionRecallF1Support
+
+    if class_agnostic and label_mapping is not None:
+        raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
+    if "box_format" in metric_kwargs:
+        raise ValueError(
+            "`box_format` cannot be overridden: frame_dets_to_det_metrics always"
+            " produces absolute xywh boxes."
+        )
+    if model_name is None:
+        model_name = payload.models[0]
+    if label_mapping is not None:
+        metric_kwargs.setdefault("labels", sorted(set(label_mapping.values())))
+
+    verdicts = {}
+    for sequence_name, sequence in payload.sequences.items():
+        w, h = sequence.resolution.width, sequence.resolution.height
+        pred_frames = sequence[model_name]
+        gt_frames = sequence[payload.gt_field_name]
+
+        if keyframes_only:
+            mask = _sequence_keyframes(sequence, sequence_name, model_name)
+            pred_frames = _filter_to_keyframes(
+                pred_frames, mask, sequence_name, model_name
+            )
+            gt_frames = _filter_to_keyframes(
+                gt_frames, mask, sequence_name, payload.gt_field_name
+            )
+
+        # the converter drops detections whose label is unmapped, so rebuild the
+        # surviving id order exactly the way it builds the boxes
+        ids_by_frame = [
+            [
+                det.id
+                for det in frame
+                if not (label_mapping and det["label"] not in label_mapping)
+            ]
+            for frame in pred_frames
+        ]
+
+        metric = PrecisionRecallF1Support(
+            box_format="xywh", class_agnostic=class_agnostic, **metric_kwargs
+        )
+        metric.update(
+            payload_sequence_to_det_metrics(
+                sequence_dets=pred_frames, w=w, h=h, label_mapping=label_mapping
+            ),
+            payload_sequence_to_det_metrics(
+                sequence_dets=gt_frames,
+                w=w,
+                h=h,
+                is_gt=True,
+                label_mapping=label_mapping,
+            ),
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            metric.compute()
+
+        per_sequence = {}
+        for (frame_index, det_index), verdict in metric.detection_verdicts(
+            area_range_label=area_range_label
+        ).items():
+            per_sequence[ids_by_frame[frame_index][det_index]] = verdict
+        verdicts[sequence_name] = per_sequence
+
+    return verdicts
+
+
+def tag_detections(
+    dataset: object,
+    field_name: str,
+    verdicts: Dict[str, Dict[str, str]],
+    tags: Tuple[str, ...] = ("TP", "FP"),
+    clear_first: bool = True,
+) -> Dict[str, int]:
+    """Write TP/FP verdicts onto detections as fiftyone label tags.
+
+    Label tags are what the app filters on, so tagging makes the outcome
+    browsable. This mutates the dataset.
+
+    Args:
+        dataset (fo.Dataset | fo.DatasetView): Dataset or view holding *field_name*.
+        field_name (str): Prediction field whose detections to tag.
+        verdicts (Dict[str, Dict[str, str]]): As returned by
+            :func:`payload_to_detection_verdicts`.
+        tags (Tuple[str, ...], optional): Which verdicts to write. Defaults to
+            ``("TP", "FP")``; add ``"ignored"`` to tag those too.
+        clear_first (bool, optional): Remove any of *tags* already present on the
+            field's detections before writing, so re-running does not accumulate
+            stale tags. Defaults to True.
+
+    Returns:
+        Dict[str, int]: How many detections received each tag, plus ``"cleared"``.
+    """
+    wanted = set(tags)
+    lookup = {}
+    for per_sequence in verdicts.values():
+        for detection_id, verdict in per_sequence.items():
+            if verdict in wanted:
+                lookup[detection_id] = verdict
+
+    counts = dict.fromkeys(wanted, 0)
+    counts["cleared"] = 0
+    is_video = dataset.media_type == "video"
+
+    def apply(detection: object) -> None:
+        """Retag one detection in place, recording what changed."""
+        if clear_first and detection.tags:
+            kept = [t for t in detection.tags if t not in wanted]
+            counts["cleared"] += len(detection.tags) - len(kept)
+            detection.tags = kept
+        verdict = lookup.get(detection.id)
+        if verdict is not None:
+            detection.tags = [*detection.tags, verdict]
+            counts[verdict] += 1
+
+    for sample in dataset.iter_samples(autosave=True, progress=True):
+        containers = list(sample.frames.values()) if is_video else [sample]
+        for detection in _iter_detections(containers, field_name):
+            apply(detection)
+    return counts
+
+
+def _iter_detections(containers: list, field_name: str) -> Iterator[fo.Detection]:
+    """Yield every detection of *field_name* across samples or video frames.
+
+    Args:
+        containers (list): Samples, or the frames of one video sample.
+        field_name (str): Detections field to read.
+
+    Yields:
+        fo.Detection: Each detection present on the field.
+    """
+    for container in containers:
+        detections = container[field_name]
+        if detections is not None:
+            yield from detections.detections
+
+
 def payload_sequence_to_det_metrics(
     sequence_dets: List[List[fo.Detection]],
     w: int,
     h: int,
     is_gt: bool = False,
-    label_mapping: Dict[str, int] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, np.ndarray]]:
     """Convert a sequence of detections to format of PrecisionRecallF1.
 

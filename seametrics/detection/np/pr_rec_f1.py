@@ -151,17 +151,17 @@ class PrecisionRecallF1Support:
         >>> import numpy as np
         >>> from metrics.detection import MeanAveragePrecision
         >>> preds = [
-        ...   dict(
-        ...     boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
-        ...     scores=np.array([0.536]),
-        ...     labels=np.array([0]),
-        ...   )
+        ...     dict(
+        ...         boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
+        ...         scores=np.array([0.536]),
+        ...         labels=np.array([0]),
+        ...     )
         ... ]
         >>> target = [
-        ...   dict(
-        ...     boxes=np.array([[214.0, 41.0, 562.0, 285.0]]),
-        ...     labels=np.array([0]),
-        ...   )
+        ...     dict(
+        ...         boxes=np.array([[214.0, 41.0, 562.0, 285.0]]),
+        ...         labels=np.array([0]),
+        ...     )
         ... ]
         >>> metric = PrecisionRecallF1Support()
         >>> metric.update(preds, target)
@@ -296,8 +296,7 @@ class PrecisionRecallF1Support:
 
         if labels is not None and not isinstance(labels, list):
             raise ValueError(
-                f"Expected argument `labels` to be a list of integers,"
-                f" but got {labels}"
+                f"Expected argument `labels` to be a list of integers, but got {labels}"
             )
         self.labels = labels
 
@@ -316,6 +315,8 @@ class PrecisionRecallF1Support:
         self.groundtruths = []
         self.groundtruth_labels = []
         self.groundtruth_crowds = []
+        self.coco_eval = None
+        self._detection_sources = {}
 
     def update(
         self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]
@@ -385,20 +386,111 @@ class PrecisionRecallF1Support:
                 coco_eval.params.useCats = 1
                 if not self.labels:
                     all_labels = np.unique(
-                        np.concatenate(self.detection_labels).tolist() \
-                            + np.concatenate(self.groundtruth_labels).tolist()
-                        ).tolist()
+                        np.concatenate(self.detection_labels).tolist()
+                        + np.concatenate(self.groundtruth_labels).tolist()
+                    ).tolist()
                 else:
                     all_labels = self.labels
                 coco_eval.params.catIds = all_labels
             coco_eval.evaluate()
             coco_eval.accumulate()
+        self.coco_eval = coco_eval
 
         if self.debug:
             print(f.getvalue())
 
         metrics = coco_eval.summarize()
         return metrics
+
+    #: tolerance for matching a requested IoU threshold against a configured one
+    _IOU_MATCH_TOL = 1e-12
+
+    def detection_verdicts(
+        self,
+        area_range_label: str = "all",
+        iou_threshold: Optional[float] = None,
+    ) -> Dict[Tuple[int, int], str]:
+        """Classify every prediction as a true positive, false positive or ignored.
+
+        Must be called after :meth:`compute`. The verdicts reconcile with the
+        aggregate counts: the true positives number ``tp`` and the false positives
+        ``fp`` for the same area range and IoU threshold.
+
+        Args:
+            area_range_label: Which configured area range to report on. A detection
+                outside the range is ignored rather than scored, so the verdict is
+                range-specific.
+            iou_threshold: Which configured IoU threshold to report on. Defaults to
+                the lowest, matching what ``compute`` summarises.
+
+        Returns:
+            ``{(image_index, detection_index): verdict}`` where verdict is ``"TP"``,
+            ``"FP"`` or ``"ignored"``. The indices address the prediction list given
+            to :meth:`update` — image first, then position within that image.
+            ``"ignored"`` means the detection matched ignored ground truth or fell
+            outside the area range; it counts towards neither tp nor fp.
+
+        Raises:
+            RuntimeError: If called before :meth:`compute`.
+            ValueError: If the area range or IoU threshold was not evaluated.
+        """
+        if self.coco_eval is None or not self.coco_eval.evalImgs:
+            raise RuntimeError("Call compute() before detection_verdicts().")
+
+        params = self.coco_eval.params
+        if area_range_label not in params.areaRngLbl:
+            raise ValueError(
+                f"Area range {area_range_label!r} was not evaluated;"
+                f" got {list(params.areaRngLbl)}."
+            )
+        thresholds = list(params.iouThrs)
+        if iou_threshold is None:
+            iou_threshold = thresholds[0]
+        matching = [
+            i
+            for i, t in enumerate(thresholds)
+            if abs(t - iou_threshold) < self._IOU_MATCH_TOL
+        ]
+        if not matching:
+            raise ValueError(
+                f"IoU threshold {iou_threshold} was not evaluated; got {thresholds}."
+            )
+        return self._walk_verdicts(
+            matching[0], list(params.areaRngLbl).index(area_range_label)
+        )
+
+    def _walk_verdicts(
+        self, t_index: int, area_index: int
+    ) -> Dict[Tuple[int, int], str]:
+        """Read per-detection outcomes out of evalImgs for one threshold and range.
+
+        Args:
+            t_index: Index into the configured IoU thresholds.
+            area_index: Index into the configured area ranges.
+
+        Returns:
+            ``{(image_index, detection_index): verdict}``.
+        """
+        params = self.coco_eval.params
+        # evalImgs is laid out catIds x areaRng x imgIds
+        n_images = len(params.imgIds)
+        n_areas = len(params.areaRng)
+        verdicts = {}
+        for position, entry in enumerate(self.coco_eval.evalImgs):
+            if entry is None or (position // n_images) % n_areas != area_index:
+                continue
+            matches = entry["dtMatches"][t_index]
+            ignored = entry["dtIgnore"][t_index]
+            for slot, annotation_id in enumerate(entry["dtIds"]):
+                source = self._detection_sources.get(annotation_id)
+                if source is None:
+                    continue
+                verdicts[source] = (
+                    "ignored"
+                    if ignored[slot]
+                    else ("TP" if matches[slot] > 0 else "FP")
+                )
+        return verdicts
 
     @staticmethod
     def coco_to_np(
@@ -521,17 +613,17 @@ class PrecisionRecallF1Support:
             >>> import numpy as np
             >>> from metrics.detection import MeanAveragePrecision
             >>> preds = [
-            ...   dict(
-            ...     boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
-            ...     scores=np.array([0.536]),
-            ...     labels=np.array([0]),
-            ...   )
+            ...     dict(
+            ...         boxes=np.array([[258.0, 41.0, 606.0, 285.0]]),
+            ...         scores=np.array([0.536]),
+            ...         labels=np.array([0]),
+            ...     )
             ... ]
             >>> target = [
-            ...   dict(
-            ...     boxes=np.array([[214.0, 41.0, 562.0, 285.0]]),
-            ...     labels=np.array([0]),
-            ...   )
+            ...     dict(
+            ...         boxes=np.array([[214.0, 41.0, 562.0, 285.0]]),
+            ...         labels=np.array([0]),
+            ...     )
             ... ]
             >>> metric = PrecisionRecallF1Support()
             >>> metric.update(preds, target)
@@ -603,6 +695,9 @@ class PrecisionRecallF1Support:
         images = []
         annotations = []
         annotation_id = 1  # has to start with 1, otherwise COCOEval results are wrong
+        # only meaningful for the prediction set; lets a verdict be traced back
+        # to the detection that produced it
+        source_of_annotation = {}
 
         for image_id, (image_boxes, image_labels) in enumerate(zip(boxes, labels)):
             if self.iou_type == "segm" and len(image_boxes) == 0:
@@ -664,8 +759,13 @@ class PrecisionRecallF1Support:
                             f" (expected value of type float, got type {type(score)})"
                         )
                     annotation["score"] = score
+                if scores is not None:
+                    source_of_annotation[annotation_id] = (image_id, k)
                 annotations.append(annotation)
                 annotation_id += 1
+
+        if scores is not None:
+            self._detection_sources = source_of_annotation
 
         classes = [{"id": i, "name": str(i)} for i in self._get_classes()]
         return {"images": images, "annotations": annotations, "categories": classes}
