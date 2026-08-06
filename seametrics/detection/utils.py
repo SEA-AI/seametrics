@@ -538,6 +538,7 @@ def tag_detections(
     verdicts: Dict[str, Dict[str, str]],
     tags: Tuple[str, ...] = ("TP", "FP"),
     clear_first: bool = True,
+    progress: bool = True,
 ) -> Dict[str, int]:
     """Write TP/FP verdicts onto detections as fiftyone label tags.
 
@@ -554,6 +555,8 @@ def tag_detections(
         clear_first (bool, optional): Remove any of *tags* already present on the
             field's detections before writing, so re-running does not accumulate
             stale tags. Defaults to True.
+        progress (bool, optional): Show fiftyone's save progress bar. Defaults to
+            True; batched callers usually want it off.
 
     Returns:
         Dict[str, int]: How many detections received each tag, plus ``"cleared"``.
@@ -580,7 +583,7 @@ def tag_detections(
             detection.tags = [*detection.tags, verdict]
             counts[verdict] += 1
 
-    for sample in dataset.iter_samples(autosave=True, progress=True):
+    for sample in dataset.iter_samples(autosave=True, progress=progress):
         containers = list(sample.frames.values()) if is_video else [sample]
         for detection in _iter_detections(containers, field_name):
             apply(detection)

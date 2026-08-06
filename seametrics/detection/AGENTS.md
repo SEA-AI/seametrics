@@ -163,6 +163,17 @@ Deserialisation dominates, not round trips: one field across 106 sequences took
 
 To see the outcome per detection in the FiftyOne app, write it as label tags:
 
+`evaluate_models` can do this in the same pass, while each batch is still
+loaded, so the tags cannot disagree with the numbers:
+
+```python
+report = evaluate_models(..., keyframes_only=True, tag_predictions=True)
+report.tagged      # {model: {"TP": n, "FP": n}}
+```
+
+It is off by default because it writes to the dataset and roughly quadruples the
+runtime — the cost is fiftyone saving frames, not the metric. To tag separately:
+
 ```python
 from seametrics.detection.utils import payload_to_detection_verdicts, tag_detections
 

@@ -12,7 +12,11 @@ import numpy as np
 import pytest
 
 from seametrics.detection import PrecisionRecallF1Support
-from seametrics.detection.report import DetectionReport, _pool_comparable
+from seametrics.detection.report import (
+    DetectionReport,
+    _pool_comparable,
+    evaluate_models,
+)
 from seametrics.detection.utils import (
     OVERALL_KEY,
     payload_to_det_metrics_by_sequence,
@@ -388,3 +392,67 @@ class TestDetectionReport:
         assert list(df["sequence"]) == ["seq", OVERALL_KEY]
         assert list(df["in_overall"]) == [True, False]
         assert set(df["model"]) == {"model"}
+
+
+class TestEvaluateModelsTagging:
+    """The tag_predictions flag on the report builder.
+
+    Runs against a real (temporary) fiftyone dataset, because the flag exercises
+    PayloadProcessor, the metric, and the dataset write together — which is
+    precisely the seam a unit test with fakes would miss.
+    """
+
+    @pytest.fixture
+    def dataset_name(self):
+        name = "_seametrics_report_tag_test"
+        if name in fo.list_datasets():
+            fo.delete_dataset(name)
+        ds = fo.Dataset(name)
+        sample = fo.Sample(filepath="/tmp/_seametrics_fake.mp4")
+        sample["sequence"] = "seq-1"
+        sample.metadata = fo.VideoMetadata(frame_width=100, frame_height=100)
+        ds.add_sample(sample)
+        # frame 1: one hit and one stray. frame 2: no ground truth, one stray.
+        sample.frames[1]["gt"] = fo.Detections(detections=[_gt()])
+        sample.frames[1]["model"] = fo.Detections(
+            detections=[_pred(BOX), _pred(FAR, 0.5)]
+        )
+        sample.frames[2]["gt"] = fo.Detections(detections=[])
+        sample.frames[2]["model"] = fo.Detections(detections=[_pred(FAR, 0.4)])
+        sample.save()
+        ds.save()
+        yield name
+        fo.delete_dataset(name)
+
+    def _tags(self, name):
+        ds = fo.load_dataset(name)
+        return [
+            det.tags
+            for frame in ds.first().frames.values()
+            for det in frame["model"].detections
+        ]
+
+    def test_nothing_is_written_by_default(self, dataset_name):
+        report = evaluate_models(
+            dataset_name, "gt", ["model"], iou_threshold=LOW_IOU, progress=False
+        )
+
+        assert report.tagged == {}
+        assert self._tags(dataset_name) == [[], [], []]
+
+    def test_flag_writes_tags_matching_the_metrics(self, dataset_name):
+        report = evaluate_models(
+            dataset_name,
+            "gt",
+            ["model"],
+            iou_threshold=LOW_IOU,
+            tag_predictions=True,
+            progress=False,
+        )
+
+        summary = report.per_sequence["model"]["seq-1"]["metrics"]["all"]
+        assert report.tagged["model"]["TP"] == summary["tp"]
+        assert report.tagged["model"]["FP"] == summary["fp"]
+
+        written = sorted(t for tags in self._tags(dataset_name) for t in tags)
+        assert written == ["FP", "FP", "TP"]

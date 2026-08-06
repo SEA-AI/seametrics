@@ -14,7 +14,9 @@ from seametrics.detection.utils import (
     OVERALL_KEY,
     aggregate_sequence_results,
     payload_to_det_metrics_by_sequence,
+    payload_to_detection_verdicts,
     sequence_results_to_df,
+    tag_detections,
 )
 from seametrics.payload import Payload
 from seametrics.payload.processor import PayloadProcessor
@@ -39,6 +41,8 @@ class DetectionReport:
         keyframe_frames: ``{model: n}`` frames flagged as keyframes.
         total_frames: ``{model: n}`` frames seen.
         iou_threshold: The threshold the numbers were produced at.
+        tagged: ``{model: {tag: n}}`` label tags written, empty unless
+            *tag_predictions* was set.
     """
 
     models: List[str]
@@ -49,6 +53,7 @@ class DetectionReport:
     keyframe_frames: Dict[str, int] = field(default_factory=dict)
     total_frames: Dict[str, int] = field(default_factory=dict)
     iou_threshold: float = DEFAULT_IOU
+    tagged: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     @property
     def excluded_sequences(self) -> List[str]:
@@ -113,10 +118,44 @@ def _pool_comparable(
     return overall, shared
 
 
+def _usable_sequences(
+    payload: Payload,
+    model: str,
+    keyframes_only: bool,
+    skipped: Dict[str, List[str]],
+    keyframe_frames: Dict[str, int],
+    total_frames: Dict[str, int],
+) -> Dict[str, object]:
+    """Select the sequences a model can evaluate, recording the rest as skipped.
+
+    Args:
+        payload: The batch just fetched.
+        model: Prediction field being evaluated.
+        keyframes_only: Whether a missing keyframe mask disqualifies a sequence.
+        skipped: Mutated with sequences this model cannot evaluate.
+        keyframe_frames: Mutated with the running keyframe count.
+        total_frames: Mutated with the running frame count.
+
+    Returns:
+        Dict[str, object]: ``{sequence_name: Sequence}`` for the usable ones.
+    """
+    usable = {}
+    for name, sequence in payload.sequences.items():
+        mask = getattr(sequence, "keyframes", {}).get(model)
+        if keyframes_only and mask is None:
+            skipped[model].append(name)
+            continue
+        usable[name] = sequence
+        total_frames[model] += len(sequence[model])
+        keyframe_frames[model] += sum(mask) if mask else 0
+    return usable
+
+
 def evaluate_models(
     dataset_name: str,
     gt_field: str,
     models: List[str],
+    *,
     slices: Optional[List[str]] = None,
     sequence_list: Optional[List[str]] = None,
     keyframes_only: bool = False,
@@ -124,6 +163,7 @@ def evaluate_models(
     batch_size: int = 8,
     label_mapping: Optional[Dict[str, int]] = None,
     class_agnostic: bool = True,
+    tag_predictions: bool = False,
     progress: bool = True,
     **metric_kwargs: object,
 ) -> DetectionReport:
@@ -150,12 +190,20 @@ def evaluate_models(
         batch_size (int, optional): Sequences fetched per query. Defaults to 8.
         label_mapping (Dict[str, int], optional): For class-specific metrics.
         class_agnostic (bool, optional): Defaults to True.
+        tag_predictions (bool, optional): **Writes to the dataset.** Tag every
+            evaluated prediction ``TP`` or ``FP`` as a fiftyone label tag, while
+            the batch is still loaded, so the tags always agree with the numbers
+            reported here. Off by default because it mutates a shared dataset and
+            roughly quadruples the runtime — the cost is fiftyone saving frames,
+            not the metric. Defaults to False.
         progress (bool, optional): Print batch progress. Defaults to True.
         **metric_kwargs: Forwarded to ``PrecisionRecallF1Support``, e.g.
             ``area_ranges`` and ``area_ranges_labels``.
 
     Returns:
-        DetectionReport: Per-sequence results, pooled totals and coverage.
+        DetectionReport: Per-sequence results, pooled totals and coverage. When
+            *tag_predictions* is set, ``report.tagged`` records how many tags were
+            written per model.
 
     Raises:
         ValueError: If *models* is empty or *iou_threshold* is not positive.
@@ -169,6 +217,7 @@ def evaluate_models(
         )
 
     import fiftyone as fo  # local: fiftyone is an optional extra
+    from fiftyone import ViewField as F
 
     view = fo.load_dataset(dataset_name)
     if slices and view.media_type == "group":
@@ -179,6 +228,7 @@ def evaluate_models(
     skipped: Dict[str, List[str]] = {m: [] for m in models}
     keyframe_frames = dict.fromkeys(models, 0)
     total_frames = dict.fromkeys(models, 0)
+    tagged: Dict[str, Dict[str, int]] = {m: {} for m in models}
 
     for start in range(0, len(sequences), batch_size):
         batch = sequences[start : start + batch_size]
@@ -192,34 +242,41 @@ def evaluate_models(
         ).payload
 
         for model in models:
-            usable = {}
-            for name, sequence in payload.sequences.items():
-                mask = getattr(sequence, "keyframes", {}).get(model)
-                if keyframes_only and mask is None:
-                    skipped[model].append(name)
-                    continue
-                usable[name] = sequence
-                total_frames[model] += len(sequence[model])
-                keyframe_frames[model] += sum(mask) if mask else 0
+            usable = _usable_sequences(
+                payload, model, keyframes_only, skipped, keyframe_frames, total_frames
+            )
             if not usable:
                 continue
+            usable_payload = Payload(
+                dataset=dataset_name,
+                models=models,
+                gt_field_name=gt_field,
+                sequences=usable,
+            )
+            shared = dict(
+                model_name=model,
+                label_mapping=label_mapping,
+                class_agnostic=class_agnostic,
+                keyframes_only=keyframes_only,
+                iou_thresholds=[iou_threshold],
+                **metric_kwargs,
+            )
             per_sequence[model].update(
                 payload_to_det_metrics_by_sequence(
-                    Payload(
-                        dataset=dataset_name,
-                        models=models,
-                        gt_field_name=gt_field,
-                        sequences=usable,
-                    ),
-                    model_name=model,
-                    label_mapping=label_mapping,
-                    class_agnostic=class_agnostic,
-                    keyframes_only=keyframes_only,
-                    include_overall=False,
-                    iou_thresholds=[iou_threshold],
-                    **metric_kwargs,
+                    usable_payload, include_overall=False, **shared
                 )
             )
+            if tag_predictions:
+                # re-running the metric is cheap next to fetching the batch, and
+                # reusing the tested path beats duplicating the extraction here
+                written = tag_detections(
+                    view.match(F("sequence").is_in(list(usable))),
+                    model,
+                    payload_to_detection_verdicts(usable_payload, **shared),
+                    progress=progress,
+                )
+                for tag, count in written.items():
+                    tagged[model][tag] = tagged[model].get(tag, 0) + count
 
         del payload
         if progress:
@@ -236,4 +293,5 @@ def evaluate_models(
         keyframe_frames=keyframe_frames,
         total_frames=total_frames,
         iou_threshold=iou_threshold,
+        tagged=tagged if tag_predictions else {},
     )
