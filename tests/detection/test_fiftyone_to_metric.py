@@ -310,13 +310,19 @@ def _payload(sequences, models=("model",), gt_field="gt"):
 
 
 def _sequence(
-    gt_frames, pred_frames, width=100, height=100, gt_field="gt", model="model"
+    gt_frames,
+    pred_frames,
+    width=100,
+    height=100,
+    gt_field="gt",
+    model="model",
+    keyframes=None,
 ):
     """Build a single-model Sequence with the given per-frame detection lists."""
-    return Sequence(
-        resolution=Resolution(height=height, width=width),
-        **{gt_field: gt_frames, model: pred_frames},
-    )
+    fields = {gt_field: gt_frames, model: pred_frames}
+    if keyframes is not None:
+        fields["keyframes"] = {model: keyframes}
+    return Sequence(resolution=Resolution(height=height, width=width), **fields)
 
 
 # One sequence where the prediction hits, one where it is missed entirely.
@@ -827,3 +833,135 @@ class TestOverallKeyCollision:
             payload, iou_thresholds=[0.5], include_overall=False
         )
         assert res[OVERALL_KEY]["metrics"]["all"]["tp"] == 1
+
+
+# Ground truth annotated on all four frames; the model only emits on frames 0
+# and 2, which are the frames it flagged as keyframes.
+DENSE_GT = [[_gt(GT_BOX)], [_gt(GT_BOX)], [_gt(GT_BOX)], [_gt(GT_BOX)]]
+SPARSE_PRED = [[_pred(GT_BOX)], [], [_pred(GT_BOX)], []]
+KEYFRAME_MASK = [True, False, True, False]
+
+
+def _keyframe_payload(mask=KEYFRAME_MASK, gt=None, pred=None):
+    """Payload whose single sequence carries a keyframe mask for "model"."""
+    return _payload(
+        {
+            "seq": _sequence(
+                DENSE_GT if gt is None else gt,
+                SPARSE_PRED if pred is None else pred,
+                keyframes=mask,
+            )
+        }
+    )
+
+
+class TestKeyframesOnly:
+    """Dropping non-keyframe frames, mirroring seametrics.tracking."""
+
+    def test_disabled_by_default_every_frame_counts(self):
+        """Frames the model skipped are misses: recall 2/4, nImgs 4."""
+        res = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(), iou_thresholds=[0.5]
+        )["seq"]["metrics"]["all"]
+        assert (res["tp"], res["fp"], res["fn"]) == (2, 0, 2)
+        assert res["recall"] == pytest.approx(0.5)
+        assert res["nImgs"] == 4
+
+    def test_enabled_drops_non_keyframes_from_both_sides(self):
+        """Only frames 0 and 2 survive: recall 2/2, nImgs 2."""
+        res = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(), iou_thresholds=[0.5], keyframes_only=True
+        )["seq"]["metrics"]["all"]
+        assert (res["tp"], res["fp"], res["fn"]) == (2, 0, 0)
+        assert res["recall"] == pytest.approx(1.0)
+        assert res["nImgs"] == 2
+
+    def test_ground_truth_on_dropped_frames_is_not_a_miss(self):
+        """The dropped frames held real GT; it must not resurface as fn."""
+        res = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(), iou_thresholds=[0.5], keyframes_only=True
+        )["seq"]["metrics"]["all"]
+        assert res["fn"] == 0
+        assert res["support"] == 2  # 2 keyframes, one GT object each
+
+    def test_predictions_on_dropped_frames_are_not_false_positives(self):
+        """A stray prediction on a non-keyframe must not count against precision."""
+        pred = [[_pred(GT_BOX)], [_pred(PRED_BOX)], [_pred(GT_BOX)], []]
+        res = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(pred=pred), iou_thresholds=[0.5], keyframes_only=True
+        )["seq"]["metrics"]["all"]
+        assert (res["tp"], res["fp"], res["fn"]) == (2, 0, 0)
+        assert res["precision"] == pytest.approx(1.0)
+
+    def test_all_frames_flagged_is_a_no_op(self):
+        mask = [True, True, True, True]
+        on = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(mask=mask), iou_thresholds=[0.5], keyframes_only=True
+        )["seq"]["metrics"]["all"]
+        off = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(mask=mask), iou_thresholds=[0.5]
+        )["seq"]["metrics"]["all"]
+        assert on == off
+
+    def test_no_frames_flagged_yields_an_empty_evaluation(self):
+        res = payload_to_det_metrics_by_sequence(
+            _keyframe_payload(mask=[False] * 4),
+            iou_thresholds=[0.5],
+            keyframes_only=True,
+        )["seq"]["metrics"]["all"]
+        assert (res["tp"], res["fp"], res["fn"]) == (0, 0, 0)
+        assert res["nImgs"] == 0
+
+    def test_missing_mask_raises_rather_than_silently_evaluating_all(self):
+        payload = _payload({"seq": _sequence(DENSE_GT, SPARSE_PRED)})  # no keyframes
+        with pytest.raises(ValueError, match="no keyframe data"):
+            payload_to_det_metrics_by_sequence(
+                payload, iou_thresholds=[0.5], keyframes_only=True
+            )
+
+    def test_mask_for_a_different_model_raises(self):
+        seq = Sequence(
+            resolution=Resolution(height=100, width=100),
+            gt=DENSE_GT,
+            model_a=SPARSE_PRED,
+            model_b=SPARSE_PRED,
+            keyframes={"model_a": KEYFRAME_MASK},
+        )
+        payload = _payload({"seq": seq}, models=("model_a", "model_b"))
+        with pytest.raises(ValueError, match="no keyframe data"):
+            payload_to_det_metrics_by_sequence(
+                payload,
+                model_name="model_b",
+                iou_thresholds=[0.5],
+                keyframes_only=True,
+            )
+
+    def test_mask_length_mismatch_raises(self):
+        payload = _keyframe_payload(mask=[True, False])  # 2 flags, 4 frames
+        with pytest.raises(ValueError, match="has 2 entries"):
+            payload_to_det_metrics_by_sequence(
+                payload, iou_thresholds=[0.5], keyframes_only=True
+            )
+
+    def test_overall_pools_the_filtered_counts(self):
+        payload = _payload(
+            {
+                "a": _sequence(DENSE_GT, SPARSE_PRED, keyframes=KEYFRAME_MASK),
+                "b": _sequence(DENSE_GT, SPARSE_PRED, keyframes=KEYFRAME_MASK),
+            }
+        )
+        res = payload_to_det_metrics_by_sequence(
+            payload, iou_thresholds=[0.5], keyframes_only=True
+        )
+        overall = res[OVERALL_KEY]["metrics"]["all"]
+        assert (overall["tp"], overall["fp"], overall["fn"]) == (4, 0, 0)
+        assert overall["nImgs"] == 4  # 2 keyframes x 2 sequences
+
+    def test_pooled_route_agrees_with_by_sequence_route(self):
+        payload = _keyframe_payload()
+        preds, refs = payload_to_det_metric(payload, keyframes_only=True)
+        pooled = _compute(preds, refs, iou_thresholds=[0.5])["metrics"]["all"]
+        overall = payload_to_det_metrics_by_sequence(
+            payload, iou_thresholds=[0.5], keyframes_only=True
+        )[OVERALL_KEY]["metrics"]["all"]
+        assert overall == pooled

@@ -280,6 +280,7 @@ class PayloadProcessor:
         )
 
         detections = {}
+        keyframes = {}
 
         for field_name in self.models + [self.gt_field]:
             filter_expression = ~(F("label").is_in(self.excluded_classes))
@@ -292,10 +293,15 @@ class PayloadProcessor:
                 filter_expression,
                 only_matches=False,
             )
-            
+
             det_values = filter_view.values(
                 f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
             )[self.start_frame_id:self.end_frame_id]
+
+            if field_name != self.gt_field:
+                mask = self.get_keyframes(sequence_view, filter_view, field_name)
+                if mask is not None:
+                    keyframes[field_name] = mask
 
             if self.tracking_mode:
                 keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, self.models[0], unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
@@ -303,8 +309,52 @@ class PayloadProcessor:
             else:
                 detections[field_name] = [d if d is not None else [] for d in det_values]
 
-        
-        return Sequence(resolution=self.get_resolution(sequence_view), **detections)
+        return Sequence(
+            resolution=self.get_resolution(sequence_view),
+            keyframes=keyframes,
+            **detections,
+        )
+
+    def get_keyframes(
+        self,
+        sequence_view: fo.DatasetView,
+        filter_view: fo.DatasetView,
+        field_name: str,
+    ) -> "List[bool] | None":
+        """Read the per-frame keyframe flags of a prediction field.
+
+        The flags are recorded on the `Sequence` rather than applied, so that each
+        metric family can decide what to do with them: `seametrics.tracking`
+        evaluates keyframes only, while detection evaluates every frame unless the
+        caller opts in.
+
+        Args:
+            sequence_view (fo.DatasetView): View for the sequence, used to resolve
+                the field name for the media type.
+            filter_view (fo.DatasetView): Label-filtered view to read values from.
+            field_name (str): Prediction field whose keyframe flags to read.
+
+        Returns:
+            List[bool] | None: One flag per frame in the sequence, or None if the
+                field carries no keyframe data (the common case for plain
+                detection models).
+        """
+        field = self.get_field_name(sequence_view, field_name, unwinding=True)
+        path = f"{field}.keyframe"
+        try:
+            values = filter_view.values(path)
+        except Exception:  # pylint: disable=broad-except
+            # field has no `keyframe` attribute; nothing to record
+            return None
+
+        if values is None:
+            return None
+
+        values = values[self.start_frame_id:self.end_frame_id]
+        if not any(value for value in values):
+            return None
+
+        return [bool(value) for value in values]
 
     def process_sequences(self) -> Dict[str, Sequence]:
         """

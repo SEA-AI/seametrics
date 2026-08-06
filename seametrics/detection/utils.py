@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
 from seametrics.detection.np.utils import box_convert
-from seametrics.payload import Payload
+from seametrics.payload import Payload, Sequence
 
 if _TORCHMETRICS_AVAILABLE:
     from torch import tensor
@@ -27,11 +27,77 @@ OVERALL_KEY = "OVERALL"
 _ADDITIVE_KEYS = ("tp", "fp", "fn", "duplicates", "fpi", "nImgs")
 
 
+def _sequence_keyframes(
+    sequence: Sequence, sequence_name: str, model_name: str
+) -> List[bool]:
+    """Return the keyframe mask a sequence recorded for one prediction field.
+
+    Args:
+        sequence (Sequence): The payload sequence.
+        sequence_name (str): Name of the sequence, used in error messages.
+        model_name (str): Prediction field whose mask is wanted.
+
+    Returns:
+        List[bool]: One flag per frame.
+
+    Raises:
+        ValueError: If the sequence carries no keyframe mask for *model_name*.
+            Filtering silently on a missing mask would evaluate every frame while
+            reporting keyframe-only numbers.
+    """
+    keyframes = getattr(sequence, "keyframes", None) or {}
+    mask = keyframes.get(model_name)
+    if mask is None:
+        raise ValueError(
+            f"Sequence {sequence_name!r} has no keyframe data for {model_name!r}."
+            " Rebuild the payload with a PayloadProcessor that records keyframes,"
+            " or pass keyframes_only=False."
+        )
+    return mask
+
+
+def _filter_to_keyframes(
+    frames: List[List[fo.Detection]],
+    mask: List[bool],
+    sequence_name: str,
+    field_name: str,
+) -> List[List[fo.Detection]]:
+    """Drop the frames whose keyframe flag is falsy.
+
+    Applied to ground truth and predictions alike, mirroring
+    ``seametrics.tracking.utils.build_detection_inputs``: a frame the model never
+    emitted on is removed from the evaluation entirely rather than counted as a
+    miss, and stops contributing to ``nImgs``.
+
+    Args:
+        frames (List[List[fo.Detection]]): Per-frame detection lists.
+        mask (List[bool]): One keyframe flag per frame.
+        sequence_name (str): Name of the sequence, used in error messages.
+        field_name (str): Field being filtered, used in error messages.
+
+    Returns:
+        List[List[fo.Detection]]: Only the frames flagged as keyframes.
+
+    Raises:
+        ValueError: If *mask* and *frames* have different lengths, which would
+            silently misalign ground truth and predictions.
+    """
+    if len(mask) != len(frames):
+        raise ValueError(
+            f"Keyframe mask for sequence {sequence_name!r} has {len(mask)} entries"
+            f" but field {field_name!r} has {len(frames)} frames."
+        )
+    return [
+        frame for frame, is_keyframe in zip(frames, mask, strict=True) if is_keyframe
+    ]
+
+
 def payload_to_det_metric(
     payload: Payload,
     model_name: str = None,
     label_mapping: Dict[str, int] = None,
     class_agnostic: bool = True,
+    keyframes_only: bool = False,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
     """Convert the payload data to detection metrics format.
 
@@ -45,6 +111,12 @@ def payload_to_det_metric(
             calculated in a class-specific way. Defaults to None.
         class_agnostic (bool, optional): Flag indicating if the metrics should be
             calculated in a class-agnostic way. Defaults to True.
+        keyframes_only (bool, optional): Keep only the frames the model flagged as
+            keyframes, dropping ground truth and predictions alike, as
+            ``seametrics.tracking`` does. Frames the model never emitted on are
+            excluded from the evaluation instead of counting as misses. Requires a
+            payload built by a ``PayloadProcessor`` that records keyframes.
+            Defaults to False.
 
     Returns:
         Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
@@ -60,26 +132,35 @@ def payload_to_det_metric(
     if model_name is None:
         model_name = payload.models[0]
 
-    for _, sequence in payload.sequences.items():
+    for sequence_name, sequence in payload.sequences.items():
         w, h = (
             sequence.resolution.width,
             sequence.resolution.height,
         )
+        pred_frames = sequence[model_name]
+        gt_frames = sequence[payload.gt_field_name]
+
+        if keyframes_only:
+            mask = _sequence_keyframes(sequence, sequence_name, model_name)
+            pred_frames = _filter_to_keyframes(
+                pred_frames, mask, sequence_name, model_name
+            )
+            gt_frames = _filter_to_keyframes(
+                gt_frames, mask, sequence_name, payload.gt_field_name
+            )
+
         predictions.extend(
             payload_sequence_to_det_metrics(
-                sequence_dets=sequence[model_name],
-                w=w,
-                h=h,
-                label_mapping=label_mapping
+                sequence_dets=pred_frames, w=w, h=h, label_mapping=label_mapping
             )
         )
         references.extend(
             payload_sequence_to_det_metrics(
-                sequence_dets=sequence[payload.gt_field_name],
+                sequence_dets=gt_frames,
                 w=w,
                 h=h,
                 is_gt=True,
-                label_mapping=label_mapping
+                label_mapping=label_mapping,
             )
         )
 
@@ -92,6 +173,7 @@ def payload_to_det_metrics_by_sequence(
     label_mapping: Optional[Dict[str, int]] = None,
     class_agnostic: bool = True,
     include_overall: bool = True,
+    keyframes_only: bool = False,
     **metric_kwargs: object,
 ) -> Dict[str, dict]:
     """Evaluate every sequence of a payload separately, plus a pooled total.
@@ -118,6 +200,11 @@ def payload_to_det_metrics_by_sequence(
         include_overall (bool, optional): Add an ``"OVERALL"`` entry holding the
             pooled result. Computed by summing the per-sequence counts, so the
             data is still traversed exactly once. Defaults to True.
+        keyframes_only (bool, optional): Keep only the frames *model_name* flagged
+            as keyframes, dropping ground truth and predictions alike, as
+            ``seametrics.tracking`` does. ``nImgs`` then counts keyframes only.
+            Requires a payload built by a ``PayloadProcessor`` that records
+            keyframes. Defaults to False.
         **metric_kwargs: Forwarded to ``PrecisionRecallF1Support`` (e.g.
             ``iou_thresholds``, ``area_ranges``, ``area_ranges_labels``). When
             *label_mapping* is given and ``labels`` is not, ``labels`` defaults to
@@ -143,6 +230,11 @@ def payload_to_det_metrics_by_sequence(
         A sequence that fails to evaluate propagates the exception, aborting the
         whole call. This differs from ``seametrics.tracking``, where per-sequence
         errors are routed to ``metric.failed_sequences``.
+
+    Note:
+        Keyframe masks are per prediction field, so two models with different
+        keyframes are evaluated over different frame subsets. Their numbers are
+        each internally consistent but not strictly comparable to one another.
     """
     from seametrics.detection import PrecisionRecallF1Support
 
@@ -171,14 +263,26 @@ def payload_to_det_metrics_by_sequence(
     for sequence_name, sequence in payload.sequences.items():
         w, h = sequence.resolution.width, sequence.resolution.height
 
+        pred_frames = sequence[model_name]
+        gt_frames = sequence[payload.gt_field_name]
+
+        if keyframes_only:
+            mask = _sequence_keyframes(sequence, sequence_name, model_name)
+            pred_frames = _filter_to_keyframes(
+                pred_frames, mask, sequence_name, model_name
+            )
+            gt_frames = _filter_to_keyframes(
+                gt_frames, mask, sequence_name, payload.gt_field_name
+            )
+
         predictions = payload_sequence_to_det_metrics(
-            sequence_dets=sequence[model_name],
+            sequence_dets=pred_frames,
             w=w,
             h=h,
             label_mapping=label_mapping,
         )
         references = payload_sequence_to_det_metrics(
-            sequence_dets=sequence[payload.gt_field_name],
+            sequence_dets=gt_frames,
             w=w,
             h=h,
             is_gt=True,
@@ -413,8 +517,10 @@ def frame_dets_to_det_metrics(
 
     for det in fo_dets:
         if label_mapping and det["label"] not in label_mapping:
-            print(f"could not add sample w/ label {det['label']}, \
-                  as label is not in label mapping")
+            print(
+                f"could not add sample w/ label {det['label']}, \
+                  as label is not in label mapping"
+            )
             continue
 
         boxes.append(_denormalize_fo_bbox(det["bounding_box"], w, h))
@@ -572,6 +678,7 @@ def prepare_data_for_det_metrics(
 
     return target, preds
 
+
 def get_relevant_fields(
     view: fo.DatasetView,
     fields: list,  # fiftyone field names
@@ -625,6 +732,7 @@ def get_values(
     else:
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
+
 @deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def smart_compute_metrics(
     view: fo.DatasetView,
@@ -660,6 +768,7 @@ def smart_compute_metrics(
     print("Computing metrics...")
     return metric.compute()
 
+
 @deprecated(reason="We do not guarantee the correctness of this function.")
 def get_target_and_preds(
     view: fo.DatasetView,
@@ -689,6 +798,7 @@ def get_target_and_preds(
     )
 
     return target, preds
+
 
 @deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def compute_metrics(
@@ -732,6 +842,7 @@ def compute_metrics(
     metric.update(preds, target)
     return metric.compute()
 
+
 def results_to_df(results, fixed_columns: dict = {}):
     # save to pandas dataframe
     columns = [
@@ -772,6 +883,7 @@ def results_to_df(results, fixed_columns: dict = {}):
         }
 
     return df
+
 
 def sequence_results_to_df(sequence_results):
     # save to pandas dataframe
@@ -817,6 +929,7 @@ def sequence_results_to_df(sequence_results):
 
     return df
 
+
 def compute_and_save_sequence_metrics(
     csv_dirpath: str,
     view: fo.DatasetView,
@@ -841,7 +954,6 @@ def compute_and_save_sequence_metrics(
     sequence_results = {}
     sequence_names = view.distinct("sequence")
     for sequence_name in tqdm(sequence_names):
-
         with contextlib.redirect_stdout(io.StringIO()) as f:
             print(sequence_name)
             sequence_view = view.match(F("sequence") == sequence_name)
@@ -861,6 +973,7 @@ def compute_and_save_sequence_metrics(
         os.makedirs(csv_dirpath)
     df = sequence_results_to_df(sequence_results)
     df.to_csv(csv_path, index=False)
+
 
 def get_confidence_metric_vals(
     cocoeval: np.ndarray, T: int, R: int, K: int, A: int, M: int
