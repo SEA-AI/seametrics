@@ -102,7 +102,7 @@ jobs:
           key: repo-${{ github.sha }}
 
       - name: 🛠️ Install the latest version of uv and set the python version
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -133,7 +133,7 @@ jobs:
           key: repo-${{ github.sha }}
 
       - name: 🛠️ Install the latest version of uv and set the python version
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
