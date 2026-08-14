@@ -59,7 +59,7 @@ jobs:
           path: .
           key: repo-${{ github.sha }}
 
-      - uses: astral-sh/ruff-action@v3
+      - uses: astral-sh/ruff-action@v4.1.0
         name: ✨ Lint with Ruff (only changed files)
         with:
           version: "latest"
@@ -80,7 +80,7 @@ jobs:
           path: .
           key: repo-${{ github.sha }}
 
-      - uses: astral-sh/ruff-action@v3
+      - uses: astral-sh/ruff-action@v4.1.0
         name: 📝 Format with Ruff (only changed files)
         with:
           version: "latest"
