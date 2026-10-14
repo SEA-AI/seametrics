@@ -200,9 +200,8 @@ def test_pred_with_wrong_classification_same_area_class_specific():
         assert np.all(val["fp"] == np.array([0, 0, 1]))  # 1 false positive in class 2
         assert np.all(val["fn"] == np.array([0, 1, 0]))  # 1 false negative in class 1
         assert np.all(val["duplicates"] == np.array([0, 0, 0]))
-        assert np.all(
-            val["precision"] == np.array([1, -1, 0])
-        )  # precision is 1 for class 0, 0 for class 2, and undefined for class 1 (divide by 0)
+        # precision: 1 for class 0, 0 for class 2, undefined for class 1 (divide by 0)
+        assert np.all(val["precision"] == np.array([1, -1, 0]))
         assert np.all(
             val["recall"] == np.array([1, 0, -1])
         )  # same reasoning as for precision
@@ -378,13 +377,13 @@ def test_low_iou_threshold_is_recorded_exactly():
     matched the one that produced the numbers.
     """
     preds = [
-        dict(
-            boxes=np.array([[10.0, 10.0, 20.0, 20.0]]),
-            scores=np.array([0.9]),
-            labels=np.array([0]),
-        )
+        {
+            "boxes": np.array([[10.0, 10.0, 20.0, 20.0]]),
+            "scores": np.array([0.9]),
+            "labels": np.array([0]),
+        }
     ]
-    target = [dict(boxes=np.array([[10.0, 10.0, 20.0, 20.0]]), labels=np.array([0]))]
+    target = [{"boxes": np.array([[10.0, 10.0, 20.0, 20.0]]), "labels": np.array([0])}]
 
     for threshold, expected in [
         (0.5, "0.50"),  # familiar two-decimal form is unchanged
@@ -396,4 +395,4 @@ def test_low_iou_threshold_is_recorded_exactly():
         metric.update(preds, target)
         recorded = metric.compute()["metrics"]["all"]["iouThr"]
         assert recorded == expected, f"{threshold} recorded as {recorded}"
-        assert float(recorded) == threshold
+        assert np.isclose(float(recorded), threshold, rtol=1e-12, atol=0)

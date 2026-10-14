@@ -167,7 +167,7 @@ def payload_to_det_metric(
     return predictions, references
 
 
-def payload_to_det_metrics_by_sequence(
+def payload_to_det_metrics_by_sequence(  # pylint: disable=too-many-locals,too-many-positional-arguments
     payload: Payload,
     model_name: Optional[str] = None,
     label_mapping: Optional[Dict[str, int]] = None,

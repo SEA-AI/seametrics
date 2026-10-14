@@ -24,8 +24,8 @@ def _format_iou(value: float) -> str:
     rest fall back to a representation that round-trips through ``float()``.
     """
     if value >= _IOU_DECIMAL_FLOOR:
-        return '{:0.2f}'.format(value)
-    return '{:g}'.format(value)
+        return f"{value:0.2f}"
+    return f"{value:g}"
 
 
 class COCOeval:
@@ -620,7 +620,7 @@ class COCOeval:
             # compute precision, recall, f1
             # undefined entries (empty denominators) are replaced by the -1
             # sentinel right below, so the resulting nan/inf are expected here
-            with np.errstate(divide='ignore', invalid='ignore'):
+            with np.errstate(divide="ignore", invalid="ignore"):
                 pr = tp / (tp + fp)
                 rec = tp / (tp + fn)
                 f1 = 2 * pr * rec / (pr + rec)
@@ -638,8 +638,11 @@ class COCOeval:
             ]
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
-            iouStr = '{}:{}'.format(_format_iou(p.iouThrs[0]), _format_iou(p.iouThrs[-1])) \
-                if iouThr is None else _format_iou(iouThr)
+            iou_str = (
+                f"{_format_iou(p.iouThrs[0])}:{_format_iou(p.iouThrs[-1])}"
+                if iouThr is None
+                else _format_iou(iouThr)
+            )
             if self.params.useCats == 0:
                 metrics_str = f"{tp:>6.0f}, {fp:>6.0f}, {fn:>6.0f}, {dup:>6.0f}, "
                 metrics_str += f"{pr:>5.2f}, {rec:>5.2f}, {f1:>5.2f}, {support:>6.0f}, "
@@ -654,7 +657,7 @@ class COCOeval:
                 metrics_str += f"{str_pr:>5.2f}, {str_rec:>5.2f}, {str_f1:>5.2f}, \
                     {support.sum():>6.0f}, "
                 metrics_str += f"{fpi.sum():>6.0f}, {nImgs:>6.0f}"
-            print(iStr.format(iouStr, areaRng, maxDets, metrics_str))
+            print(iStr.format(iou_str, areaRng, maxDets, metrics_str))
 
             if self.params.useCats != 1:
                 tp = int(tp)
@@ -669,7 +672,7 @@ class COCOeval:
 
             return {
                 'range': p.areaRng[aind[0]],
-                'iouThr': iouStr,
+                'iouThr': iou_str,
                 'maxDets': maxDets,
                 'tp': tp,
                 'fp': fp,
