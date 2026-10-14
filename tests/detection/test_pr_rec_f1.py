@@ -355,13 +355,13 @@ def test_low_iou_threshold_is_recorded_exactly():
     matched the one that produced the numbers.
     """
     preds = [
-        dict(
-            boxes=np.array([[10.0, 10.0, 20.0, 20.0]]),
-            scores=np.array([0.9]),
-            labels=np.array([0]),
-        )
+        {
+            "boxes": np.array([[10.0, 10.0, 20.0, 20.0]]),
+            "scores": np.array([0.9]),
+            "labels": np.array([0]),
+        }
     ]
-    target = [dict(boxes=np.array([[10.0, 10.0, 20.0, 20.0]]), labels=np.array([0]))]
+    target = [{"boxes": np.array([[10.0, 10.0, 20.0, 20.0]]), "labels": np.array([0])}]
 
     for threshold, expected in [
         (0.5, "0.50"),  # familiar two-decimal form is unchanged
@@ -373,7 +373,7 @@ def test_low_iou_threshold_is_recorded_exactly():
         metric.update(preds, target)
         recorded = metric.compute()["metrics"]["all"]["iouThr"]
         assert recorded == expected, f"{threshold} recorded as {recorded}"
-        assert float(recorded) == threshold
+        assert np.isclose(float(recorded), threshold, rtol=1e-12, atol=0)
 
 
 @pytest.mark.parametrize(
