@@ -274,7 +274,13 @@ class _FakeSequenceView:
         return self
 
     def values(self, path):
+        """One query; a list of paths gives one aligned list per path."""
         self._stats["queries"] += 1
+        if isinstance(path, (list, tuple)):
+            return [self._value(p) for p in path]
+        return self._value(path)
+
+    def _value(self, path):
         if path not in self._values_by_path:
             raise ValueError(f"no such field: {path}")
         value = self._values_by_path[path]
@@ -293,10 +299,10 @@ class _FakeSequenceView:
 class _NestedTooLargeView(_FakeSequenceView):
     """Rejects every nested frame query as oversized; unwound queries fit."""
 
-    def values(self, path):
+    def _value(self, path):
         if path.startswith("frames."):
             raise RuntimeError("BSONObj size: 17355147 is invalid.")
-        return super().values(path)
+        return super()._value(path)
 
 
 class _FakeImageView(_FakeSequenceView):
@@ -305,9 +311,35 @@ class _FakeImageView(_FakeSequenceView):
     media_type = "image"
 
 
+class _ReorderedFieldsView(_FakeSequenceView):
+    """Serves label-field queries with the samples in reverse order.
+
+    MongoDB does not promise one sample order across separate queries, so a
+    field's values must be matched to their sample by id, not by position.
+    """
+
+    def filter_labels(self, *_args: object, **_kwargs: object):
+        flipped = {
+            path: (
+                value[::-1]
+                if isinstance(value, list) and not path.startswith("frames[].")
+                else value
+            )
+            for path, value in self._values_by_path.items()
+        }
+        return _FakeSequenceView(flipped, self._too_large_above, self._stats)
+
+
+class _ReorderedImageView(_ReorderedFieldsView):
+    """Image dataset whose label-field queries come back in reverse sample order."""
+
+    media_type = "image"
+
+
 def _nest(values_by_path: dict, names=("seq-1",)) -> dict:
     """Convert the unwound single-sequence fixtures to the nested batch shape."""
     nested = {
+        "id": [f"{name}-id" for name in names],
         "sequence": list(names),
         "metadata.frame_width": [100] * len(names),
         "metadata.frame_height": [50] * len(names),
@@ -421,6 +453,7 @@ class TestBatchedFetching:
     def _view(self, n_sequences, **kwargs: object):
         names = [f"seq-{i}" for i in range(n_sequences)]
         paths = {
+            "id": [f"{name}-id" for name in names],
             "sequence": names,
             "metadata.frame_width": [100] * n_sequences,
             "metadata.frame_height": [50] * n_sequences,
@@ -439,8 +472,8 @@ class TestBatchedFetching:
         sequences = processor.fetch_sequences(names)
 
         assert sorted(sequences) == sorted(names)
-        # sequence + 2 resolutions + (detections + keyframe) for model1 + gt dets
-        assert view.query_count == 6
+        # names + resolutions + (detections + keyframe) for model1 + gt detections
+        assert view.query_count == 5
 
     def test_every_sequence_gets_its_own_data(self):
         names, view = self._view(3)
@@ -477,6 +510,7 @@ class TestBatchedFetching:
         processor = _processor()
         processor.dataset = _NestedTooLargeView(
             {
+                "id": ["s1"],
                 "sequence": ["seq-1"],
                 "metadata.frame_width": [100],
                 "metadata.frame_height": [50],
@@ -497,6 +531,7 @@ class TestBatchedFetching:
         processor = _processor()
         processor.dataset = _FakeImageView(
             {
+                "id": ["i0", "i1", "i2", "i3"],
                 "sequence": ["seq-a", "seq-b", "seq-a", "seq-b"],
                 "metadata.width": [640, 320, 640, 320],
                 "metadata.height": [480, 240, 480, 240],
@@ -517,6 +552,52 @@ class TestBatchedFetching:
         assert sequences["seq-b"].keyframes == {"model1": [False, True]}
         assert sequences["seq-b"].resolution == Resolution(height=240, width=320)
 
+    def test_video_fields_follow_their_own_sample(self):
+        """A field queried in another sample order still lands on its sequence."""
+        processor = _processor()
+        processor.dataset = _ReorderedFieldsView(
+            {
+                "id": ["s1", "s2"],
+                "sequence": ["seq-a", "seq-b"],
+                "metadata.frame_width": [100, 200],
+                "metadata.frame_height": [50, 80],
+                "frames.model1.detections": [[["a0"]], [["b0"], ["b1"]]],
+                f"frames.{self.GT}.detections": [[["ga0"]], [["gb0"], ["gb1"]]],
+                "frames.model1.keyframe": [[True], [False, True]],
+            }
+        )
+
+        sequences = processor.fetch_sequences(["seq-a", "seq-b"])
+
+        assert sequences["seq-a"]["model1"] == [["a0"]]
+        assert sequences["seq-a"][self.GT] == [["ga0"]]
+        assert sequences["seq-b"]["model1"] == [["b0"], ["b1"]]
+        assert sequences["seq-b"].keyframes == {"model1": [False, True]}
+        assert sequences["seq-b"].resolution == Resolution(height=80, width=200)
+
+    def test_image_frames_follow_their_own_sample(self):
+        """Per-frame samples queried in another order keep their sequence and frame."""
+        processor = _processor()
+        processor.dataset = _ReorderedImageView(
+            {
+                "id": ["i0", "i1", "i2", "i3"],
+                "sequence": ["seq-a", "seq-a", "seq-b", "seq-b"],
+                "metadata.width": [640, 640, 320, 320],
+                "metadata.height": [480, 480, 240, 240],
+                "model1.detections": [["a0"], ["a1"], ["b0"], None],
+                f"{self.GT}.detections": [["ga0"], None, ["gb0"], ["gb1"]],
+                "model1.keyframe": [True, False, True, True],
+            }
+        )
+
+        sequences = processor.fetch_sequences(["seq-a", "seq-b"])
+
+        assert sequences["seq-a"]["model1"] == [["a0"], ["a1"]]
+        assert sequences["seq-a"][self.GT] == [["ga0"], []]
+        assert sequences["seq-a"].keyframes == {"model1": [True, False]}
+        assert sequences["seq-b"]["model1"] == [["b0"], []]
+        assert sequences["seq-b"][self.GT] == [["gb0"], ["gb1"]]
+
     def test_unrelated_query_errors_are_not_retried(self):
         """Only the size limit triggers the split; other failures propagate."""
         processor = _processor()
@@ -534,5 +615,5 @@ class TestBatchedFetching:
         sequences = processor.process_sequences()
 
         assert sorted(sequences) == sorted(names)
-        # 3 batches x 6 queries, versus 5 x 6 if it queried per sequence
-        assert view.query_count == 18
+        # 3 batches x 5 queries, versus 5 x 5 if it queried per sequence
+        assert view.query_count == 15
