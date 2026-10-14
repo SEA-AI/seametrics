@@ -11,6 +11,23 @@ from collections import defaultdict
 from pycocotools import mask as maskUtils
 import copy
 
+# below this, two-decimal formatting collapses the value to "0.00"
+_IOU_DECIMAL_FLOOR = 0.005
+
+
+def _format_iou(value: float) -> str:
+    """Render an IoU threshold without rounding small values away.
+
+    ``'{:0.2f}'`` turns any threshold below 0.005 into ``"0.00"``, so a report run
+    at 1e-5 records the same string as one run at 0 and ``results_to_df`` parses
+    it back as 0.0. Values that survive two decimals keep the familiar format; the
+    rest fall back to a representation that round-trips through ``float()``.
+    """
+    if value >= _IOU_DECIMAL_FLOOR:
+        return '{:0.2f}'.format(value)
+    return '{:g}'.format(value)
+
+
 class COCOeval:
     # Interface for evaluating detection on the Microsoft COCO dataset.
     #
@@ -256,13 +273,15 @@ class COCOeval:
         # Calculate the coordinates of the intersection rectangle
         x_left, y_top = max(x1_1, x1_2), max(y1_1, y1_2)
         x_right, y_bottom = min(x2_1, x2_2), min(y2_1, y2_2)
-        print(f"{x_left=}, {x_right=}, {y_top=}, {y_bottom=}")
         if x_right < x_left or y_bottom < y_top:
             return False, 0
 
-        intersection_area = (x_right - x_left) * (y_bottom - y_top)      
-        print(f"{intersection_area=}")  
-        return True, intersection_area / (w1_1 * h1_1)
+        bbox1_area = w1_1 * h1_1
+        if bbox1_area <= 0:  # degenerate bbox1, containment ratio undefined
+            return False, 0
+
+        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+        return True, intersection_area / bbox1_area
 
     def evaluateImg(self, imgId, catId, aRng, maxDet):
         '''
@@ -599,9 +618,12 @@ class COCOeval:
             fpi[fpi == -1] = 0
 
             # compute precision, recall, f1
-            pr = tp / (tp + fp)
-            rec = tp / (tp + fn)
-            f1 = 2 * pr * rec / (pr + rec)
+            # undefined entries (empty denominators) are replaced by the -1
+            # sentinel right below, so the resulting nan/inf are expected here
+            with np.errstate(divide='ignore', invalid='ignore'):
+                pr = tp / (tp + fp)
+                rec = tp / (tp + fn)
+                f1 = 2 * pr * rec / (pr + rec)
 
             pr[tp + fp == 0] = -1
             rec[tp + fn == 0] = -1
@@ -616,8 +638,8 @@ class COCOeval:
             ]
 
             iStr = '@[ IoU={:<9} | area={:>9s} | maxDets={:>3d} ] = {}'
-            iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
-                if iouThr is None else '{:0.2f}'.format(iouThr)
+            iouStr = '{}:{}'.format(_format_iou(p.iouThrs[0]), _format_iou(p.iouThrs[-1])) \
+                if iouThr is None else _format_iou(iouThr)
             if self.params.useCats == 0:
                 metrics_str = f"{tp:>6.0f}, {fp:>6.0f}, {fn:>6.0f}, {dup:>6.0f}, "
                 metrics_str += f"{pr:>5.2f}, {rec:>5.2f}, {f1:>5.2f}, {support:>6.0f}, "

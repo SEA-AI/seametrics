@@ -170,7 +170,7 @@ def test_pred_with_wrong_classification_same_area_class_specific():
     results = metric.compute()
 
     val = results["metrics"]["small"]
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"  # records the threshold exactly
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([0, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 0]))
@@ -184,7 +184,7 @@ def test_pred_with_wrong_classification_same_area_class_specific():
     assert val["nImgs"] == 1
 
     val = results["metrics"]["medium"]
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"  # records the threshold exactly
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([1, 0, 0]))  # 1 true positive in class 0
     assert np.all(val["fp"] == np.array([0, 0, 1]))  # 1 false positive in class 2
@@ -200,7 +200,7 @@ def test_pred_with_wrong_classification_same_area_class_specific():
 
     val = results["metrics"]["all"]
     # same as for medium
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"  # records the threshold exactly
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([1, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 1]))
@@ -261,7 +261,7 @@ def test_pred_with_wrong_classification_different_area_class_specific():
     results = metric.compute()
 
     val = results["metrics"]["medium"]
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"  # records the threshold exactly
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([1, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 0]))
@@ -275,8 +275,8 @@ def test_pred_with_wrong_classification_different_area_class_specific():
     assert val["nImgs"] == 1
 
     val = results["metrics"]["large"]
-    # only the class-2 prediction (~100x50 px) is large: one FP
-    assert val["iouThr"] == "0.00"
+    # same as for medium
+    assert val["iouThr"] == "1e-10"  # records the threshold exactly
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([0, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 1]))
@@ -331,7 +331,7 @@ def test_pred_with_predefined_labels_class_specific():
     results = metric.compute()
     for key, val in results["metrics"].items():
         assert key == "all", "test 1"
-        assert val["iouThr"] == "0.00", "test 1"
+        assert val["iouThr"] == "1e-10", "test 1"  # records the threshold exactly
         assert val["maxDets"] == 100, "test 2"
         assert np.all(val["tp"] == np.array([1, 0, 0, 0])), (
             f"{val['tp']}"
@@ -345,6 +345,35 @@ def test_pred_with_predefined_labels_class_specific():
         assert np.all(val["support"] == np.array([1, 0, 0, 1])), "test 10"
         assert np.all(val["fpi"] == np.array([0, 0, 1, 0])), "test 11"
         assert val["nImgs"] == 1, "test 12"
+
+
+def test_low_iou_threshold_is_recorded_exactly():
+    """Regression: '{:0.2f}' rounded any threshold below 0.005 to "0.00".
+
+    A report run at 1e-5 recorded the same string as one run at 0, and
+    results_to_df parsed it back as 0.0, so the reported threshold no longer
+    matched the one that produced the numbers.
+    """
+    preds = [
+        dict(
+            boxes=np.array([[10.0, 10.0, 20.0, 20.0]]),
+            scores=np.array([0.9]),
+            labels=np.array([0]),
+        )
+    ]
+    target = [dict(boxes=np.array([[10.0, 10.0, 20.0, 20.0]]), labels=np.array([0]))]
+
+    for threshold, expected in [
+        (0.5, "0.50"),  # familiar two-decimal form is unchanged
+        (0.05, "0.05"),
+        (1e-5, "1e-05"),
+        (1e-10, "1e-10"),
+    ]:
+        metric = PrecisionRecallF1Support(box_format="xywh", iou_thresholds=[threshold])
+        metric.update(preds, target)
+        recorded = metric.compute()["metrics"]["all"]["iouThr"]
+        assert recorded == expected, f"{threshold} recorded as {recorded}"
+        assert float(recorded) == threshold
 
 
 @pytest.mark.parametrize(

@@ -47,7 +47,6 @@ def test_frame_dets_to_det_metrics_with_empty_ground_truth():
     desired_format = {
         "boxes": np.array([]),
         "labels": np.array([]),
-        "area": np.array([]),
     }
     metrics_format = frame_dets_to_det_metrics(dets, w, h, is_gt=True)
     # check both dicts have the same keys
@@ -79,12 +78,12 @@ def test_frame_dets_to_det_metrics_with_ground_truth():
         fo.Detection(
             label="FAR_AWAY_OBJECT",
             bounding_box=[0, 0, 1, 1],
-            area=100,  # fake value, we only care if it is forwarded
+            area=100,  # ignored: the metric always derives area from the bbox
         ),
         fo.Detection(
             label="FAR_AWAY_OBJECT",
             bounding_box=[0, 0, 0.5, 0.5],
-            area=50,  # fake value, we only care if it is forwarded
+            area=50,  # ignored: the metric always derives area from the bbox
         ),
     ]
     w = 640
@@ -97,7 +96,6 @@ def test_frame_dets_to_det_metrics_with_ground_truth():
             ]
         ),
         "labels": np.array([0, 0]),
-        "area": np.array([100, 50]),
     }
     metrics_format = frame_dets_to_det_metrics(dets, w, h, is_gt=True)
     # check both dicts have the same keys
@@ -136,7 +134,6 @@ def test_payload_sequence_to_det_metrics_with_empty_ground_truth():
         {
             "boxes": np.array([]),
             "labels": np.array([]),
-            "area": np.array([]),
         }
     ]
     outputs = payload_sequence_to_det_metrics(sequence_dets, w, h, is_gt=True)
@@ -173,12 +170,12 @@ def test_payload_sequence_to_det_metrics_with_ground_truth():
             fo.Detection(
                 label="FAR_AWAY_OBJECT",
                 bounding_box=[0, 0, 1, 1],
-                area=100,  # fake value, we only care if it is forwarded
+                area=100,  # ignored by the metric
             ),
             fo.Detection(
                 label="FAR_AWAY_OBJECT",
                 bounding_box=[0, 0, 0.5, 0.5],
-                area=50,  # fake value, we only care if it is forwarded
+                area=50,  # ignored by the metric
             ),
         ]
     ] * 10
@@ -193,7 +190,6 @@ def test_payload_sequence_to_det_metrics_with_ground_truth():
                 ]
             ),
             "labels": np.array([0, 0]),
-            "area": np.array([100, 50]),
         }
         for _ in range(10)
     ]
