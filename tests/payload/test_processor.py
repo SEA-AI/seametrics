@@ -88,9 +88,7 @@ def test_validate_input_parameters_invalid_data_type():
 def test_validate_input_parameters_dataset_not_found(mock_fiftyone):
     """Test validate_input_parameters when the dataset is not found in FiftyOne."""
     # Mock FiftyOne list_datasets to return an empty list, simulating dataset not found
-    mock_fiftyone.list_datasets.return_value = (
-        []
-    )  # fo.list_datasets returns an empty list
+    mock_fiftyone.list_datasets.return_value = []
 
     with pytest.raises(ValueError, match="Dataset valid_dataset not found in FiftyOne"):
         PayloadProcessor(
