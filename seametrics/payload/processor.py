@@ -1,5 +1,7 @@
+"""Build evaluation payloads from FiftyOne datasets."""
+
 import logging
-from typing import Dict, List, Literal, Union
+from typing import Dict, List, Literal, Optional
 
 import fiftyone as fo
 from fiftyone import ViewField as F
@@ -18,29 +20,27 @@ def _is_result_too_large(exc: Exception) -> bool:
     return "BSONObj size" in message or "BSONObjectTooLarge" in message
 
 
-class PayloadProcessor:
-    """
-    Class to process a payload and generate sequence data.
-    """
+class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
+    """Class to process a payload and generate sequence data."""
 
-    def __init__(
+    # ruff: ignore[too-many-arguments, too-many-positional-arguments]
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         dataset_name: str,
         gt_field: str,
         models: List[str],
         tracking_mode: bool = False,
-        sequence_list: List[str] = None,
+        sequence_list: Optional[List[str]] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
-        excluded_classes: List[str] = None,
-        slices: List[str] = None,
-        tags: List[str] = None,
-        start_frame_id: int = None,
-        end_frame_id: int = None,
+        excluded_classes: Optional[List[str]] = None,
+        slices: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        start_frame_id: Optional[int] = None,
+        end_frame_id: Optional[int] = None,
         confidence_threshold: float = 0,
         batch_size: int = 8,
-    ):
-        """
-        Initializes a PayloadProcessor object.
+    ) -> None:
+        """Initializes a PayloadProcessor object.
 
         Args:
             dataset_name (str): The name of the dataset.
@@ -55,15 +55,16 @@ class PayloadProcessor:
             excluded_classes (List[str], optional): The list of excluded classes.
                 Defaults to None.
             slices (List[str], optional): The list of slices to process.
-                Defaults to None. If None, a smart selection of available slices takes place.
+                Defaults to None. If None, a smart selection of available slices
+                takes place.
             tags (List[str], optional): The list of tags to filter the dataset.
                 Defaults to None.
             start_frame_id (int, optional): The start frame id.
                 Defaults to None.
             end_frame_id (int, optional): The end frame id.
                 Defaults to None.
-            confidence_threshold (float, optional): Confidence threshold to filter the model fields.
-                Defaults to 0.
+            confidence_threshold (float, optional): Confidence threshold to filter
+                the model fields. Defaults to 0.
             batch_size (int, optional): How many sequences to fetch per query. Larger
                 batches mean fewer queries but more memory, and are split
                 automatically when they exceed MongoDB's 16 MB result limit.
@@ -89,8 +90,7 @@ class PayloadProcessor:
         logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
 
     def compute_payload(self) -> Payload:
-        """
-        Recomputes the payload after updating any of the input parameters.
+        """Recomputes the payload after updating any of the input parameters.
 
         Returns:
             Payload: The updated payload.
@@ -107,13 +107,13 @@ class PayloadProcessor:
         )
         return self.payload
 
-    def validate_input_parameters(self):
-        """
-        Validates the input parameters.
+    def validate_input_parameters(self) -> None:  # ruff: ignore[complex-structure]
+        """Validates the input parameters.
 
         Raises:
             TypeError: If any of the parameters are of the wrong type.
-            ValueError: If dataset is not found in FiftyOne or if tracking mode is enabled for RGB data.
+            ValueError: If dataset is not found in FiftyOne or if tracking mode is
+                enabled for RGB data.
 
         Validations:
             - `dataset_name` must be a string.
@@ -126,45 +126,80 @@ class PayloadProcessor:
             - `slices` must be None or a list of strings.
             - `tags` must be None or a list of strings
         """
-        
         # Check dataset_name is a string
         if not isinstance(self.dataset_name, str):
-            raise TypeError(f"dataset_name must be of type str, but got {type(self.dataset_name)}")
+            raise TypeError(
+                f"dataset_name must be of type str, but got {type(self.dataset_name)}"
+            )
 
         # Check gt_field is a string
         if not isinstance(self.gt_field, str):
-            raise TypeError(f"gt_field must be of type str, but got {type(self.gt_field)}")
+            raise TypeError(
+                f"gt_field must be of type str, but got {type(self.gt_field)}"
+            )
 
         # Check models is a list of strings
-        if not isinstance(self.models, list) or not all(isinstance(model, str) for model in self.models):
+        if not isinstance(self.models, list) or not all(
+            isinstance(model, str) for model in self.models
+        ):
             raise TypeError(f"models must be a list of strings, but got {self.models}")
 
         # Check tracking_mode is a boolean
         if not isinstance(self.tracking_mode, bool):
-            raise TypeError(f"tracking_mode must be of type bool, but got {type(self.tracking_mode)}")
-        
+            raise TypeError(
+                "tracking_mode must be of type bool,"
+                f" but got {type(self.tracking_mode)}"
+            )
+
         if self.tracking_mode and len(self.models) != 1:
-            raise ValueError(f"When tracking mode is enabled only one model is supported, but got {len(self.models)} models")
+            raise ValueError(
+                "When tracking mode is enabled only one model is supported,"
+                f" but got {len(self.models)} models"
+            )
 
         # Check sequence_list is None or a list of strings
-        if self.sequence_list is not None and (not isinstance(self.sequence_list, list) or not all(isinstance(seq, str) for seq in self.sequence_list)):
-            raise TypeError(f"sequence_list must be a list of strings or None, but got {self.sequence_list}")
+        if self.sequence_list is not None and (
+            not isinstance(self.sequence_list, list)
+            or not all(isinstance(seq, str) for seq in self.sequence_list)
+        ):
+            raise TypeError(
+                "sequence_list must be a list of strings or None,"
+                f" but got {self.sequence_list}"
+            )
 
         # Check data_type is either "rgb" or "thermal"
-        if self.data_type not in ["rgb", "thermal"]:
-            raise ValueError(f"data_type must be 'rgb' or 'thermal', but got {self.data_type}")
+        if self.data_type not in {"rgb", "thermal"}:
+            raise ValueError(
+                f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
+            )
 
         # Check excluded_classes is None or a list of strings
-        if self.excluded_classes is not None and (not isinstance(self.excluded_classes, list) or not all(isinstance(cls, str) for cls in self.excluded_classes)):
-            raise TypeError(f"excluded_classes must be a list of strings or None, but got {self.excluded_classes}")
+        if self.excluded_classes is not None and (
+            not isinstance(self.excluded_classes, list)
+            or not all(isinstance(cls, str) for cls in self.excluded_classes)
+        ):
+            raise TypeError(
+                "excluded_classes must be a list of strings or None,"
+                f" but got {self.excluded_classes}"
+            )
 
         # Check slices is None or a list of strings
-        if self.slices is not None and (not isinstance(self.slices, list) or not all(isinstance(s, str) for s in self.slices)):
-            raise TypeError(f"slices must be a list of strings or None, but got {self.slices}")
+        if self.slices is not None and (
+            not isinstance(self.slices, list)
+            or not all(isinstance(s, str) for s in self.slices)
+        ):
+            raise TypeError(
+                f"slices must be a list of strings or None, but got {self.slices}"
+            )
 
         # Check tags is None or a list of strings
-        if self.tags is not None and (not isinstance(self.tags, list) or not all(isinstance(tag, str) for tag in self.tags)):
-            raise TypeError(f"tags must be a list of strings or None, but got {self.tags}")
+        if self.tags is not None and (
+            not isinstance(self.tags, list)
+            or not all(isinstance(tag, str) for tag in self.tags)
+        ):
+            raise TypeError(
+                f"tags must be a list of strings or None, but got {self.tags}"
+            )
 
         # Additional validation logic can go here, like dataset name lookup
         if self.dataset_name not in fo.list_datasets():
@@ -173,9 +208,8 @@ class PayloadProcessor:
         if self.tracking_mode and self.data_type == "rgb":
             raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
 
-    def process_dataset(self):
-        """
-        Processes the dataset and generates sequence data.
+    def process_dataset(self) -> Dict[str, Sequence]:
+        """Processes the dataset and generates sequence data.
 
         Returns:
             Dict: A dictionary containing sequence data.
@@ -203,16 +237,21 @@ class PayloadProcessor:
         return self.process_sequences()
 
     def get_datatype_slices(self) -> List[str]:
-        """
-        Retrieves the relevant slices based on the data type.
+        """Retrieves the relevant slices based on the data type.
 
         Returns:
             List[str]: The list of relevant slices.
 
         Raises:
             ValueError: If there is no matching data slice for the data type.
-        """        
-        thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
+        """
+        thermal_slices = {
+            "thermal_wide",
+            "thermal_narrow",
+            "thermal_right",
+            "thermal_left",
+            "thermal_stitched",
+        }
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
         existing_slices = set(self.dataset.group_slices)
@@ -232,8 +271,7 @@ class PayloadProcessor:
 
     @staticmethod
     def get_resolution(view: fo.DatasetView) -> Resolution:
-        """
-        Retrieves the resolution from a FiftyOne view.
+        """Retrieves the resolution from a FiftyOne view.
 
         Args:
             view (fo.DatasetView): The FiftyOne dataset view.
@@ -255,8 +293,7 @@ class PayloadProcessor:
     def get_field_name(
         view: fo.DatasetView, field_name: str, unwinding: bool = False
     ) -> str:
-        """
-        Retrieves the field name based on the media type of the view.
+        """Retrieves the field name based on the media type of the view.
 
         Args:
             view (fo.DatasetView): The FiftyOne dataset view.
@@ -513,10 +550,8 @@ class PayloadProcessor:
             sequences.update(self.fetch_sequences(batch))
         return sequences
 
-    def print_info(self):
-        """
-        Prints information about the payload processor.
-        """
+    def print_info(self) -> None:
+        """Prints information about the payload processor."""
         logger.info(f"Processing dataset: {self.dataset.name}")
         logger.info(f"GT field: {self.gt_field}")
         logger.info(f"Models: {self.models}")

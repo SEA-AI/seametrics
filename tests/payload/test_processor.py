@@ -13,8 +13,10 @@ EXCLUDED_CLASSES = ["class1", "class2"]
 
 @pytest.fixture
 def mock_fiftyone():
-    """
-    Fixture to mock the entire fiftyone (fo) module and its functions.
+    """Fixture to mock the entire fiftyone (fo) module and its functions.
+
+    Yields:
+        MagicMock: The patched ``fo`` module.
     """
     # Patch the entire fiftyone module (fo)
     with patch("seametrics.payload.processor.fo") as mock_fo:
@@ -32,17 +34,18 @@ def mock_fiftyone():
 
 @pytest.fixture
 def mock_compute_payload():
-    """
-    Fixture to mock compute_payload function in the PayloadProcessor class.
+    """Fixture to mock compute_payload function in the PayloadProcessor class.
+
+    Yields:
+        MagicMock: The patched ``compute_payload`` method.
     """
     with patch.object(PayloadProcessor, "compute_payload") as mock_compute_payload:
         yield mock_compute_payload
 
 
-def test_payload_processor_initialization(mock_fiftyone, mock_compute_payload):
-    """
-    Test that PayloadProcessor initializes correctly with valid inputs.
-    """
+@pytest.mark.usefixtures("mock_fiftyone")
+def test_payload_processor_initialization(mock_compute_payload):
+    """Test that PayloadProcessor initializes correctly with valid inputs."""
     # Given
     dataset_name = "valid_dataset"
     gt_field = "ground_truth_det"
@@ -68,12 +71,9 @@ def test_payload_processor_initialization(mock_fiftyone, mock_compute_payload):
     mock_compute_payload.assert_called_once()
 
 
-def test_validate_input_parameters_invalid_data_type(
-    mock_fiftyone, mock_compute_payload
-):
-    """
-    Test validate_input_parameters with an invalid data_type value.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_validate_input_parameters_invalid_data_type():
+    """Test validate_input_parameters with an invalid data_type value."""
     with pytest.raises(ValueError, match="data_type must be 'rgb' or 'thermal'"):
         PayloadProcessor(
             dataset_name="valid_dataset",
@@ -84,12 +84,9 @@ def test_validate_input_parameters_invalid_data_type(
         )
 
 
-def test_validate_input_parameters_dataset_not_found(
-    mock_fiftyone, mock_compute_payload
-):
-    """
-    Test validate_input_parameters when the dataset is not found in FiftyOne.
-    """
+@pytest.mark.usefixtures("mock_compute_payload")
+def test_validate_input_parameters_dataset_not_found(mock_fiftyone):
+    """Test validate_input_parameters when the dataset is not found in FiftyOne."""
     # Mock FiftyOne list_datasets to return an empty list, simulating dataset not found
     mock_fiftyone.list_datasets.return_value = []
 
@@ -104,10 +101,9 @@ def test_validate_input_parameters_dataset_not_found(
     mock_fiftyone.list_datasets.assert_called_once()
 
 
-def test_compute_payload_function_called_once(mock_fiftyone, mock_compute_payload):
-    """
-    Test that compute_payload is called exactly once during initialization.
-    """
+@pytest.mark.usefixtures("mock_fiftyone")
+def test_compute_payload_function_called_once(mock_compute_payload):
+    """Test that compute_payload is called exactly once during initialization."""
     # Given
     dataset_name = "valid_dataset"
     gt_field = "ground_truth_det"
@@ -125,10 +121,9 @@ def test_compute_payload_function_called_once(mock_fiftyone, mock_compute_payloa
     mock_compute_payload.assert_called_once()
 
 
-def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
-    """
-    Test that a ValueError is raised if models is a tuple.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_accidental_tuple_as_models():
+    """Test that a ValueError is raised if models is a tuple."""
     models = (["model1", "model2"],)
     with pytest.raises(TypeError, match="models must be a list"):
         PayloadProcessor(
@@ -139,10 +134,9 @@ def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
         )
 
 
-def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_payload):
-    """
-    Test that start_frame_id and end_frame_id are set correctly.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_payload_initialization_with_frame_ids():
+    """Test that start_frame_id and end_frame_id are set correctly."""
     processor = PayloadProcessor(
         dataset_name="valid_dataset",
         gt_field="ground_truth_det",
