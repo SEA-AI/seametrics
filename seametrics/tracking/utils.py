@@ -57,7 +57,7 @@ except ImportError:
     _FIFTYONE_AVAILABLE = False
 
 
-def prepare_data_for_det_metrics(  # noqa: C901
+def prepare_data_for_det_metrics(  # ruff: ignore[complex-structure]
     gt_bboxes_per_frame: list,
     gt_track_ids_per_frame: list,
     dt_bboxes_per_frame: list,
