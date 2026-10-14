@@ -439,7 +439,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             Dict[str, Sequence]: The fetched sequences, keyed by name.
         """
         view = self.dataset.match(F("sequence").is_in(batch))
-        names = view.values("sequence")
+        ids, names = view.values(["id", "sequence"])
         if not names:
             return {}
 
@@ -455,18 +455,19 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             )
             path = self.get_field_name(view, field_name, unwinding=unwound)
             detections[field_name] = self.group_values(
-                names, filter_view.values(f"{path}.detections"), unwound
+                names,
+                self.aligned_values(filter_view, ids, f"{path}.detections", unwound),
+                unwound,
             )
             if field_name == self.gt_field:
                 continue
             try:
-                raw = filter_view.values(f"{path}.keyframe")
+                raw = self.aligned_values(filter_view, ids, f"{path}.keyframe", unwound)
             except Exception:  # pylint: disable=broad-except
                 continue  # field has no `keyframe` attribute; nothing to record
             keyframes[field_name] = self.group_values(names, raw, unwound)
 
-        resolutions = self.get_resolutions(view, names)
-        keyframe_source = self.models[0] if self.tracking_mode else None
+        resolutions = self.get_resolutions(view)
 
         sequences = {}
         for name in dict.fromkeys(names):
@@ -480,8 +481,8 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 if mask is not None:
                     masks[field] = mask
 
-            if keyframe_source is not None:
-                blanking = masks.get(keyframe_source)
+            if self.tracking_mode:
+                blanking = masks.get(self.models[0])
                 if blanking is not None:
                     fields = {
                         field: [
@@ -496,13 +497,40 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             )
         return sequences
 
+    def aligned_values(
+        self, view: fo.DatasetView, ids: list, path: str, unwound: bool = False
+    ) -> list:
+        """Read *path* from *view* in the sample order of *ids*.
+
+        Separate ``values()`` queries do not share one sample order: MongoDB may
+        return each query's samples in a different order, which hands one
+        sequence's labels to another. Reading the sample id in the same query
+        and reordering by it keeps every value on its own sample.
+
+        Args:
+            view (fo.DatasetView): View to read from.
+            ids (list): Sample ids, in the order the sequence names were read.
+            path (str): Field path to read.
+            unwound (bool): True when *path* unwinds the frames of a single
+                video sample, which come back as one flat list in frame order.
+
+        Returns:
+            list: One value per id, or one per frame when unwound.
+        """
+        if unwound and self.dataset.media_type == "video":
+            return view.values(path)
+        found_ids, values = view.values(["id", path])
+        by_id = dict(zip(found_ids, values, strict=True))
+        return [by_id.get(sample_id) for sample_id in ids]
+
     @staticmethod
-    def get_resolutions(view: fo.DatasetView, names: list) -> Dict[str, Resolution]:
+    def get_resolutions(view: fo.DatasetView) -> Dict[str, Resolution]:
         """Read the frame resolution of every sequence in a view.
+
+        The name, width and height come from one query, so they stay aligned.
 
         Args:
             view (fo.DatasetView): View covering the sequences.
-            names (list): Sequence name of each sample, in view order.
 
         Returns:
             Dict[str, Resolution]: Resolution keyed by sequence name.
@@ -511,16 +539,15 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             ValueError: If the media type of *view* is not "video" or "image".
         """
         if view.media_type == "video":
-            widths = view.values("metadata.frame_width")
-            heights = view.values("metadata.frame_height")
+            fields = ["sequence", "metadata.frame_width", "metadata.frame_height"]
         elif view.media_type == "image":
-            widths = view.values("metadata.width")
-            heights = view.values("metadata.height")
+            fields = ["sequence", "metadata.width", "metadata.height"]
         else:
             raise ValueError(f"Unsupported media type: {view.media_type}")
+        names, widths, heights = view.values(fields)
         return {
-            name: Resolution(height=heights[i], width=widths[i])
-            for i, name in enumerate(names)
+            name: Resolution(height=height, width=width)
+            for name, width, height in zip(names, widths, heights, strict=True)
         }
 
     def process_sequences(self) -> Dict[str, Sequence]:
