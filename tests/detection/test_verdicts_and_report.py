@@ -456,3 +456,61 @@ class TestEvaluateModelsTagging:
 
         written = sorted(t for tags in self._tags(dataset_name) for t in tags)
         assert written == ["FP", "FP", "TP"]
+
+
+class TestEvaluateModelsKeyframesOnly:
+    """keyframes_only on the report builder: skips, pooling and frame counts.
+
+    Model "b" flags no keyframe on seq-2, so seq-2 is skipped for "b" and left
+    out of the pooled set for both models, while "a" still reports it.
+    """
+
+    @pytest.fixture
+    def dataset_name(self):
+        name = "_seametrics_report_keyframe_test"
+        if name in fo.list_datasets():
+            fo.delete_dataset(name)
+        ds = fo.Dataset(name)
+        seq1 = fo.Sample(filepath="/tmp/_seametrics_kf_1.mp4", sequence="seq-1")
+        seq2 = fo.Sample(filepath="/tmp/_seametrics_kf_2.mp4", sequence="seq-2")
+        for sample in (seq1, seq2):
+            sample.metadata = fo.VideoMetadata(frame_width=100, frame_height=100)
+        ds.add_samples([seq1, seq2])
+        # seq-1 frame 2 is a missed object on a non-keyframe: fn only if evaluated
+        for frame, keyframe, preds in ((1, True, [_pred()]), (2, False, [])):
+            seq1.frames[frame]["gt"] = fo.Detections(detections=[_gt()])
+            for model in ("a", "b"):
+                seq1.frames[frame][model] = fo.Detections(
+                    detections=list(preds), keyframe=keyframe
+                )
+        seq2.frames[1]["gt"] = fo.Detections(detections=[_gt()])
+        seq2.frames[1]["a"] = fo.Detections(detections=[_pred()], keyframe=True)
+        seq2.frames[1]["b"] = fo.Detections(detections=[_pred()])
+        seq1.save()
+        seq2.save()
+        yield name
+        fo.delete_dataset(name)
+
+    def test_model_without_keyframes_is_skipped_and_excluded(self, dataset_name):
+        report = evaluate_models(
+            dataset_name,
+            "gt",
+            ["a", "b"],
+            keyframes_only=True,
+            iou_threshold=LOW_IOU,
+            progress=False,
+        )
+
+        assert report.skipped == {"a": [], "b": ["seq-2"]}
+        assert report.excluded_sequences == ["seq-2"]
+        assert report.pooled_sequences == ["seq-1"]
+        assert sorted(report.per_sequence["a"]) == ["seq-1", "seq-2"]
+        assert sorted(report.per_sequence["b"]) == ["seq-1"]
+        assert report.keyframe_frames == {"a": 2, "b": 1}
+        assert report.total_frames == {"a": 3, "b": 2}
+
+        seq1 = report.per_sequence["a"]["seq-1"]["metrics"]["all"]
+        assert (seq1["tp"], seq1["fn"], seq1["nImgs"]) == (1, 0, 1)
+        for model in ("a", "b"):
+            pooled = report.overall[model]["metrics"]["all"]
+            assert (pooled["tp"], pooled["fn"], pooled["nImgs"]) == (1, 0, 1)

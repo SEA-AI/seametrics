@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from seametrics.payload import Resolution
 from seametrics.payload.processor import PayloadProcessor
 
 # Mock EXCLUDED_CLASSES if necessary
@@ -264,11 +265,16 @@ class _FakeSequenceView:
         wanted = expression.to_mongo()["$in"][1]
         names = self._values_by_path["sequence"]
         keep = [i for i, name in enumerate(names) if name in wanted]
+        # unwound paths hold one entry per frame, not per sample, so match leaves them
         narrowed = {
-            path: ([value[i] for i in keep] if isinstance(value, list) else value)
+            path: (
+                [value[i] for i in keep]
+                if isinstance(value, list) and not path.startswith("frames[].")
+                else value
+            )
             for path, value in self._values_by_path.items()
         }
-        return _FakeSequenceView(narrowed, self._too_large_above, self._stats)
+        return type(self)(narrowed, self._too_large_above, self._stats)
 
     def filter_labels(self, *_args: object, **_kwargs: object):
         return self
@@ -288,6 +294,21 @@ class _FakeSequenceView:
                 " 17355147 is invalid. Size must be between 0 and 16793600(16MB)"
             )
         return value
+
+
+class _NestedTooLargeView(_FakeSequenceView):
+    """Rejects every nested frame query as oversized; unwound queries fit."""
+
+    def values(self, path):
+        if path.startswith("frames."):
+            raise RuntimeError("BSONObj size: 17355147 is invalid.")
+        return super().values(path)
+
+
+class _FakeImageView(_FakeSequenceView):
+    """Image dataset: one sample per frame, so paths carry no frames prefix."""
+
+    media_type = "image"
 
 
 def _nest(values_by_path: dict, names=("seq-1",)) -> dict:
@@ -456,6 +477,51 @@ class TestBatchedFetching:
 
         with pytest.raises(RuntimeError, match="BSONObj size"):
             processor.fetch_sequences(names)
+
+    def test_single_oversized_sequence_is_refetched_unwound(self):
+        """Unwinding streams frames as separate documents, so the sequence fits."""
+        processor = _processor()
+        processor.dataset = _NestedTooLargeView(
+            {
+                "sequence": ["seq-1"],
+                "metadata.frame_width": [100],
+                "metadata.frame_height": [50],
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], None, ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            }
+        )
+
+        sequence = processor.fetch_sequences(["seq-1"])["seq-1"]
+
+        assert sequence["model1"] == [["d0"], ["d1"], ["d2"]]
+        assert sequence[self.GT] == [["g0"], [], ["g2"]]
+        assert sequence.keyframes == {"model1": [True, False, True]}
+
+    def test_image_samples_are_grouped_per_sequence_in_view_order(self):
+        """Interleaved per-frame samples must not leak across sequences."""
+        processor = _processor()
+        processor.dataset = _FakeImageView(
+            {
+                "sequence": ["seq-a", "seq-b", "seq-a", "seq-b"],
+                "metadata.width": [640, 320, 640, 320],
+                "metadata.height": [480, 240, 480, 240],
+                "model1.detections": [["a0"], ["b0"], ["a1"], None],
+                f"{self.GT}.detections": [["ga0"], ["gb0"], None, ["gb1"]],
+                "model1.keyframe": [True, False, True, True],
+            }
+        )
+
+        sequences = processor.fetch_sequences(["seq-a", "seq-b"])
+
+        assert sequences["seq-a"]["model1"] == [["a0"], ["a1"]]
+        assert sequences["seq-a"][self.GT] == [["ga0"], []]
+        assert sequences["seq-a"].keyframes == {"model1": [True, True]}
+        assert sequences["seq-a"].resolution == Resolution(height=480, width=640)
+        assert sequences["seq-b"]["model1"] == [["b0"], []]
+        assert sequences["seq-b"][self.GT] == [["gb0"], ["gb1"]]
+        assert sequences["seq-b"].keyframes == {"model1": [False, True]}
+        assert sequences["seq-b"].resolution == Resolution(height=240, width=320)
 
     def test_unrelated_query_errors_are_not_retried(self):
         """Only the size limit triggers the split; other failures propagate."""
