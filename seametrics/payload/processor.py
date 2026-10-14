@@ -1,10 +1,11 @@
 """Build evaluation payloads from FiftyOne datasets."""
 
 import logging
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Set, Tuple
 
 import fiftyone as fo
 from fiftyone import ViewField as F
+from fiftyone.core.aggregations import Count, Values
 from tqdm import tqdm
 
 from seametrics.constants import EXCLUDED_CLASSES
@@ -448,7 +449,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             Dict[str, Sequence]: The fetched sequences, keyed by name.
         """
         view = self.dataset.match(F("sequence").is_in(batch))
-        ids, names = view.values(["id", "sequence"])
+        ids, names, flagged = self.read_batch(view)
         if not names:
             return {}
 
@@ -468,13 +469,13 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 self.aligned_values(filter_view, ids, f"{path}.detections", unwound),
                 unwound,
             )
-            if field_name == self.gt_field:
-                continue
-            try:
-                raw = self.aligned_values(filter_view, ids, f"{path}.keyframe", unwound)
-            except Exception:  # pylint: disable=broad-except
-                continue  # field has no `keyframe` attribute; nothing to record
-            keyframes[field_name] = self.group_values(names, raw, unwound)
+            if field_name not in flagged:
+                continue  # ground truth, or a model with no keyframe flag here
+            keyframes[field_name] = self.group_values(
+                names,
+                self.aligned_values(filter_view, ids, f"{path}.keyframe", unwound),
+                unwound,
+            )
 
         resolutions = self.get_resolutions(view)
 
@@ -505,6 +506,33 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 resolution=resolutions[name], keyframes=masks, **fields
             )
         return sequences
+
+    def read_batch(self, view: fo.DatasetView) -> Tuple[list, list, Set[str]]:
+        """Read a batch's samples and find which models flag any keyframe.
+
+        One query returns the sample ids, their sequence names and a count of
+        each model's keyframe flags, so a model with none (most detection
+        fields) costs no keyframe query at all.
+
+        Args:
+            view (fo.DatasetView): The batch's samples.
+
+        Returns:
+            Tuple[list, list, Set[str]]: Sample ids, the sequence name of each
+                sample in the same order, and the models with at least one
+                keyframe flag in *view*.
+        """
+        ids, names, *counts = view.aggregate(
+            [
+                Values("id"),
+                Values("sequence"),
+                *(
+                    Count(f"{self.get_field_name(view, m)}.keyframe")
+                    for m in self.models
+                ),
+            ]
+        )
+        return ids, names, {m for m, n in zip(self.models, counts, strict=True) if n}
 
     def aligned_values(
         self, view: fo.DatasetView, ids: list, path: str, unwound: bool = False
