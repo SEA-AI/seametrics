@@ -134,10 +134,9 @@ def test_accidental_tuple_as_models():
         )
 
 
-def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_payload):
-    """
-    Test that start_frame_id and end_frame_id are set correctly.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_payload_initialization_with_frame_ids():
+    """Test that start_frame_id and end_frame_id are set correctly."""
     processor = PayloadProcessor(
         dataset_name="valid_dataset",
         gt_field="ground_truth_det",

@@ -20,17 +20,11 @@ def _is_result_too_large(exc: Exception) -> bool:
     return "BSONObj size" in message or "BSONObjectTooLarge" in message
 
 
-class PayloadProcessor:
-    """
-    Class to process a payload and generate sequence data.
-    """
-
-
-# Public constructor: every argument is part of the API and stored on the instance.
 class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
     """Builds a Payload of per-sequence detections from a FiftyOne dataset."""
 
-    def __init__(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # ruff: ignore[too-many-arguments, too-many-positional-arguments]
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         dataset_name: str,
         gt_field: str,
@@ -38,16 +32,15 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         tracking_mode: bool = False,
         sequence_list: Optional[List[str]] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
-        excluded_classes: List[str] = None,
-        slices: List[str] = None,
-        tags: List[str] = None,
-        start_frame_id: int = None,
-        end_frame_id: int = None,
+        excluded_classes: Optional[List[str]] = None,
+        slices: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        start_frame_id: Optional[int] = None,
+        end_frame_id: Optional[int] = None,
         confidence_threshold: float = 0,
         batch_size: int = 8,
-    ):
-        """
-        Initializes a PayloadProcessor object.
+    ) -> None:
+        """Initializes a PayloadProcessor object.
 
         Args:
             dataset_name (str): The name of the dataset.
@@ -69,8 +62,8 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 Defaults to None.
             end_frame_id (int, optional): The end frame id.
                 Defaults to None.
-            confidence_threshold (float, optional): Confidence threshold to filter the model fields.
-                Defaults to 0.
+            confidence_threshold (float, optional): Confidence threshold to filter
+                the model fields. Defaults to 0.
             batch_size (int, optional): How many sequences to fetch per query. Larger
                 batches mean fewer queries but more memory, and are split
                 automatically when they exceed MongoDB's 16 MB result limit.
@@ -113,46 +106,20 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         )
         return self.payload
 
-    def validate_input_parameters(self) -> None:
+    def validate_input_parameters(self) -> None:  # ruff: ignore[complex-structure]
         """Validates the input parameters.
 
-        ``_validate_types`` raises TypeError for a parameter of the wrong type.
+        Raises:
+            TypeError: If any of the parameters are of the wrong type.
+            ValueError: If dataset is not found in FiftyOne or if tracking mode is
+                enabled for RGB data.
 
         Raises:
             ValueError: If ``data_type`` is not "rgb" or "thermal", the dataset is
                 not found in FiftyOne, or tracking mode is enabled for RGB data or
                 with more than one model.
         """
-        self._validate_types()
-
-        if self.tracking_mode and len(self.models) != 1:
-            raise ValueError(
-                "When tracking mode is enabled only one model is supported,"
-                f" but got {len(self.models)} models"
-            )
-
-        # Check data_type is either "rgb" or "thermal"
-        if not isinstance(self.data_type, str) or self.data_type not in {
-            "rgb",
-            "thermal",
-        }:
-            raise ValueError(
-                f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
-            )
-
-        # Additional validation logic can go here, like dataset name lookup
-        if self.dataset_name not in fo.list_datasets():
-            raise ValueError(f"Dataset {self.dataset_name} not found in FiftyOne.")
-
-        if self.tracking_mode and self.data_type == "rgb":
-            raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
-
-    def _validate_types(self) -> None:
-        """Checks the type of every input parameter.
-
-        Raises:
-            TypeError: If any of the parameters are of the wrong type.
-        """
+        # Check dataset_name is a string
         if not isinstance(self.dataset_name, str):
             raise TypeError(
                 f"dataset_name must be of type str, but got {type(self.dataset_name)}"
@@ -163,7 +130,10 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 f"gt_field must be of type str, but got {type(self.gt_field)}"
             )
 
-        if not _is_str_list(self.models):
+        # Check models is a list of strings
+        if not isinstance(self.models, list) or not all(
+            isinstance(model, str) for model in self.models
+        ):
             raise TypeError(f"models must be a list of strings, but got {self.models}")
 
         if not isinstance(self.tracking_mode, bool):
@@ -172,12 +142,62 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 f" but got {type(self.tracking_mode)}"
             )
 
-        for name in ("sequence_list", "excluded_classes", "slices", "tags"):
-            value = getattr(self, name)
-            if value is not None and not _is_str_list(value):
-                raise TypeError(
-                    f"{name} must be a list of strings or None, but got {value}"
-                )
+        if self.tracking_mode and len(self.models) != 1:
+            raise ValueError(
+                "When tracking mode is enabled only one model is supported,"
+                f" but got {len(self.models)} models"
+            )
+
+        # Check sequence_list is None or a list of strings
+        if self.sequence_list is not None and (
+            not isinstance(self.sequence_list, list)
+            or not all(isinstance(seq, str) for seq in self.sequence_list)
+        ):
+            raise TypeError(
+                "sequence_list must be a list of strings or None,"
+                f" but got {self.sequence_list}"
+            )
+
+        # Check data_type is either "rgb" or "thermal"
+        if self.data_type not in {"rgb", "thermal"}:
+            raise ValueError(
+                f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
+            )
+
+        # Check excluded_classes is None or a list of strings
+        if self.excluded_classes is not None and (
+            not isinstance(self.excluded_classes, list)
+            or not all(isinstance(cls, str) for cls in self.excluded_classes)
+        ):
+            raise TypeError(
+                "excluded_classes must be a list of strings or None,"
+                f" but got {self.excluded_classes}"
+            )
+
+        # Check slices is None or a list of strings
+        if self.slices is not None and (
+            not isinstance(self.slices, list)
+            or not all(isinstance(s, str) for s in self.slices)
+        ):
+            raise TypeError(
+                f"slices must be a list of strings or None, but got {self.slices}"
+            )
+
+        # Check tags is None or a list of strings
+        if self.tags is not None and (
+            not isinstance(self.tags, list)
+            or not all(isinstance(tag, str) for tag in self.tags)
+        ):
+            raise TypeError(
+                f"tags must be a list of strings or None, but got {self.tags}"
+            )
+
+        # Additional validation logic can go here, like dataset name lookup
+        if self.dataset_name not in fo.list_datasets():
+            raise ValueError(f"Dataset {self.dataset_name} not found in FiftyOne.")
+
+        if self.tracking_mode and self.data_type == "rgb":
+            raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
 
     def process_dataset(self) -> Dict[str, Sequence]:
         """Processes the dataset and generates sequence data.
