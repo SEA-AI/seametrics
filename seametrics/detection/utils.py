@@ -424,7 +424,7 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
     }
 
 
-def payload_to_detection_verdicts(
+def payload_to_detection_verdicts(  # pylint: disable=too-many-locals,too-many-positional-arguments
     payload: Payload,
     model_name: Optional[str] = None,
     label_mapping: Optional[Dict[str, int]] = None,
@@ -532,7 +532,7 @@ def payload_to_detection_verdicts(
     return verdicts
 
 
-def tag_detections(
+def tag_detections(  # pylint: disable=too-many-locals,too-many-positional-arguments
     dataset: object,
     field_name: str,
     verdicts: Dict[str, Dict[str, str]],

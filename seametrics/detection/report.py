@@ -118,7 +118,7 @@ def _pool_comparable(
     return overall, shared
 
 
-def _usable_sequences(
+def _usable_sequences(  # pylint: disable=too-many-positional-arguments
     payload: Payload,
     model: str,
     keyframes_only: bool,
@@ -151,7 +151,7 @@ def _usable_sequences(
     return usable
 
 
-def evaluate_models(
+def evaluate_models(  # ruff: ignore[too-many-arguments]  # pylint: disable=too-many-arguments,too-many-locals
     dataset_name: str,
     gt_field: str,
     models: List[str],
@@ -253,14 +253,14 @@ def evaluate_models(
                 gt_field_name=gt_field,
                 sequences=usable,
             )
-            shared = dict(
-                model_name=model,
-                label_mapping=label_mapping,
-                class_agnostic=class_agnostic,
-                keyframes_only=keyframes_only,
-                iou_thresholds=[iou_threshold],
+            shared = {
+                "model_name": model,
+                "label_mapping": label_mapping,
+                "class_agnostic": class_agnostic,
+                "keyframes_only": keyframes_only,
+                "iou_thresholds": [iou_threshold],
                 **metric_kwargs,
-            )
+            }
             per_sequence[model].update(
                 payload_to_det_metrics_by_sequence(
                     usable_payload, include_overall=False, **shared

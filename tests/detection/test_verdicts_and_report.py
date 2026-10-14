@@ -65,14 +65,16 @@ class TestDetectionVerdicts:
     def test_hit_and_miss_are_classified(self):
         """One overlapping prediction, one nowhere near the ground truth."""
         preds = [
-            dict(
-                boxes=np.array([[10.0, 10.0, 20.0, 20.0], [300.0, 300.0, 20.0, 20.0]]),
-                scores=np.array([0.9, 0.7]),
-                labels=np.array([0, 0]),
-            )
+            {
+                "boxes": np.array(
+                    [[10.0, 10.0, 20.0, 20.0], [300.0, 300.0, 20.0, 20.0]]
+                ),
+                "scores": np.array([0.9, 0.7]),
+                "labels": np.array([0, 0]),
+            }
         ]
         target = [
-            dict(boxes=np.array([[12.0, 12.0, 20.0, 20.0]]), labels=np.array([0]))
+            {"boxes": np.array([[12.0, 12.0, 20.0, 20.0]]), "labels": np.array([0])}
         ]
         metric, _ = self._metric(preds, target)
 
@@ -81,20 +83,22 @@ class TestDetectionVerdicts:
     def test_verdicts_reconcile_with_the_counts(self):
         """The whole point: the per-detection view must sum to the aggregate."""
         preds = [
-            dict(
-                boxes=np.array([[10.0, 10.0, 20.0, 20.0], [300.0, 300.0, 20.0, 20.0]]),
-                scores=np.array([0.9, 0.7]),
-                labels=np.array([0, 0]),
-            ),
-            dict(
-                boxes=np.array([[50.0, 50.0, 10.0, 10.0]]),
-                scores=np.array([0.6]),
-                labels=np.array([0]),
-            ),
+            {
+                "boxes": np.array(
+                    [[10.0, 10.0, 20.0, 20.0], [300.0, 300.0, 20.0, 20.0]]
+                ),
+                "scores": np.array([0.9, 0.7]),
+                "labels": np.array([0, 0]),
+            },
+            {
+                "boxes": np.array([[50.0, 50.0, 10.0, 10.0]]),
+                "scores": np.array([0.6]),
+                "labels": np.array([0]),
+            },
         ]
         target = [
-            dict(boxes=np.array([[12.0, 12.0, 20.0, 20.0]]), labels=np.array([0])),
-            dict(boxes=np.array([[400.0, 400.0, 10.0, 10.0]]), labels=np.array([0])),
+            {"boxes": np.array([[12.0, 12.0, 20.0, 20.0]]), "labels": np.array([0])},
+            {"boxes": np.array([[400.0, 400.0, 10.0, 10.0]]), "labels": np.array([0])},
         ]
         metric, results = self._metric(preds, target)
         counts = Counter(metric.detection_verdicts().values())
@@ -106,22 +110,22 @@ class TestDetectionVerdicts:
     def test_indices_address_the_prediction_list(self):
         """Second image, third detection is addressed as (1, 2)."""
         preds = [
-            dict(boxes=np.array([]), scores=np.array([]), labels=np.array([])),
-            dict(
-                boxes=np.array(
+            {"boxes": np.array([]), "scores": np.array([]), "labels": np.array([])},
+            {
+                "boxes": np.array(
                     [
                         [300.0, 300.0, 5.0, 5.0],
                         [310.0, 310.0, 5.0, 5.0],
                         [10.0, 10.0, 20.0, 20.0],
                     ]
                 ),
-                scores=np.array([0.3, 0.4, 0.9]),
-                labels=np.array([0, 0, 0]),
-            ),
+                "scores": np.array([0.3, 0.4, 0.9]),
+                "labels": np.array([0, 0, 0]),
+            },
         ]
         target = [
-            dict(boxes=np.array([]), labels=np.array([])),
-            dict(boxes=np.array([[12.0, 12.0, 20.0, 20.0]]), labels=np.array([0])),
+            {"boxes": np.array([]), "labels": np.array([])},
+            {"boxes": np.array([[12.0, 12.0, 20.0, 20.0]]), "labels": np.array([0])},
         ]
         metric, _ = self._metric(preds, target)
         verdicts = metric.detection_verdicts()
@@ -133,14 +137,14 @@ class TestDetectionVerdicts:
     def test_detection_outside_the_area_range_is_ignored(self):
         """Ignored is a third outcome: neither tp nor fp."""
         preds = [
-            dict(
-                boxes=np.array([[10.0, 10.0, 20.0, 20.0]]),
-                scores=np.array([0.9]),
-                labels=np.array([0]),
-            )
+            {
+                "boxes": np.array([[10.0, 10.0, 20.0, 20.0]]),
+                "scores": np.array([0.9]),
+                "labels": np.array([0]),
+            }
         ]
         target = [
-            dict(boxes=np.array([[12.0, 12.0, 20.0, 20.0]]), labels=np.array([0]))
+            {"boxes": np.array([[12.0, 12.0, 20.0, 20.0]]), "labels": np.array([0])}
         ]
         metric, _ = self._metric(
             preds, target, area_ranges=[[0, 10]], area_ranges_labels=["tiny"]
@@ -155,14 +159,14 @@ class TestDetectionVerdicts:
 
     def test_unknown_area_range_raises(self):
         preds = [
-            dict(
-                boxes=np.array([[10.0, 10.0, 20.0, 20.0]]),
-                scores=np.array([0.9]),
-                labels=np.array([0]),
-            )
+            {
+                "boxes": np.array([[10.0, 10.0, 20.0, 20.0]]),
+                "scores": np.array([0.9]),
+                "labels": np.array([0]),
+            }
         ]
         target = [
-            dict(boxes=np.array([[12.0, 12.0, 20.0, 20.0]]), labels=np.array([0]))
+            {"boxes": np.array([[12.0, 12.0, 20.0, 20.0]]), "labels": np.array([0])}
         ]
         metric, _ = self._metric(preds, target)
         with pytest.raises(ValueError, match="was not evaluated"):
@@ -170,14 +174,14 @@ class TestDetectionVerdicts:
 
     def test_unknown_iou_threshold_raises(self):
         preds = [
-            dict(
-                boxes=np.array([[10.0, 10.0, 20.0, 20.0]]),
-                scores=np.array([0.9]),
-                labels=np.array([0]),
-            )
+            {
+                "boxes": np.array([[10.0, 10.0, 20.0, 20.0]]),
+                "scores": np.array([0.9]),
+                "labels": np.array([0]),
+            }
         ]
         target = [
-            dict(boxes=np.array([[12.0, 12.0, 20.0, 20.0]]), labels=np.array([0]))
+            {"boxes": np.array([[12.0, 12.0, 20.0, 20.0]]), "labels": np.array([0])}
         ]
         metric, _ = self._metric(preds, target)
         with pytest.raises(ValueError, match="was not evaluated"):
