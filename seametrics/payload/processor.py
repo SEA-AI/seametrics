@@ -404,7 +404,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             fetched.update(self.fetch_sequences(batch[middle:]))
             return fetched
 
-    def _fetch_sequences(
+    def _fetch_sequences(  # pylint: disable=too-many-locals
         self, batch: List[str], unwound: bool = False
     ) -> Dict[str, Sequence]:
         """Fetch a batch of sequences without the size fallback.
