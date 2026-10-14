@@ -1,6 +1,8 @@
+"""Data carriers for evaluation payloads: resolutions, sequences and payloads."""
+
 import logging
-from typing import List, Dict
 from dataclasses import dataclass
+from typing import Dict, List
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -8,23 +10,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Resolution:
-    """
-    Represents the resolution of a sequence.
-    """
+    """Represents the resolution of a sequence."""
 
     height: int
     width: int
 
 
 class Sequence:
-    """
-    Class to store sequence data.
+    """Class to store sequence data.
+
     Allows for dynamic attributes to be added to the object.
     """
 
-    def __init__(self, resolution: Resolution, **kwargs):
-        """
-        Initializes a Sequence object.
+    def __init__(self, resolution: Resolution, **kwargs: object) -> None:
+        """Initializes a Sequence object.
 
         Args:
             resolution (Resolution): The resolution of the sequence.
@@ -33,9 +32,8 @@ class Sequence:
         self.resolution = resolution
         self.__dict__.update(kwargs)
 
-    def __getattr__(self, attr):
-        """
-        Fallback for undefined attributes.
+    def __getattr__(self, attr: str) -> object:
+        """Fallback for undefined attributes.
 
         Args:
             attr (str): The name of the attribute.
@@ -53,9 +51,8 @@ class Sequence:
                 f"'{type(self).__name__}' object has no attribute '{attr}'"
             ) from e
 
-    def __setattr__(self, key, value):
-        """
-        Sets the value of an attribute.
+    def __setattr__(self, key: str, value: object) -> None:
+        """Sets the value of an attribute.
 
         Args:
             key (str): The name of the attribute.
@@ -63,9 +60,8 @@ class Sequence:
         """
         self.__dict__[key] = value
 
-    def __getitem__(self, key):
-        """
-        Retrieves the value of an attribute.
+    def __getitem__(self, key: str) -> object:
+        """Retrieves the value of an attribute.
 
         Args:
             key (str): The name of the attribute.
@@ -75,9 +71,8 @@ class Sequence:
         """
         return self.__getattr__(key)
 
-    def __setitem__(self, key, value):
-        """
-        Sets the value of an attribute.
+    def __setitem__(self, key: str, value: object) -> None:
+        """Sets the value of an attribute.
 
         Args:
             key (str): The name of the attribute.
@@ -85,9 +80,8 @@ class Sequence:
         """
         self.__setattr__(key, value)
 
-    def __repr__(self):
-        """
-        Returns a string representation of the Sequence object.
+    def __repr__(self) -> str:
+        """Returns a string representation of the Sequence object.
 
         Returns:
             str: The string representation of the object.
@@ -98,8 +92,7 @@ class Sequence:
 
     @property
     def field_names(self) -> List[str]:
-        """
-        Detection field names of the sequence.
+        """Detection field names of the sequence.
 
         Excludes the resolution and keyframes attributes, which are metadata
         about the sequence rather than detection fields.
@@ -112,9 +105,7 @@ class Sequence:
 
 @dataclass
 class Payload:
-    """
-    Represents a payload containing dataset and model information.
-    """
+    """Represents a payload containing dataset and model information."""
 
     dataset: str
     models: List[str]
@@ -122,9 +113,8 @@ class Payload:
     sequences: Dict[str, Sequence]  # key is sequence name
 
     @property
-    def sequences_list(self):
-        """
-        Returns a list of sequence names in the payload.
+    def sequences_list(self) -> List[str]:
+        """Sequence names in the payload.
 
         Returns:
             List[str]: The list of sequence names.
@@ -132,8 +122,7 @@ class Payload:
         return list(self.sequences.keys())
 
     def to_dict(self) -> Dict:
-        """
-        Returns a dictionary representation of the payload.
+        """Returns a dictionary representation of the payload.
 
         Returns:
             Dict: The dictionary representation of the payload.
