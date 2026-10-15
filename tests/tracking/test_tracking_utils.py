@@ -497,9 +497,9 @@ def test_build_detection_inputs_keeps_only_keyframes():
     gt, pred = utils.build_detection_inputs(
         view=_FakeVideoView(), gt_field="gt", pred_field="pred"
     )
-    # one detection per surviving frame, on two frames
-    assert len(gt) == 2
-    assert len(pred) == 2
+    # column 1 holds the track id: frames 0 and 2 keep gt 1, 3 and predictions 10, 30
+    assert gt[:, 1].tolist() == [1, 3]
+    assert pred[:, 1].tolist() == [10, 30]
 
 
 def test_build_detection_inputs_raises_when_mask_is_empty():
@@ -514,6 +514,15 @@ def test_build_detection_inputs_raises_when_mask_is_none():
     with pytest.raises(ValueError, match="No keyframe data"):
         utils.build_detection_inputs(
             view=_KeyframeView(None), gt_field="gt", pred_field="pred"
+        )
+
+
+@pytest.mark.parametrize("mask", [[False, False, False], [None, None, None]])
+def test_build_detection_inputs_raises_when_no_frame_is_flagged(mask):
+    """A full-length mask that flags nothing would also drop every frame."""
+    with pytest.raises(ValueError, match="No keyframe data"):
+        utils.build_detection_inputs(
+            view=_KeyframeView(mask), gt_field="gt", pred_field="pred"
         )
 
 

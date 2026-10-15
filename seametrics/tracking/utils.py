@@ -326,8 +326,8 @@ def build_detection_inputs(
     Raises:
         ImportError: If ``fiftyone`` is not installed.
         ValueError: If the view contains no samples after field selection, if
-            *pred_field* carries no keyframe data, or if the keyframe mask does
-            not cover every frame.
+            *pred_field* carries no keyframe data or flags no frame, or if the
+            keyframe mask does not cover every frame.
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
@@ -346,7 +346,8 @@ def build_detection_inputs(
     dt_track_ids_per_frame = get_values(view, f"{pred_field}.detections.index")
 
     keyframes = get_values(view, f"{pred_field}.keyframe")
-    if not keyframes:
+    # an all-False/None mask would drop every frame just like an empty one
+    if not keyframes or not any(keyframes):
         raise ValueError(
             f"No keyframe data for {pred_field!r}; every frame would be dropped."
         )
