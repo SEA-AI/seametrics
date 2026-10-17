@@ -1,8 +1,11 @@
+"""Build evaluation payloads from FiftyOne datasets."""
+
 import logging
-from typing import Dict, List, Literal, Union
+from typing import Dict, List, Literal, Optional, Set, Tuple
 
 import fiftyone as fo
 from fiftyone import ViewField as F
+from fiftyone.core.aggregations import Count, Values
 from tqdm import tqdm
 
 from seametrics.constants import EXCLUDED_CLASSES
@@ -12,28 +15,33 @@ from seametrics.payload import Payload, Resolution, Sequence
 logger = logging.getLogger(__name__)
 
 
-class PayloadProcessor:
-    """
-    Class to process a payload and generate sequence data.
-    """
+def _is_result_too_large(exc: Exception) -> bool:
+    """Return True if *exc* is MongoDB rejecting a result for exceeding 16 MB."""
+    message = str(exc)
+    return "BSONObj size" in message or "BSONObjectTooLarge" in message
 
-    def __init__(
+
+class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
+    """Class to process a payload and generate sequence data."""
+
+    # ruff: ignore[too-many-arguments, too-many-positional-arguments]
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         dataset_name: str,
         gt_field: str,
         models: List[str],
         tracking_mode: bool = False,
-        sequence_list: List[str] = None,
+        sequence_list: Optional[List[str]] = None,
         data_type: Literal["rgb", "thermal"] = "thermal",
-        excluded_classes: List[str] = None,
-        slices: List[str] = None,
-        tags: List[str] = None,
-        start_frame_id: int = None,
-        end_frame_id: int = None,
-        confidence_threshold: float = 0
-    ):
-        """
-        Initializes a PayloadProcessor object.
+        excluded_classes: Optional[List[str]] = None,
+        slices: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        start_frame_id: Optional[int] = None,
+        end_frame_id: Optional[int] = None,
+        confidence_threshold: float = 0,
+        batch_size: int = 8,
+    ) -> None:
+        """Initializes a PayloadProcessor object.
 
         Args:
             dataset_name (str): The name of the dataset.
@@ -48,15 +56,20 @@ class PayloadProcessor:
             excluded_classes (List[str], optional): The list of excluded classes.
                 Defaults to None.
             slices (List[str], optional): The list of slices to process.
-                Defaults to None. If None, a smart selection of available slices takes place.
+                Defaults to None. If None, a smart selection of available slices
+                takes place.
             tags (List[str], optional): The list of tags to filter the dataset.
                 Defaults to None.
             start_frame_id (int, optional): The start frame id.
                 Defaults to None.
             end_frame_id (int, optional): The end frame id.
                 Defaults to None.
-            confidence_threshold (float, optional): Confidence threshold to filter the model fields.
-                Defaults to 0.
+            confidence_threshold (float, optional): Confidence threshold to filter
+                the model fields. Defaults to 0.
+            batch_size (int, optional): How many sequences to fetch per query. Larger
+                batches mean fewer queries but more memory, and are split
+                automatically when they exceed MongoDB's 16 MB result limit.
+                Defaults to 8.
         """
         self.dataset_name = dataset_name
         self.gt_field = gt_field
@@ -67,6 +80,7 @@ class PayloadProcessor:
         self.slices = slices
         self.tags = tags
         self.confidence_threshold = confidence_threshold
+        self.batch_size = batch_size
         self.excluded_classes = excluded_classes or EXCLUDED_CLASSES
         self.validate_input_parameters()
         self.dataset: fo.Dataset = None
@@ -77,8 +91,7 @@ class PayloadProcessor:
         logger.info(f"Initialized PayloadProcessor for dataset: {dataset_name}")
 
     def compute_payload(self) -> Payload:
-        """
-        Recomputes the payload after updating any of the input parameters.
+        """Recomputes the payload after updating any of the input parameters.
 
         Returns:
             Payload: The updated payload.
@@ -95,13 +108,13 @@ class PayloadProcessor:
         )
         return self.payload
 
-    def validate_input_parameters(self):
-        """
-        Validates the input parameters.
+    def validate_input_parameters(self) -> None:  # ruff: ignore[complex-structure]
+        """Validates the input parameters.
 
         Raises:
             TypeError: If any of the parameters are of the wrong type.
-            ValueError: If dataset is not found in FiftyOne or if tracking mode is enabled for RGB data.
+            ValueError: If dataset is not found in FiftyOne or if tracking mode is
+                enabled for RGB data.
 
         Validations:
             - `dataset_name` must be a string.
@@ -114,45 +127,80 @@ class PayloadProcessor:
             - `slices` must be None or a list of strings.
             - `tags` must be None or a list of strings
         """
-        
         # Check dataset_name is a string
         if not isinstance(self.dataset_name, str):
-            raise TypeError(f"dataset_name must be of type str, but got {type(self.dataset_name)}")
+            raise TypeError(
+                f"dataset_name must be of type str, but got {type(self.dataset_name)}"
+            )
 
         # Check gt_field is a string
         if not isinstance(self.gt_field, str):
-            raise TypeError(f"gt_field must be of type str, but got {type(self.gt_field)}")
+            raise TypeError(
+                f"gt_field must be of type str, but got {type(self.gt_field)}"
+            )
 
         # Check models is a list of strings
-        if not isinstance(self.models, list) or not all(isinstance(model, str) for model in self.models):
+        if not isinstance(self.models, list) or not all(
+            isinstance(model, str) for model in self.models
+        ):
             raise TypeError(f"models must be a list of strings, but got {self.models}")
 
         # Check tracking_mode is a boolean
         if not isinstance(self.tracking_mode, bool):
-            raise TypeError(f"tracking_mode must be of type bool, but got {type(self.tracking_mode)}")
-        
+            raise TypeError(
+                "tracking_mode must be of type bool,"
+                f" but got {type(self.tracking_mode)}"
+            )
+
         if self.tracking_mode and len(self.models) != 1:
-            raise ValueError(f"When tracking mode is enabled only one model is supported, but got {len(self.models)} models")
+            raise ValueError(
+                "When tracking mode is enabled only one model is supported,"
+                f" but got {len(self.models)} models"
+            )
 
         # Check sequence_list is None or a list of strings
-        if self.sequence_list is not None and (not isinstance(self.sequence_list, list) or not all(isinstance(seq, str) for seq in self.sequence_list)):
-            raise TypeError(f"sequence_list must be a list of strings or None, but got {self.sequence_list}")
+        if self.sequence_list is not None and (
+            not isinstance(self.sequence_list, list)
+            or not all(isinstance(seq, str) for seq in self.sequence_list)
+        ):
+            raise TypeError(
+                "sequence_list must be a list of strings or None,"
+                f" but got {self.sequence_list}"
+            )
 
         # Check data_type is either "rgb" or "thermal"
-        if self.data_type not in ["rgb", "thermal"]:
-            raise ValueError(f"data_type must be 'rgb' or 'thermal', but got {self.data_type}")
+        if self.data_type not in {"rgb", "thermal"}:
+            raise ValueError(
+                f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
+            )
 
         # Check excluded_classes is None or a list of strings
-        if self.excluded_classes is not None and (not isinstance(self.excluded_classes, list) or not all(isinstance(cls, str) for cls in self.excluded_classes)):
-            raise TypeError(f"excluded_classes must be a list of strings or None, but got {self.excluded_classes}")
+        if self.excluded_classes is not None and (
+            not isinstance(self.excluded_classes, list)
+            or not all(isinstance(cls, str) for cls in self.excluded_classes)
+        ):
+            raise TypeError(
+                "excluded_classes must be a list of strings or None,"
+                f" but got {self.excluded_classes}"
+            )
 
         # Check slices is None or a list of strings
-        if self.slices is not None and (not isinstance(self.slices, list) or not all(isinstance(s, str) for s in self.slices)):
-            raise TypeError(f"slices must be a list of strings or None, but got {self.slices}")
+        if self.slices is not None and (
+            not isinstance(self.slices, list)
+            or not all(isinstance(s, str) for s in self.slices)
+        ):
+            raise TypeError(
+                f"slices must be a list of strings or None, but got {self.slices}"
+            )
 
         # Check tags is None or a list of strings
-        if self.tags is not None and (not isinstance(self.tags, list) or not all(isinstance(tag, str) for tag in self.tags)):
-            raise TypeError(f"tags must be a list of strings or None, but got {self.tags}")
+        if self.tags is not None and (
+            not isinstance(self.tags, list)
+            or not all(isinstance(tag, str) for tag in self.tags)
+        ):
+            raise TypeError(
+                f"tags must be a list of strings or None, but got {self.tags}"
+            )
 
         # Additional validation logic can go here, like dataset name lookup
         if self.dataset_name not in fo.list_datasets():
@@ -161,9 +209,8 @@ class PayloadProcessor:
         if self.tracking_mode and self.data_type == "rgb":
             raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
 
-    def process_dataset(self):
-        """
-        Processes the dataset and generates sequence data.
+    def process_dataset(self) -> Dict[str, Sequence]:
+        """Processes the dataset and generates sequence data.
 
         Returns:
             Dict: A dictionary containing sequence data.
@@ -191,16 +238,21 @@ class PayloadProcessor:
         return self.process_sequences()
 
     def get_datatype_slices(self) -> List[str]:
-        """
-        Retrieves the relevant slices based on the data type.
+        """Retrieves the relevant slices based on the data type.
 
         Returns:
             List[str]: The list of relevant slices.
 
         Raises:
             ValueError: If there is no matching data slice for the data type.
-        """        
-        thermal_slices = {"thermal_wide", "thermal_narrow", "thermal_right", "thermal_left", "thermal_stitched"}
+        """
+        thermal_slices = {
+            "thermal_wide",
+            "thermal_narrow",
+            "thermal_right",
+            "thermal_left",
+            "thermal_stitched",
+        }
         rgb_slices = {"rgb", "rgb_wide", "rgb_narrow"}
 
         existing_slices = set(self.dataset.group_slices)
@@ -220,8 +272,7 @@ class PayloadProcessor:
 
     @staticmethod
     def get_resolution(view: fo.DatasetView) -> Resolution:
-        """
-        Retrieves the resolution from a FiftyOne view.
+        """Retrieves the resolution from a FiftyOne view.
 
         Args:
             view (fo.DatasetView): The FiftyOne dataset view.
@@ -243,8 +294,7 @@ class PayloadProcessor:
     def get_field_name(
         view: fo.DatasetView, field_name: str, unwinding: bool = False
     ) -> str:
-        """
-        Retrieves the field name based on the media type of the view.
+        """Retrieves the field name based on the media type of the view.
 
         Args:
             view (fo.DatasetView): The FiftyOne dataset view.
@@ -260,12 +310,8 @@ class PayloadProcessor:
             return field_name
         raise ValueError(f"Unsupported media type: {view.media_type}")
 
-    def process_sequence(
-        self,
-        sequence: str,
-    ) -> Sequence:
-        """
-        Retrieves the sequence data from the dataset view.
+    def process_sequence(self, sequence: str) -> Sequence:
+        """Retrieve the sequence data from the dataset view.
 
         Args:
             sequence (str): The name of the sequence.
@@ -273,57 +319,294 @@ class PayloadProcessor:
         Returns:
             Sequence: The sequence data.
         """
-        sequence_view = self.dataset.match(F("sequence") == sequence).filter_labels(
-            self.get_field_name(self.dataset, self.gt_field),
-            ~F("label").is_in(self.excluded_classes),
-            only_matches=False,
-        )
+        return self.fetch_sequences([sequence])[sequence]
 
-        detections = {}
+    def label_filter(self, field_name: str) -> object:
+        """Build the label filter expression for one field.
 
-        for field_name in self.models + [self.gt_field]:
-            filter_expression = ~(F("label").is_in(self.excluded_classes))
+        Args:
+            field_name (str): Detection field the filter applies to.
 
-            if self.confidence_threshold > 0 and field_name != self.gt_field:
-                filter_expression &= F("confidence") > self.confidence_threshold
+        Returns:
+            ViewExpression: Excludes the configured classes, and for prediction
+                fields also drops detections below the confidence threshold.
+        """
+        expression = ~(F("label").is_in(self.excluded_classes))
+        if self.confidence_threshold > 0 and field_name != self.gt_field:
+            expression &= F("confidence") > self.confidence_threshold
+        return expression
 
-            filter_view = sequence_view.filter_labels(
-                self.get_field_name(sequence_view, field_name),
-                filter_expression,
+    @staticmethod
+    def normalize_keyframes(values: list) -> "List[bool] | None":
+        """Turn raw keyframe values for one sequence into a mask.
+
+        The flags are recorded on the `Sequence` rather than applied, so each
+        metric family can decide what to do with them: `seametrics.tracking`
+        evaluates keyframes only, while detection evaluates every frame unless the
+        caller opts in.
+
+        Args:
+            values (list): Raw per-frame keyframe values, already sliced to the
+                configured frame range.
+
+        Returns:
+            List[bool] | None: One flag per frame, or None when the field carries
+                no usable keyframe data (no attribute, or no frame flagged) — the
+                common case for a plain detection model.
+        """
+        if not values or not any(values):
+            return None
+        return [bool(value) for value in values]
+
+    def group_by_sequence(self, names: list, values: list) -> Dict[str, list]:
+        """Group per-sample values by sequence name.
+
+        For video data every sample already holds a whole sequence, so its value
+        is a list of frames. For image data each sample is a single frame and the
+        samples of a sequence have to be collected in order.
+
+        Args:
+            names (list): Sequence name of each sample, in view order.
+            values (list): Value of each sample, in the same order.
+
+        Returns:
+            Dict[str, list]: Per-frame values keyed by sequence name.
+        """
+        if values is None:
+            return {}
+        if self.dataset.media_type == "video":
+            return {name: (values[i] or []) for i, name in enumerate(names)}
+        grouped: Dict[str, list] = {}
+        for name, value in zip(names, values, strict=True):
+            grouped.setdefault(name, []).append(value)
+        return grouped
+
+    def group_values(self, names: list, values: list, unwound: bool) -> Dict[str, list]:
+        """Group fetched values by sequence name.
+
+        Args:
+            names (list): Sequence name of each sample, in view order.
+            values (list): Fetched values.
+            unwound (bool): True when the query unwound frames, in which case
+                *values* is already the flat frame list of the single sequence.
+
+        Returns:
+            Dict[str, list]: Per-frame values keyed by sequence name.
+        """
+        if unwound:
+            return {names[0]: values or []}
+        return self.group_by_sequence(names, values)
+
+    def fetch_sequences(self, batch: List[str]) -> Dict[str, Sequence]:
+        """Fetch a batch of sequences with one query per field.
+
+        Querying once per field for a whole batch is far cheaper than querying
+        per sequence, but the aggregation result has to fit inside MongoDB's 16 MB
+        BSON limit. Dense sequences exceed it, so rather than guessing a safe batch
+        size the batch is halved whenever the server rejects the result, down to a
+        single sequence.
+
+        Args:
+            batch (List[str]): Sequence names to fetch.
+
+        Returns:
+            Dict[str, Sequence]: The fetched sequences, keyed by name.
+
+        Note:
+            Any query error that is not the BSON size limit propagates unchanged,
+            as does the size limit itself once a single sequence is still too big.
+        """
+        try:
+            return self._fetch_sequences(batch)
+        except Exception as exc:  # pylint: disable=broad-except
+            if not _is_result_too_large(exc):
+                raise
+            if len(batch) == 1:
+                # A nested query packs a whole sequence into one BSON document,
+                # which cannot exceed 16 MB. Unwinding streams the frames as
+                # separate documents instead, so a dense sequence still fits.
+                return self._fetch_sequences(batch, unwound=True)
+            middle = len(batch) // 2
+            logger.debug(
+                f"Batch of {len(batch)} exceeded the BSON limit; splitting in two"
+            )
+            fetched = self.fetch_sequences(batch[:middle])
+            fetched.update(self.fetch_sequences(batch[middle:]))
+            return fetched
+
+    def _fetch_sequences(  # pylint: disable=too-many-locals
+        self, batch: List[str], unwound: bool = False
+    ) -> Dict[str, Sequence]:
+        """Fetch a batch of sequences without the size fallback.
+
+        Args:
+            batch (List[str]): Sequence names to fetch.
+            unwound (bool): Query frames as separate documents rather than one
+                document per sequence. Sidesteps the per-document BSON limit, and
+                is only valid for a single sequence.
+
+        Returns:
+            Dict[str, Sequence]: The fetched sequences, keyed by name.
+        """
+        view = self.dataset.match(F("sequence").is_in(batch))
+        ids, names, flagged = self.read_batch(view)
+        if not names:
+            return {}
+
+        frame_range = slice(self.start_frame_id, self.end_frame_id)
+        detections: Dict[str, Dict[str, list]] = {}
+        keyframes: Dict[str, Dict[str, list]] = {}
+
+        for field_name in [*self.models, self.gt_field]:
+            filter_view = view.filter_labels(
+                self.get_field_name(view, field_name),
+                self.label_filter(field_name),
                 only_matches=False,
             )
-            
-            det_values = filter_view.values(
-                f"{self.get_field_name(sequence_view, field_name, unwinding=True)}.detections"
-            )[self.start_frame_id:self.end_frame_id]
+            path = self.get_field_name(view, field_name, unwinding=unwound)
+            detections[field_name] = self.group_values(
+                names,
+                self.aligned_values(filter_view, ids, f"{path}.detections", unwound),
+                unwound,
+            )
+            if field_name not in flagged:
+                continue  # ground truth, or a model with no keyframe flag here
+            keyframes[field_name] = self.group_values(
+                names,
+                self.aligned_values(filter_view, ids, f"{path}.keyframe", unwound),
+                unwound,
+            )
+
+        resolutions = self.get_resolutions(view)
+
+        sequences = {}
+        for name in dict.fromkeys(names):
+            fields = {
+                field: [frame or [] for frame in per_seq.get(name, [])][frame_range]
+                for field, per_seq in detections.items()
+            }
+            masks = {}
+            for field, per_seq in keyframes.items():
+                mask = self.normalize_keyframes(per_seq.get(name, [])[frame_range])
+                if mask is not None:
+                    masks[field] = mask
 
             if self.tracking_mode:
-                keyframe_values = filter_view.values(f"{self.get_field_name(sequence_view, self.models[0], unwinding=True)}.keyframe")[self.start_frame_id:self.end_frame_id]
-                detections[field_name] = [d if d is not None and k else [] for d, k in zip(det_values, keyframe_values)]
-            else:
-                detections[field_name] = [d if d is not None else [] for d in det_values]
+                blanking = masks.get(self.models[0])
+                if blanking is not None:
+                    fields = {
+                        field: [
+                            frame if keep else []
+                            for frame, keep in zip(frames, blanking, strict=False)
+                        ]
+                        for field, frames in fields.items()
+                    }
 
-        
-        return Sequence(resolution=self.get_resolution(sequence_view), **detections)
+            sequences[name] = Sequence(
+                resolution=resolutions[name], keyframes=masks, **fields
+            )
+        return sequences
+
+    def read_batch(self, view: fo.DatasetView) -> Tuple[list, list, Set[str]]:
+        """Read a batch's samples and find which models flag any keyframe.
+
+        One query returns the sample ids, their sequence names and a count of
+        each model's keyframe flags, so a model with none (most detection
+        fields) costs no keyframe query at all.
+
+        Args:
+            view (fo.DatasetView): The batch's samples.
+
+        Returns:
+            Tuple[list, list, Set[str]]: Sample ids, the sequence name of each
+                sample in the same order, and the models with at least one
+                keyframe flag in *view*.
+        """
+        ids, names, *counts = view.aggregate(
+            [
+                Values("id"),
+                Values("sequence"),
+                *(
+                    Count(f"{self.get_field_name(view, m)}.keyframe")
+                    for m in self.models
+                ),
+            ]
+        )
+        return ids, names, {m for m, n in zip(self.models, counts, strict=True) if n}
+
+    def aligned_values(
+        self, view: fo.DatasetView, ids: list, path: str, unwound: bool = False
+    ) -> list:
+        """Read *path* from *view* in the sample order of *ids*.
+
+        Separate ``values()`` queries do not share one sample order: MongoDB may
+        return each query's samples in a different order, which hands one
+        sequence's labels to another. Reading the sample id in the same query
+        and reordering by it keeps every value on its own sample.
+
+        Args:
+            view (fo.DatasetView): View to read from.
+            ids (list): Sample ids, in the order the sequence names were read.
+            path (str): Field path to read.
+            unwound (bool): True when *path* unwinds the frames of a single
+                video sample, which come back as one flat list in frame order.
+
+        Returns:
+            list: One value per id, or one per frame when unwound.
+        """
+        if unwound and self.dataset.media_type == "video":
+            return view.values(path)
+        found_ids, values = view.values(["id", path])
+        by_id = dict(zip(found_ids, values, strict=True))
+        return [by_id.get(sample_id) for sample_id in ids]
+
+    @staticmethod
+    def get_resolutions(view: fo.DatasetView) -> Dict[str, Resolution]:
+        """Read the frame resolution of every sequence in a view.
+
+        The name, width and height come from one query, so they stay aligned.
+
+        Args:
+            view (fo.DatasetView): View covering the sequences.
+
+        Returns:
+            Dict[str, Resolution]: Resolution keyed by sequence name.
+
+        Raises:
+            ValueError: If the media type of *view* is not "video" or "image".
+        """
+        if view.media_type == "video":
+            fields = ["sequence", "metadata.frame_width", "metadata.frame_height"]
+        elif view.media_type == "image":
+            fields = ["sequence", "metadata.width", "metadata.height"]
+        else:
+            raise ValueError(f"Unsupported media type: {view.media_type}")
+        names, widths, heights = view.values(fields)
+        return {
+            name: Resolution(height=height, width=width)
+            for name, width, height in zip(names, widths, heights, strict=True)
+        }
 
     def process_sequences(self) -> Dict[str, Sequence]:
-        """
-        Processes the sequences and generates sequence data.
+        """Process the sequences and generate sequence data.
+
+        Sequences are fetched in batches so that each field costs one query per
+        batch rather than one per sequence.
 
         Returns:
             Dict: A dictionary containing sequence data.
         """
         sequences = {}
-        for sequence in tqdm(self.sequence_list, desc="Processing sequences"):
-            seq_data = self.process_sequence(sequence)
-            if seq_data:
-                sequences[sequence] = seq_data
+        batches = [
+            self.sequence_list[i : i + self.batch_size]
+            for i in range(0, len(self.sequence_list), self.batch_size)
+        ]
+        for batch in tqdm(batches, desc="Processing sequences"):
+            sequences.update(self.fetch_sequences(batch))
         return sequences
 
-    def print_info(self):
-        """
-        Prints information about the payload processor.
-        """
+    def print_info(self) -> None:
+        """Prints information about the payload processor."""
         logger.info(f"Processing dataset: {self.dataset.name}")
         logger.info(f"GT field: {self.gt_field}")
         logger.info(f"Models: {self.models}")

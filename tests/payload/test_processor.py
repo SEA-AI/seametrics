@@ -1,7 +1,10 @@
 # test_payload_processor.py
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
+from seametrics.payload import Resolution
 from seametrics.payload.processor import PayloadProcessor
 
 # Mock EXCLUDED_CLASSES if necessary
@@ -10,8 +13,10 @@ EXCLUDED_CLASSES = ["class1", "class2"]
 
 @pytest.fixture
 def mock_fiftyone():
-    """
-    Fixture to mock the entire fiftyone (fo) module and its functions.
+    """Fixture to mock the entire fiftyone (fo) module and its functions.
+
+    Yields:
+        MagicMock: The patched ``fo`` module.
     """
     # Patch the entire fiftyone module (fo)
     with patch("seametrics.payload.processor.fo") as mock_fo:
@@ -29,17 +34,18 @@ def mock_fiftyone():
 
 @pytest.fixture
 def mock_compute_payload():
-    """
-    Fixture to mock compute_payload function in the PayloadProcessor class.
+    """Fixture to mock compute_payload function in the PayloadProcessor class.
+
+    Yields:
+        MagicMock: The patched ``compute_payload`` method.
     """
     with patch.object(PayloadProcessor, "compute_payload") as mock_compute_payload:
         yield mock_compute_payload
 
 
-def test_payload_processor_initialization(mock_fiftyone, mock_compute_payload):
-    """
-    Test that PayloadProcessor initializes correctly with valid inputs.
-    """
+@pytest.mark.usefixtures("mock_fiftyone")
+def test_payload_processor_initialization(mock_compute_payload):
+    """Test that PayloadProcessor initializes correctly with valid inputs."""
     # Given
     dataset_name = "valid_dataset"
     gt_field = "ground_truth_det"
@@ -65,12 +71,9 @@ def test_payload_processor_initialization(mock_fiftyone, mock_compute_payload):
     mock_compute_payload.assert_called_once()
 
 
-def test_validate_input_parameters_invalid_data_type(
-    mock_fiftyone, mock_compute_payload
-):
-    """
-    Test validate_input_parameters with an invalid data_type value.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_validate_input_parameters_invalid_data_type():
+    """Test validate_input_parameters with an invalid data_type value."""
     with pytest.raises(ValueError, match="data_type must be 'rgb' or 'thermal'"):
         PayloadProcessor(
             dataset_name="valid_dataset",
@@ -81,16 +84,11 @@ def test_validate_input_parameters_invalid_data_type(
         )
 
 
-def test_validate_input_parameters_dataset_not_found(
-    mock_fiftyone, mock_compute_payload
-):
-    """
-    Test validate_input_parameters when the dataset is not found in FiftyOne.
-    """
+@pytest.mark.usefixtures("mock_compute_payload")
+def test_validate_input_parameters_dataset_not_found(mock_fiftyone):
+    """Test validate_input_parameters when the dataset is not found in FiftyOne."""
     # Mock FiftyOne list_datasets to return an empty list, simulating dataset not found
-    mock_fiftyone.list_datasets.return_value = (
-        []
-    )  # fo.list_datasets returns an empty list
+    mock_fiftyone.list_datasets.return_value = []
 
     with pytest.raises(ValueError, match="Dataset valid_dataset not found in FiftyOne"):
         PayloadProcessor(
@@ -103,10 +101,9 @@ def test_validate_input_parameters_dataset_not_found(
     mock_fiftyone.list_datasets.assert_called_once()
 
 
-def test_compute_payload_function_called_once(mock_fiftyone, mock_compute_payload):
-    """
-    Test that compute_payload is called exactly once during initialization.
-    """
+@pytest.mark.usefixtures("mock_fiftyone")
+def test_compute_payload_function_called_once(mock_compute_payload):
+    """Test that compute_payload is called exactly once during initialization."""
     # Given
     dataset_name = "valid_dataset"
     gt_field = "ground_truth_det"
@@ -124,10 +121,9 @@ def test_compute_payload_function_called_once(mock_fiftyone, mock_compute_payloa
     mock_compute_payload.assert_called_once()
 
 
-def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
-    """
-    Test that a ValueError is raised if models is a tuple.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_accidental_tuple_as_models():
+    """Test that a ValueError is raised if models is a tuple."""
     models = (["model1", "model2"],)
     with pytest.raises(TypeError, match="models must be a list"):
         PayloadProcessor(
@@ -137,10 +133,10 @@ def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
             tracking_mode=False,
         )
 
-def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_payload):
-    """
-    Test that start_frame_id and end_frame_id are set correctly.
-    """
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_payload_initialization_with_frame_ids():
+    """Test that start_frame_id and end_frame_id are set correctly."""
     processor = PayloadProcessor(
         dataset_name="valid_dataset",
         gt_field="ground_truth_det",
@@ -150,7 +146,7 @@ def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_paylo
         end_frame_id=10,
     )
     assert processor.start_frame_id == 5
-    assert processor.end_frame_id == 11  
+    assert processor.end_frame_id == 11
 
     processor = PayloadProcessor(
         dataset_name="valid_dataset",
@@ -171,3 +167,514 @@ def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_paylo
     )
     assert processor.start_frame_id is None
     assert processor.end_frame_id is None
+
+
+# ---------------------------------------------------------------------------
+# get_keyframes: record the prediction keyframe flags on the Sequence
+# ---------------------------------------------------------------------------
+
+
+class _FakeView:
+    """Minimal stand-in for a video fo.DatasetView.
+
+    Only implements what get_keyframes touches: a media type (so the field path
+    can be resolved) and values() lookups on that path.
+    """
+
+    media_type = "video"
+
+    def __init__(self, values_by_path=None, raises=False) -> None:
+        self._values_by_path = values_by_path or {}
+        self._raises = raises
+
+    def values(self, path):
+        if self._raises:
+            raise ValueError(f"no such field: {path}")
+        return self._values_by_path.get(path)
+
+
+def _processor(**kwargs: object):
+    """Build a PayloadProcessor with payload computation stubbed out."""
+    defaults = {
+        "dataset_name": "valid_dataset",
+        "gt_field": "ground_truth_det",
+        "models": ["model1"],
+        "tracking_mode": False,
+    }
+    defaults.update(kwargs)
+    return PayloadProcessor(**defaults)
+
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+class TestNormalizeKeyframes:
+    """Turning raw keyframe values into a mask."""
+
+    def test_returns_flags(self):
+        assert _processor().normalize_keyframes([True, False, True]) == [
+            True,
+            False,
+            True,
+        ]
+
+    def test_coerces_truthy_values_to_bool(self):
+        """None/0/1 from fiftyone become real bools so downstream masks are clean."""
+        assert _processor().normalize_keyframes([1, None, 1, 0]) == [
+            True,
+            False,
+            True,
+            False,
+        ]
+
+    def test_returns_none_for_empty(self):
+        assert _processor().normalize_keyframes([]) is None
+
+    def test_returns_none_when_no_frame_is_flagged(self):
+        """An all-False mask carries no information and must not be recorded."""
+        assert _processor().normalize_keyframes([False, False, False]) is None
+
+
+# ---------------------------------------------------------------------------
+# process_sequence: the keyframe mask must reach the Sequence
+# ---------------------------------------------------------------------------
+
+
+class _FakeSequenceView:
+    """Stand-in for the batched view chain used by fetch_sequences."""
+
+    media_type = "video"
+
+    def __init__(self, values_by_path, too_large_above=None, _stats=None) -> None:
+        self._values_by_path = values_by_path
+        self._too_large_above = too_large_above
+        self._stats = _stats if _stats is not None else {"queries": 0}
+
+    @property
+    def query_count(self):
+        return self._stats["queries"]
+
+    def match(self, expression=None, *_args: object, **_kwargs: object):
+        """Honour `F("sequence").is_in([...])` so batch splitting really narrows."""
+        if expression is None:
+            return self
+        wanted = expression.to_mongo()["$in"][1]
+        names = self._values_by_path["sequence"]
+        keep = [i for i, name in enumerate(names) if name in wanted]
+        # unwound paths hold one entry per frame, not per sample, so match leaves them
+        narrowed = {
+            path: (
+                [value[i] for i in keep]
+                if isinstance(value, list) and not path.startswith("frames[].")
+                else value
+            )
+            for path, value in self._values_by_path.items()
+        }
+        return type(self)(narrowed, self._too_large_above, self._stats)
+
+    def filter_labels(self, *_args: object, **_kwargs: object):
+        return self
+
+    @property
+    def read_paths(self):
+        return self._stats.setdefault("paths", [])
+
+    def values(self, path):
+        """One query; a list of paths gives one aligned list per path."""
+        self._stats["queries"] += 1
+        paths = list(path) if isinstance(path, (list, tuple)) else [path]
+        self.read_paths.extend(paths)
+        found = [self._value(p) for p in paths]
+        return found if isinstance(path, (list, tuple)) else found[0]
+
+    def aggregate(self, aggregations):
+        """One query computing several aggregations, as fiftyone batches them."""
+        self._stats["queries"] += 1
+        return [self._aggregate(agg) for agg in aggregations]
+
+    def _aggregate(self, agg):
+        path = agg.field_name
+        if type(agg).__name__ != "Count":
+            return self._value(path)
+        # a count over frames sees the same flags whether stored nested or unwound
+        value = self._values_by_path.get(path)
+        if value is None:
+            value = self._values_by_path.get(
+                path.replace("frames.", "frames[].", 1), []
+            )
+        flat = [x for v in value for x in (v if isinstance(v, list) else [v])]
+        return sum(x is not None for x in flat)
+
+    def _value(self, path):
+        if path not in self._values_by_path:
+            raise ValueError(f"no such field: {path}")
+        value = self._values_by_path[path]
+        if (
+            self._too_large_above is not None
+            and isinstance(value, list)
+            and len(value) > self._too_large_above
+        ):
+            raise RuntimeError(
+                "Executor error during getMore :: caused by :: BSONObj size:"
+                " 17355147 is invalid. Size must be between 0 and 16793600(16MB)"
+            )
+        return value
+
+
+class _NestedTooLargeView(_FakeSequenceView):
+    """Rejects every nested frame query as oversized; unwound queries fit."""
+
+    def _value(self, path):
+        if path.startswith("frames."):
+            raise RuntimeError("BSONObj size: 17355147 is invalid.")
+        return super()._value(path)
+
+
+class _FakeImageView(_FakeSequenceView):
+    """Image dataset: one sample per frame, so paths carry no frames prefix."""
+
+    media_type = "image"
+
+
+class _ReorderedFieldsView(_FakeSequenceView):
+    """Serves label-field queries with the samples in reverse order.
+
+    MongoDB does not promise one sample order across separate queries, so a
+    field's values must be matched to their sample by id, not by position.
+    """
+
+    def filter_labels(self, *_args: object, **_kwargs: object):
+        flipped = {
+            path: (
+                value[::-1]
+                if isinstance(value, list) and not path.startswith("frames[].")
+                else value
+            )
+            for path, value in self._values_by_path.items()
+        }
+        return _FakeSequenceView(flipped, self._too_large_above, self._stats)
+
+
+class _ReorderedImageView(_ReorderedFieldsView):
+    """Image dataset whose label-field queries come back in reverse sample order."""
+
+    media_type = "image"
+
+
+def _nest(values_by_path: dict, names=("seq-1",)) -> dict:
+    """Convert the unwound single-sequence fixtures to the nested batch shape."""
+    nested = {
+        "id": [f"{name}-id" for name in names],
+        "sequence": list(names),
+        "metadata.frame_width": [100] * len(names),
+        "metadata.frame_height": [50] * len(names),
+    }
+    for path, value in values_by_path.items():
+        nested[path.replace("frames[].", "frames.")] = [value]
+    return nested
+
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+class TestProcessSequenceKeyframes:
+    """The mask is recorded on the Sequence rather than applied."""
+
+    GT = "ground_truth_det"
+
+    def _run(self, values_by_path, **kwargs: object):
+        processor = _processor(**kwargs)
+        processor.dataset = _FakeSequenceView(_nest(values_by_path))
+        return processor.process_sequence("seq-1")
+
+    def test_keyframes_recorded_per_model(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"], ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            }
+        )
+        assert sequence.keyframes == {"model1": [True, False, True]}
+
+    def test_detections_are_not_blanked_outside_tracking_mode(self):
+        """Recording the mask must not change what detections come out."""
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"], ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            }
+        )
+        assert sequence["model1"] == [["d0"], ["d1"], ["d2"]]
+        assert sequence[self.GT] == [["g0"], ["g1"], ["g2"]]
+
+    def test_no_keyframe_entry_for_the_ground_truth_field(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"]],
+                "frames[].model1.keyframe": [True, False],
+                f"frames[].{self.GT}.keyframe": [True, True],
+            }
+        )
+        assert self.GT not in sequence.keyframes
+
+    def test_keyframes_empty_when_model_has_no_flags(self):
+        """A plain detection model yields an empty mapping, not a crash."""
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"]],
+            }
+        )
+        assert sequence.keyframes == {}
+
+    def test_keyframes_recorded_for_every_model(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["a0"], ["a1"]],
+                "frames[].model2.detections": [["b0"], ["b1"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"]],
+                "frames[].model1.keyframe": [True, False],
+                "frames[].model2.keyframe": [False, True],
+            },
+            models=["model1", "model2"],
+        )
+        assert sequence.keyframes == {
+            "model1": [True, False],
+            "model2": [False, True],
+        }
+
+    def test_tracking_mode_still_blanks_non_keyframes(self):
+        """The pre-existing blanking behaviour is unchanged."""
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], ["g1"], ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            },
+            tracking_mode=True,
+        )
+        assert sequence["model1"] == [["d0"], [], ["d2"]]
+        assert sequence[self.GT] == [["g0"], [], ["g2"]]
+        assert sequence.keyframes == {"model1": [True, False, True]}
+
+    def test_keyframes_excluded_from_field_names(self):
+        sequence = self._run(
+            {
+                "frames[].model1.detections": [["d0"]],
+                f"frames[].{self.GT}.detections": [["g0"]],
+                "frames[].model1.keyframe": [True],
+            }
+        )
+        assert sorted(sequence.field_names) == sorted([self.GT, "model1"])
+
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+class TestBatchedFetching:
+    """One query per field per batch, with a fallback for oversized results."""
+
+    GT = "ground_truth_det"
+
+    def _view(self, n_sequences, **kwargs: object):
+        names = [f"seq-{i}" for i in range(n_sequences)]
+        paths = {
+            "id": [f"{name}-id" for name in names],
+            "sequence": names,
+            "metadata.frame_width": [100] * n_sequences,
+            "metadata.frame_height": [50] * n_sequences,
+            "frames.model1.detections": [[["d"]] for _ in names],
+            f"frames.{self.GT}.detections": [[["g"]] for _ in names],
+            "frames.model1.keyframe": [[True] for _ in names],
+        }
+        return names, _FakeSequenceView(paths, **kwargs)
+
+    def test_one_query_per_field_not_per_sequence(self):
+        """4 sequences cost the same number of queries as 1."""
+        names, view = self._view(4)
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        assert sorted(sequences) == sorted(names)
+        # names + resolutions + (detections + keyframe) for model1 + gt detections
+        assert view.query_count == 5
+
+    def test_every_sequence_gets_its_own_data(self):
+        names, view = self._view(3)
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        for name in names:
+            assert sequences[name]["model1"] == [["d"]]
+            assert sequences[name].keyframes == {"model1": [True]}
+
+    def test_oversized_batch_is_split_and_still_complete(self):
+        """A BSON size error halves the batch until the result fits."""
+        names, view = self._view(4, too_large_above=2)
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        assert sorted(sequences) == sorted(names)
+
+    def test_single_sequence_too_large_still_raises(self):
+        """Splitting cannot help below one sequence, so the error surfaces."""
+        names, view = self._view(1, too_large_above=0)
+        processor = _processor()
+        processor.dataset = view
+
+        with pytest.raises(RuntimeError, match="BSONObj size"):
+            processor.fetch_sequences(names)
+
+    def test_single_oversized_sequence_is_refetched_unwound(self):
+        """Unwinding streams frames as separate documents, so the sequence fits."""
+        processor = _processor()
+        processor.dataset = _NestedTooLargeView(
+            {
+                "id": ["s1"],
+                "sequence": ["seq-1"],
+                "metadata.frame_width": [100],
+                "metadata.frame_height": [50],
+                "frames[].model1.detections": [["d0"], ["d1"], ["d2"]],
+                f"frames[].{self.GT}.detections": [["g0"], None, ["g2"]],
+                "frames[].model1.keyframe": [True, False, True],
+            }
+        )
+
+        sequence = processor.fetch_sequences(["seq-1"])["seq-1"]
+
+        assert sequence["model1"] == [["d0"], ["d1"], ["d2"]]
+        assert sequence[self.GT] == [["g0"], [], ["g2"]]
+        assert sequence.keyframes == {"model1": [True, False, True]}
+
+    def test_image_samples_are_grouped_per_sequence_in_view_order(self):
+        """Interleaved per-frame samples must not leak across sequences."""
+        processor = _processor()
+        processor.dataset = _FakeImageView(
+            {
+                "id": ["i0", "i1", "i2", "i3"],
+                "sequence": ["seq-a", "seq-b", "seq-a", "seq-b"],
+                "metadata.width": [640, 320, 640, 320],
+                "metadata.height": [480, 240, 480, 240],
+                "model1.detections": [["a0"], ["b0"], ["a1"], None],
+                f"{self.GT}.detections": [["ga0"], ["gb0"], None, ["gb1"]],
+                "model1.keyframe": [True, False, True, True],
+            }
+        )
+
+        sequences = processor.fetch_sequences(["seq-a", "seq-b"])
+
+        assert sequences["seq-a"]["model1"] == [["a0"], ["a1"]]
+        assert sequences["seq-a"][self.GT] == [["ga0"], []]
+        assert sequences["seq-a"].keyframes == {"model1": [True, True]}
+        assert sequences["seq-a"].resolution == Resolution(height=480, width=640)
+        assert sequences["seq-b"]["model1"] == [["b0"], []]
+        assert sequences["seq-b"][self.GT] == [["gb0"], ["gb1"]]
+        assert sequences["seq-b"].keyframes == {"model1": [False, True]}
+        assert sequences["seq-b"].resolution == Resolution(height=240, width=320)
+
+    def test_video_fields_follow_their_own_sample(self):
+        """A field queried in another sample order still lands on its sequence."""
+        processor = _processor()
+        processor.dataset = _ReorderedFieldsView(
+            {
+                "id": ["s1", "s2"],
+                "sequence": ["seq-a", "seq-b"],
+                "metadata.frame_width": [100, 200],
+                "metadata.frame_height": [50, 80],
+                "frames.model1.detections": [[["a0"]], [["b0"], ["b1"]]],
+                f"frames.{self.GT}.detections": [[["ga0"]], [["gb0"], ["gb1"]]],
+                "frames.model1.keyframe": [[True], [False, True]],
+            }
+        )
+
+        sequences = processor.fetch_sequences(["seq-a", "seq-b"])
+
+        assert sequences["seq-a"]["model1"] == [["a0"]]
+        assert sequences["seq-a"][self.GT] == [["ga0"]]
+        assert sequences["seq-b"]["model1"] == [["b0"], ["b1"]]
+        assert sequences["seq-b"].keyframes == {"model1": [False, True]}
+        assert sequences["seq-b"].resolution == Resolution(height=80, width=200)
+
+    def test_image_frames_follow_their_own_sample(self):
+        """Per-frame samples queried in another order keep their sequence and frame."""
+        processor = _processor()
+        processor.dataset = _ReorderedImageView(
+            {
+                "id": ["i0", "i1", "i2", "i3"],
+                "sequence": ["seq-a", "seq-a", "seq-b", "seq-b"],
+                "metadata.width": [640, 640, 320, 320],
+                "metadata.height": [480, 480, 240, 240],
+                "model1.detections": [["a0"], ["a1"], ["b0"], None],
+                f"{self.GT}.detections": [["ga0"], None, ["gb0"], ["gb1"]],
+                "model1.keyframe": [True, False, True, True],
+            }
+        )
+
+        sequences = processor.fetch_sequences(["seq-a", "seq-b"])
+
+        assert sequences["seq-a"]["model1"] == [["a0"], ["a1"]]
+        assert sequences["seq-a"][self.GT] == [["ga0"], []]
+        assert sequences["seq-a"].keyframes == {"model1": [True, False]}
+        assert sequences["seq-b"]["model1"] == [["b0"], []]
+        assert sequences["seq-b"][self.GT] == [["gb0"], ["gb1"]]
+
+    def test_keyframes_read_only_for_models_that_flag_any(self):
+        """A model without a single keyframe flag costs no keyframe query."""
+        processor = _processor(models=["model1", "model2"])
+        view = _FakeSequenceView(
+            {
+                "id": ["s1"],
+                "sequence": ["seq-a"],
+                "metadata.frame_width": [100],
+                "metadata.frame_height": [50],
+                "frames.model1.detections": [[["a0"], ["a1"]]],
+                "frames.model2.detections": [[["b0"], ["b1"]]],
+                f"frames.{self.GT}.detections": [[["g0"], ["g1"]]],
+                "frames.model1.keyframe": [[True, False]],
+                "frames.model2.keyframe": [[None, None]],
+            }
+        )
+        processor.dataset = view
+
+        sequence = processor.fetch_sequences(["seq-a"])["seq-a"]
+
+        assert sequence.keyframes == {"model1": [True, False]}
+        assert "frames.model1.keyframe" in view.read_paths
+        assert "frames.model2.keyframe" not in view.read_paths
+        # names and flag counts + resolutions + 3 detection fields + model1 keyframes
+        assert view.query_count == 6
+
+    def test_no_keyframe_query_when_no_model_flags_any(self):
+        names, view = self._view(2)
+        view._values_by_path["frames.model1.keyframe"] = [[None] for _ in names]
+        processor = _processor()
+        processor.dataset = view
+
+        sequences = processor.fetch_sequences(names)
+
+        assert all(s.keyframes == {} for s in sequences.values())
+        assert not any(path.endswith(".keyframe") for path in view.read_paths)
+        assert view.query_count == 4
+
+    def test_unrelated_query_errors_are_not_retried(self):
+        """Only the size limit triggers the split; other failures propagate."""
+        processor = _processor()
+        processor.dataset = _FakeSequenceView({"sequence": ["seq-0", "seq-1"]})
+
+        with pytest.raises(ValueError, match="no such field"):
+            processor.fetch_sequences(["seq-0", "seq-1"])
+
+    def test_process_sequences_batches_the_sequence_list(self):
+        names, view = self._view(5)
+        processor = _processor(batch_size=2)
+        processor.dataset = view
+        processor.sequence_list = names
+
+        sequences = processor.process_sequences()
+
+        assert sorted(sequences) == sorted(names)
+        # 3 batches x 5 queries, versus 5 x 5 if it queried per sequence
+        assert view.query_count == 15
