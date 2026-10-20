@@ -1,114 +1,117 @@
 exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".ipynb_checkpoints",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pyenv",
-    ".pytest_cache",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    ".vscode",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "docs",
-    "node_modules",
-    "site-packages",
-    ".venv",
-    "*egg-info",
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".git-rewrite",
+  ".hg",
+  ".ipynb_checkpoints",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".pyenv",
+  ".pytest_cache",
+  ".pytype",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  ".vscode",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "docs",
+  "node_modules",
+  "site-packages",
+  ".venv",
+  "*egg-info",
+  "seametrics/detection/cocoeval.py"  # vendored from pycocotools
 ]
-
-line-length = 88
+# CI passes explicit file paths; without this, `exclude` would not apply to them.
+force-exclude = true
 indent-width = 4
-# target-version = "py312"  # Uncomment and set the target Python version if needed
+line-length = 88
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+skip-magic-trailing-comma = false
 
 [lint]
-select = [ # https://docs.astral.sh/ruff/rules/
-    "C",    # Complexity
-    "D",    # PyDocStyle
-    "DOC",  # pydoclint
-    "E",    # PyCodeStyle Errors
-    "F",    # PyFlakes
-    "N",    # PyCodeStyle Names
-    "W",    # PyCodeStyle Warnings
-    "ARG",  # flake8-unused-arguments
-    "ANN",  # flake8-annotations
-    "B",    # flake8-bugbear
-    "TC",   # flake8-type-checking
-    "PT",   # flake8-pytest
-    "PTH",  # flake8-use-pathlib
-    "TID",  # flake8-tidy-imports
-    "SIM",  # flake8-simplify
-    "NPY",  # NumPy specific rules
-    "I",    # isort
-    "PL",   # PyLint
-    "ERA",  # eradicate
-    "RUF",  # ruff-specific rules
-]
-ignore = [
-    "D105",    # undocumented magic method
-    "DOC201",  # docstring-missing-return
-    "DOC501",  # docstring-missing-exception
-    "PLC0415", # import at top of file
-    "RUF067",  # non-empty-init-module
-]
-fixable = ["ALL"]
-unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+fixable = ["ALL"]
+ignore = [
+  "D105",  # undocumented magic method
+  "DOC201",  # docstring-missing-return
+  "DOC501",  # docstring-missing-exception
+  "PLC0415",  # import at top of file
+  "RUF067"  # non-empty-init-module
+]
 preview = true
+select = [ # https://docs.astral.sh/ruff/rules/
+  "C",  # Complexity
+  "D",  # PyDocStyle
+  "DOC",  # pydoclint
+  "E",  # PyCodeStyle Errors
+  "F",  # PyFlakes
+  "N",  # PyCodeStyle Names
+  "W",  # PyCodeStyle Warnings
+  "ARG",  # flake8-unused-arguments
+  "ANN",  # flake8-annotations
+  "B",  # flake8-bugbear
+  "TC",  # flake8-type-checking
+  "PT",  # flake8-pytest
+  "PTH",  # flake8-use-pathlib
+  "TID",  # flake8-tidy-imports
+  "SIM",  # flake8-simplify
+  "NPY",  # NumPy specific rules
+  "I",  # isort
+  "PL",  # PyLint
+  "ERA",  # eradicate
+  "RUF"  # ruff-specific rules
+]
+unfixable = []
 
-[lint.pylint]
-max-args = 10
+[lint.pep8-naming]
+extend-ignore-names = [
+  "A*",  # Area range index (COCOeval)
+  "H*",  # Homography matrix / Height
+  "K*",  # Camera intrinsics matrix / Category index (COCOeval)
+  "M*",  # Max detections index (COCOeval)
+  "R*",  # Rotation matrix / Recall threshold index (COCOeval)
+  "T*",  # Transformation matrix / IoU threshold index (COCOeval)
+  "P*",  # Homogeneous point
+  "B*",  # Batch size
+  "C*",  # Channel size
+  "W*",  # Width
+  "G*",  # Gray level or Green channel
+  "X*",  # X coordinate
+  "Y*",  # Y coordinate
+  "Z*"  # Z coordinate
+]
 
 [lint.per-file-ignores]
-"tests/*" = [
-    "ANN001",
-    "ANN201",
-    "ANN202",
-    "D100",
-    "D101",
-    "D102",
-    "D103",
-    "PLR2004",
-    "PLR6301",
-    "PLC2701",
-]
 "*.ipynb" = ["D101", "D102", "D103", "D107", "E402", "I001"]
+"tests/*" = [
+  "ANN001",
+  "ANN201",
+  "ANN202",
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "PLR2004",
+  "PLR6301",
+  "PLC2701"
+]
 
 [lint.pydocstyle]
 convention = "google"
 
-[lint.pep8-naming]
-extend-ignore-names = [
-    "H*", # Homography matrix / Height
-    "K*", # Camera intrinsics matrix
-    "R*", # Rotation matrix
-    "T*", # Transformation matrix
-    "P*", # Homogeneous point
-    "B*", # Batch size
-    "C*", # Channel size
-    "W*", # Width
-    "G*", # Gray level or Green channel
-    "X*", # X coordinate
-    "Y*", # Y coordinate
-    "Z*", # Z coordinate
-]
-
-[format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
-docstring-code-format = true
-docstring-code-line-length = "dynamic"
+[lint.pylint]
+max-args = 10

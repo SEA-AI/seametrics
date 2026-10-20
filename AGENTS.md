@@ -24,10 +24,12 @@ uv sync --all-extras              # install dev + all optional deps
 uv run pytest                     # full suite (coverage configured in pyproject.toml)
 uv run pytest tests/detection -k pr_rec_f1   # single test / pattern
 uv run pytest --cov-report=xml    # what CI runs (Sonar uploads this)
-uv run ruff check . && uv run ruff format --check .
+uvx ruff@latest check . && uvx ruff@latest format --check .
 uv run pylint seametrics          # CI runs pylint on changed files only
 pre-commit run --all-files        # ruff, gitleaks, toml/json formatting, etc.
 ```
+
+Ruff is not a project dependency: run it with `uvx ruff@latest`, the release CI uses (plain `uvx ruff` reuses a cached version); `.pre-commit-config.yaml` pins the hook's version.
 
 CI (`.github/workflows/ci.yaml`) runs ruff (lint + format), pylint, pytest+coverage, and SonarQube on PRs to `develop`. Lint/pylint run only on changed files; tests + Sonar run on the full repo.
 

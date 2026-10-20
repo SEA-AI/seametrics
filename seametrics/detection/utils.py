@@ -1,7 +1,10 @@
+"""Convert FiftyOne and payload detections to metric inputs, and report results."""
+
 import contextlib
+import functools
 import io
-import os
-from typing import Dict, List, Tuple
+import pathlib
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import fiftyone as fo
 import numpy as np
@@ -10,22 +13,25 @@ from deprecated import deprecated
 from fiftyone import ViewField as F
 from tqdm import tqdm
 
-from seametrics.detection.imports import _TORCHMETRICS_AVAILABLE
 from seametrics.detection.np.utils import box_convert
 from seametrics.payload import Payload
 
-if _TORCHMETRICS_AVAILABLE:
-    from torch import tensor
-
 # payload functions
 
-error_code = None
+
+@functools.cache
+def _warn_missing_area() -> None:
+    """Print, once per process, that ground truth without area uses the bbox area."""
+    print(
+        "⚠️WARNING: Area not found in ground truth annotation(s), \
+                          using bbox area instead for these cases."
+    )
 
 
 def payload_to_det_metric(
     payload: Payload,
-    model_name: str = None,
-    label_mapping: Dict[str, int] = None,
+    model_name: Optional[str] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
     class_agnostic: bool = True,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
     """Convert the payload data to detection metrics format.
@@ -63,7 +69,7 @@ def payload_to_det_metric(
                 sequence_dets=sequence[model_name],
                 w=w,
                 h=h,
-                label_mapping=label_mapping
+                label_mapping=label_mapping,
             )
         )
         references.extend(
@@ -72,7 +78,7 @@ def payload_to_det_metric(
                 w=w,
                 h=h,
                 is_gt=True,
-                label_mapping=label_mapping
+                label_mapping=label_mapping,
             )
         )
 
@@ -84,7 +90,7 @@ def payload_sequence_to_det_metrics(
     w: int,
     h: int,
     is_gt: bool = False,
-    label_mapping: Dict[str, int] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, np.ndarray]]:
     """Convert a sequence of detections to format of PrecisionRecallF1.
 
@@ -115,9 +121,9 @@ def frame_dets_to_det_metrics(
     w: int,
     h: int,
     is_gt: bool = False,
-    label_mapping: Dict[str, int] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
 ) -> Dict[str, np.ndarray]:
-    """Convert a list of fiftyone detections to format of PrecisionRecallF1.
+    """Convert one frame's fiftyone detections to PrecisionRecallF1Support input.
 
     Args:
         fo_dets (List[fo.Detection]): A list of fiftyone detections.
@@ -126,14 +132,14 @@ def frame_dets_to_det_metrics(
         is_gt (bool, optional): Flag indicating if the input data is ground truth.
             Defaults to False.
         label_mapping (Dict[str, int], optional): Dictionary mapping string labels to
-            numbers, which should be provided if the detection metrics should be 
+            numbers, which should be provided if the detection metrics should be
             calculated in a class-specific way. Defaults to None.
 
     Returns:
-        Dict[str, np.ndarray]: A dictionary containing the converted detections.
+        Dict[str, np.ndarray]: Pixel ``xywh`` ``boxes``, ``labels``, and ``area``
+        (ground truth) or ``scores`` (predictions). Detections whose label is
+        missing from ``label_mapping`` are dropped.
     """
-    global error_code
-
     detections = []
     labels = []
     scores = []
@@ -142,8 +148,10 @@ def frame_dets_to_det_metrics(
     for det in fo_dets:
         bbox = det["bounding_box"]
         if label_mapping and det["label"] not in label_mapping:
-            print(f"could not add sample w/ label {det['label']}, \
-                  as label is not in label mapping")
+            print(
+                f"could not add sample w/ label {det['label']}, \
+                  as label is not in label mapping"
+            )
             continue
 
         detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
@@ -154,11 +162,8 @@ def frame_dets_to_det_metrics(
             if "area" in det.field_names:
                 areas.append(det["area"])
             else:
-                areas.append(w * (bbox[2]-bbox[0]) * h * (bbox[3] - bbox[1]))
-                if error_code is None:
-                    print("⚠️WARNING: Area not found in ground truth annotation(s), \
-                          using bbox area instead for these cases.")
-                    error_code = 1
+                areas.append(w * (bbox[2] - bbox[0]) * h * (bbox[3] - bbox[1]))
+                _warn_missing_area()
     metrics_dict = {
         "boxes": np.array(detections),
         "labels": np.array(labels),
@@ -171,115 +176,92 @@ def frame_dets_to_det_metrics(
 
 
 # DEPRECATED helper functions
-def prepare_data_for_det_metrics(
-    gt_bboxes_per_frame,
-    gt_labels_per_frame,
-    dt_bboxes_per_frame,
-    dt_labels_per_frame,
-    dt_scores_per_frame,
-    img_w,
-    img_h,
-):
+def _frames_to_np(
+    bboxes_per_frame: Sequence[np.ndarray],
+    labels_per_frame: Sequence[np.ndarray],
+    img_size: Tuple[int, int],
+    scores_per_frame: Optional[Sequence[Sequence[float]]] = None,
+) -> List[Dict[str, np.ndarray]]:
+    """Converts per-frame normalized xywh boxes and labels to metric input dicts.
+
+    Args:
+        bboxes_per_frame: Normalized ``xywh`` boxes of each frame.
+        labels_per_frame: Labels of each frame.
+        img_size: ``(width, height)`` of the image in pixels.
+        scores_per_frame: Scores of each frame; ``None`` for ground truth.
     """
-    Returns
-    -------
-    target, preds: tuple of list of dicts
-        Each dict has keys "boxes", "labels", "scores" (scores is only in preds)
+    img_w, img_h = img_size
+    frames = []
+    rows = (
+        zip(bboxes_per_frame, labels_per_frame, strict=False)
+        if scores_per_frame is None
+        else zip(bboxes_per_frame, labels_per_frame, scores_per_frame, strict=False)
+    )
+    for boxes, labels, *scores in rows:
+        frame = {
+            "boxes": box_convert(
+                box_denormalize(boxes, img_w, img_h),
+                in_fmt="xywh",
+                out_fmt="xyxy",
+            ),
+            "labels": np.unique(labels, return_inverse=True)[1],
+        }
+        if scores:
+            frame["scores"] = np.array(scores[0])
+        frames.append(frame)
+    return frames
+
+
+def _not_falsy(x: object) -> bool:
+    """Return False for None and for empty lists, tuples and arrays."""
+    if x is None:
+        return False
+    if isinstance(x, (list, tuple)) and len(x) == 0:
+        return False
+    return not (isinstance(x, np.ndarray) and x.size == 0)
+
+
+def _validate_arrays(data: object, data_type: str) -> List[np.ndarray]:
+    """Wrap a single frame into a list of frames and convert each to an array.
+
+    Raises:
+        ValueError: If ``data_type`` is not one of bbox, mask, score or label.
     """
-
-    def _to_np_format(
-        gt_bboxes_per_frame,
-        gt_labels_per_frame,
-        dt_bboxes_per_frame,
-        dt_labels_per_frame,
-        dt_scores_per_frame,
-        img_w,
-        img_h,
-    ):
-        """Converts a list of frames with detections (bboxes) to numpy format."""
-
-        # put to numpy format
-        target = []
-        for boxes, labels in zip(gt_bboxes_per_frame, gt_labels_per_frame):
-            target.append(
-                {
-                    "boxes": box_convert(
-                        box_denormalize(boxes, img_w, img_h),
-                        in_fmt="xywh",
-                        out_fmt="xyxy",
-                    ),
-                    "labels": np.unique(labels, return_inverse=True)[1],
-                }
-            )
-
-        preds = []
-        for boxes, labels, scores in zip(
-            dt_bboxes_per_frame, dt_labels_per_frame, dt_scores_per_frame
+    if data is None or len(data) == 0:
+        data = [data]
+    if data_type in {"bbox", "mask"}:
+        if any(
+            _not_falsy(item) and not isinstance(item[0], (tuple, list, np.ndarray))
+            for item in data
         ):
-            preds.append(
-                {
-                    "boxes": box_convert(
-                        box_denormalize(boxes, img_w, img_h),
-                        in_fmt="xywh",
-                        out_fmt="xyxy",
-                    ),
-                    "labels": np.unique(labels, return_inverse=True)[1],
-                    "scores": np.array(scores),
-                }
-            )
-
-        return target, preds
-
-    def _to_tm_format(target, preds):
-        for elem in target:  # frame-level
-            for key, val in elem.items():
-                if type(val) is np.ndarray:
-                    elem[key] = tensor(val)
-        for elem in preds:  # frame-level
-            for key, val in elem.items():
-                if type(val) is np.ndarray:
-                    elem[key] = tensor(val)
-        return target, preds
-
-    def _validate_arrays(data, data_type: str):
-        if data is None or len(data) == 0:
             data = [data]
-        if data_type in ["bbox", "mask"]:
-            if any(
-                [
-                    (
-                        _not_falsy(item)
-                        and not isinstance(item[0], (tuple, list, np.ndarray))
-                    )
-                    for item in data
-                ]
-            ):
-                data = [data]
-        elif data_type in ["score", "label"]:
-            if any(
-                [
-                    (
-                        _not_falsy(item)
-                        and not isinstance(item, (tuple, list, np.ndarray))
-                    )
-                    for item in data
-                ]
-            ):
-                data = [data]
-        else:
-            raise ValueError(f"Unsupported data type: {data_type}")
-        data = [np.array(x) if x is not None else np.array([]) for x in data]
-        return data
+    elif data_type in {"score", "label"}:
+        if any(
+            _not_falsy(item) and not isinstance(item, (tuple, list, np.ndarray))
+            for item in data
+        ):
+            data = [data]
+    else:
+        raise ValueError(f"Unsupported data type: {data_type}")
+    return [np.array(x) if x is not None else np.array([]) for x in data]
 
-    def _not_falsy(x):
-        if x is None:
-            return False
-        if isinstance(x, (list, tuple)) and len(x) == 0:
-            return False
-        if isinstance(x, np.ndarray) and x.size == 0:
-            return False
-        return True
 
+# Public signature, called positionally from notebooks; kept for compatibility.
+def prepare_data_for_det_metrics(  # pylint: disable=too-many-positional-arguments
+    gt_bboxes_per_frame: object,
+    gt_labels_per_frame: object,
+    dt_bboxes_per_frame: object,
+    dt_labels_per_frame: object,
+    dt_scores_per_frame: object,
+    img_w: int,
+    img_h: int,
+) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
+    """Converts per-frame normalized detections to metric inputs.
+
+    Returns:
+        target, preds: tuple of list of dicts. Each dict has keys "boxes",
+        "labels", "scores" (scores is only in preds).
+    """
     gt_bboxes_per_frame = _validate_arrays(gt_bboxes_per_frame, data_type="bbox")
     gt_labels_per_frame = _validate_arrays(gt_labels_per_frame, data_type="label")
     dt_bboxes_per_frame = _validate_arrays(dt_bboxes_per_frame, data_type="bbox")
@@ -291,91 +273,84 @@ def prepare_data_for_det_metrics(
         + f" ({len(gt_bboxes_per_frame)} vs {len(dt_bboxes_per_frame)})"
     )
 
-    if all([item is None for sublist in dt_scores_per_frame for item in sublist]):
-        # print("All scores are None, setting them to 1.0")
+    if all(item is None for sublist in dt_scores_per_frame for item in sublist):
         dt_scores_per_frame = [[1.0] * len(x) for x in dt_scores_per_frame]
 
-    target, preds = _to_np_format(
-        gt_bboxes_per_frame,
-        gt_labels_per_frame,
+    target = _frames_to_np(gt_bboxes_per_frame, gt_labels_per_frame, (img_w, img_h))
+    preds = _frames_to_np(
         dt_bboxes_per_frame,
         dt_labels_per_frame,
-        dt_scores_per_frame,
-        img_w,
-        img_h,
+        (img_w, img_h),
+        scores_per_frame=dt_scores_per_frame,
     )
-
-    if _TORCHMETRICS_AVAILABLE:
-        target, preds = _to_tm_format(target, preds)
-
     return target, preds
+
 
 def get_relevant_fields(
     view: fo.DatasetView,
     fields: list,  # fiftyone field names
-):
+) -> fo.DatasetView:
     """Returns a view with only the relevant fields to prevent memory issues.
 
-    Parameters
-    ----------
-    view: fo.DatasetView
-        Dataset view
-    fields: list
-        List of fiftyone field names. You can use dot notation (embedded.field.name).
+    Args:
+        view: Dataset view
+        fields: List of fiftyone field names. You can use dot notation
+            (embedded.field.name).
 
     Returns:
-    -------
-    fo.DatasetView
         Dataset view with only the relevant fields.
+
+    Raises:
+        ValueError: If the view is neither a video nor an image view.
     """
     if view.media_type == "video":
         return view.select_fields(
             [f"frames.{f}" if view.has_frame_field(f) else f for f in fields]
         )
-    elif view.media_type == "image":
+    if view.media_type == "image":
         return view.select_fields(fields)
-    else:
-        raise ValueError(f"Unsupported media type: {view.media_type}")
+    raise ValueError(f"Unsupported media type: {view.media_type}")
 
 
 def get_values(
     view: fo.DatasetView,
     field_name: str,  # fiftyone field name
-):
-    """
-    Parameters
-    ----------
-    view: fo.DatasetView
-        Dataset view
-    field_name: str
-        Fiftyone field name. You can use dot notation (embedded.field.name).
+) -> list:
+    """Returns the values of a field, flattened across frames for videos.
 
-    Returns
-    -------
-    list
+    Args:
+        view: Dataset view
+        field_name: Fiftyone field name. You can use dot notation
+            (embedded.field.name).
+
+    Returns:
         List of values.
-    """
 
+    Raises:
+        ValueError: If the view is neither a video nor an image view.
+    """
     if view.media_type == "video":
         return view.values(f"frames[].{field_name}")
-    elif view.media_type == "image":
+    if view.media_type == "image":
         return view.values(field_name)
-    else:
-        raise ValueError(f"Unsupported media type: {view.media_type}")
+    raise ValueError(f"Unsupported media type: {view.media_type}")
+
 
 @deprecated(reason="⚠️ Output not tested. Use at your own risk.")
-def smart_compute_metrics(
+# conf_thr is never applied but is part of the signature and passed by notebooks.
+def smart_compute_metrics(  # pylint: disable=too-many-positional-arguments
     view: fo.DatasetView,
-    metric_fn: callable,  # torchmetrics metric
-    metric_kwargs: dict,  # kwargs for metric_fn
+    metric_fn: Callable,  # metric class, e.g. PrecisionRecallF1Support
+    metric_kwargs: dict,
     gt_field: str,  # fiftyone field name
     pred_field: str,  # fiftyone field name
-    conf_thr: float = 0,
-):  # confidence threshold
-    """If the dataset is a video dataset, it updates the metric for each
-    sequence and compute is called only once in the end. If the dataset is an
-    image dataset, it computes the metric in a single pass."""
+    conf_thr: float = 0,  # ruff: ignore[unused-function-argument]  # pylint: disable=unused-argument
+) -> dict:
+    """Computes a metric over a view, updating it once per sequence for videos.
 
+    Raises:
+        ValueError: If the view is neither a video nor an image view.
+    """
     # init metric
     metric = metric_fn(**metric_kwargs)
     print("Collecting bboxes, labels and scores...")
@@ -398,12 +373,14 @@ def smart_compute_metrics(
     print("Computing metrics...")
     return metric.compute()
 
+
 @deprecated(reason="We do not guarantee the correctness of this function.")
 def get_target_and_preds(
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
     pred_field: str,  # fiftyone field name
-):
+) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
+    """Fetches a view's ground truth and predictions as metric inputs."""
     view = get_relevant_fields(view, [gt_field, pred_field])
 
     img_w = view.first()["metadata"]["width"]
@@ -428,16 +405,16 @@ def get_target_and_preds(
 
     return target, preds
 
+
 @deprecated(reason="⚠️ Output not tested. Use at your own risk.")
 def compute_metrics(
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
     pred_field: str,  # fiftyone field name
-    metric_fn: callable,  # torchmetrics metric
+    metric_fn: Callable,  # metric class, e.g. PrecisionRecallF1Support
     metric_kwargs: dict,
-):  # kwargs for metric_fn
+) -> dict:
     """Computes metrics for a given dataset view."""
-
     view = get_relevant_fields(view, [gt_field, pred_field])
     img_w = view.first()["metadata"]["width"]
     img_h = view.first()["metadata"]["height"]
@@ -470,8 +447,10 @@ def compute_metrics(
     metric.update(preds, target)
     return metric.compute()
 
-def results_to_df(results, fixed_columns: dict = {}):
-    # save to pandas dataframe
+
+def results_to_df(results: dict, fixed_columns: Optional[dict] = None) -> pd.DataFrame:
+    """Returns one DataFrame row per area range of a metric result."""
+    fixed_columns = fixed_columns or {}
     columns = [
         "iou_threshold",
         "max_dets",
@@ -490,7 +469,6 @@ def results_to_df(results, fixed_columns: dict = {}):
     df = pd.DataFrame(columns=columns)
 
     for area_range_lbl, metric in results["metrics"].items():
-        # print(f"{area_range_lbl}: {metric}")
         df.loc[len(df)] = {
             **fixed_columns,
             "area_range_lbl": area_range_lbl,
@@ -511,8 +489,9 @@ def results_to_df(results, fixed_columns: dict = {}):
 
     return df
 
-def sequence_results_to_df(sequence_results):
-    # save to pandas dataframe
+
+def sequence_results_to_df(sequence_results: dict) -> pd.DataFrame:
+    """Returns one DataFrame row per sequence and area range."""
     columns = [
         "sequence",
         "area_range_lbl",
@@ -534,7 +513,6 @@ def sequence_results_to_df(sequence_results):
 
     for seq_name, results in sequence_results.items():
         for area_range_lbl, metric in results["metrics"].items():
-            # print(f"{seq_name} - {area_range_lbl}: {metric}")
             df.loc[len(df)] = {
                 "sequence": seq_name,
                 "area_range_lbl": area_range_lbl,
@@ -555,23 +533,26 @@ def sequence_results_to_df(sequence_results):
 
     return df
 
-def compute_and_save_sequence_metrics(
+
+# Public signature; kept for compatibility.
+def compute_and_save_sequence_metrics(  # pylint: disable=too-many-positional-arguments
     csv_dirpath: str,
     view: fo.DatasetView,
     gt_field: str,  # fiftyone field name
     pred_field: str,  # fiftyone field name
-    metric_fn: callable,  # torchmetrics metric
-    metric_kwargs: dict,  # kwargs for metric_fn
-    csv_suffix: str = None,
+    metric_fn: Callable,  # metric class, e.g. PrecisionRecallF1Support
+    metric_kwargs: dict,
+    csv_suffix: Optional[str] = None,
     debug: bool = False,
     name_separator: str = "__",
-):
+) -> None:
+    """Computes metrics per sequence and saves them to a csv in ``csv_dirpath``."""
     csv_name = name_separator.join(
         [view.dataset_name, gt_field, pred_field, metric_fn.__name__]
     )
     csv_name = name_separator.join([csv_name, csv_suffix]) if csv_suffix else csv_name
     csv_name += ".csv"
-    csv_path = os.path.join(csv_dirpath, csv_name)
+    csv_path = pathlib.Path(csv_dirpath) / csv_name
     print(f"Saving metrics to {csv_path}")
 
     view = get_relevant_fields(view, [gt_field, pred_field, "sequence"])
@@ -579,12 +560,10 @@ def compute_and_save_sequence_metrics(
     sequence_results = {}
     sequence_names = view.distinct("sequence")
     for sequence_name in tqdm(sequence_names):
-
         with contextlib.redirect_stdout(io.StringIO()) as f:
             print(sequence_name)
-            sequence_view = view.match(F("sequence") == sequence_name)
             sequence_results[sequence_name] = compute_metrics(
-                view=sequence_view,
+                view=view.match(F("sequence") == sequence_name),
                 gt_field=gt_field,
                 pred_field=pred_field,
                 metric_fn=metric_fn,
@@ -595,42 +574,37 @@ def compute_and_save_sequence_metrics(
             print(f.getvalue())
 
     # create csv dir if not exists
-    if not os.path.exists(csv_dirpath):
-        os.makedirs(csv_dirpath)
-    df = sequence_results_to_df(sequence_results)
-    df.to_csv(csv_path, index=False)
+    if not pathlib.Path(csv_dirpath).exists():
+        pathlib.Path(csv_dirpath).mkdir(parents=True)
+    sequence_results_to_df(sequence_results).to_csv(csv_path, index=False)
 
-def get_confidence_metric_vals(
-    cocoeval: np.ndarray, T: int, R: int, K: int, A: int, M: int
-):
+
+# Public signature: notebooks pass T, R, K, A, M by keyword; R is unused.
+def get_confidence_metric_vals(  # pylint: disable=too-many-positional-arguments,unused-argument
+    cocoeval: np.ndarray,
+    T: int,
+    R: int,  # ruff: ignore[unused-function-argument]
+    K: int,
+    A: int,
+    M: int,
+) -> dict:
     """Get confidence values for plotting.
 
     - recall vs confidence
     - precision vs confidence
     - f1-score vs confidence.
 
-    Arguments:
-    ---------
-    cocoeval: np.ndarray
-        COCOeval object
-    T: int
-        iou threshold
-    R: int
-        recall threshold (not used so far)
-    K: int
-        catIds
-    A: int
-        area range index
-    M: int
-        max dets index
+    Args:
+        cocoeval: The ``eval`` dict of a ``compute()`` result.
+        T: IoU threshold index.
+        R: Recall threshold index; unused.
+        K: Category index.
+        A: Area range index.
+        M: Max detections index.
 
     Returns:
-    -------
-    dict
-        conf: confidence values
-        p: precision values
-        r: recall values
-        f1: f1-score values
+        dict of ``conf``, a 1000-point grid over [0, 1], and the ``precision``,
+        ``recall`` and ``f1`` curves on it.
     """
     tpc = cocoeval["TPC"][T, K, A, M]
     fpc = cocoeval["FPC"][T, K, A, M]
@@ -639,14 +613,11 @@ def get_confidence_metric_vals(
     eps = 1e-16
     x = np.linspace(0, 1, 1000)  # for plotting
 
-    # Recall
-    recall = tpc / (n_gt + eps)  # recall curve
-    # negative x, xp because xp decreases
-    r = np.interp(-x, -conf, recall, left=0)
+    # Recall curve; negative x, xp because xp decreases
+    r = np.interp(-x, -conf, tpc / (n_gt + eps), left=0)
 
-    # Precision
-    precision = tpc / (tpc + fpc)  # precision curve
-    p = np.interp(-x, -conf, precision, left=1)  # p at pr_score
+    # Precision curve
+    p = np.interp(-x, -conf, tpc / (tpc + fpc), left=1)
 
     # F1-score
     f1 = 2 * p * r / (p + r + eps)

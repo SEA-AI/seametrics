@@ -1,26 +1,26 @@
+"""Numpy box conversion and input validation for the detection metrics."""
+
+from typing import Dict, List, Optional, Sequence
+
 import numpy as np
+
+_BOX_COORDS = 4
 
 
 def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
-    """
-    Converts boxes from given in_fmt to out_fmt.
-    Supported in_fmt and out_fmt are:
+    """Converts boxes from given in_fmt to out_fmt.
 
-    'xyxy': boxes are represented via corners, x1, y1 being top left and x2, y2 being bottom right.
-    This is the format that torchvision utilities expect.
-
-    'xywh' : boxes are represented via corner, width and height, x1, y2 being top left, w, h being width and height.
-
-    'cxcywh' : boxes are represented via centre, width and height, cx, cy being center of box, w, h
-    being width and height.
+    'xyxy': top-left corner x1, y1 and bottom-right corner x2, y2.
+    'xywh': top-left corner x1, y1 and width, height.
+    'cxcywh': center cx, cy and width, height.
 
     Args:
-        boxes (Tensor[N, 4]): boxes which will be converted.
-        in_fmt (str): Input format of given boxes. Supported formats are ['xyxy', 'xywh', 'cxcywh'].
-        out_fmt (str): Output format of given boxes. Supported formats are ['xyxy', 'xywh', 'cxcywh']
+        boxes (np.ndarray[N, 4]): boxes which will be converted.
+        in_fmt (str): Input format, one of 'xyxy', 'xywh', 'cxcywh'.
+        out_fmt (str): Output format, one of 'xyxy', 'xywh', 'cxcywh'.
 
     Returns:
-        Tensor[N, 4]: Boxes into converted format.
+        np.ndarray[N, 4]: Converted boxes.
     """
     if boxes.size == 0:
         return boxes
@@ -34,170 +34,94 @@ def box_convert(boxes: np.ndarray, in_fmt: str, out_fmt: str) -> np.ndarray:
     if in_fmt == out_fmt:
         return boxes.copy()
 
-    if in_fmt != "xyxy" and out_fmt != "xyxy":
-        # convert to xyxy and change in_fmt xyxy
-        if in_fmt == "xywh":
-            boxes = _box_xywh_to_xyxy(boxes)
-        elif in_fmt == "cxcywh":
-            boxes = _box_cxcywh_to_xyxy(boxes)
-        in_fmt = "xyxy"
+    if boxes.shape[-1] != _BOX_COORDS:
+        raise ValueError(f"Expected boxes with 4 values each, got shape {boxes.shape}")
 
-    if in_fmt == "xyxy":
-        if out_fmt == "xywh":
-            boxes = _box_xyxy_to_xywh(boxes)
-        elif out_fmt == "cxcywh":
-            boxes = _box_xyxy_to_cxcywh(boxes)
-    elif out_fmt == "xyxy":
-        if in_fmt == "xywh":
-            boxes = _box_xywh_to_xyxy(boxes)
-        elif in_fmt == "cxcywh":
-            boxes = _box_cxcywh_to_xyxy(boxes)
+    # every conversion goes through xyxy
+    if in_fmt != "xyxy":
+        boxes = _TO_XYXY[in_fmt](boxes)
+    if out_fmt != "xyxy":
+        boxes = _FROM_XYXY[out_fmt](boxes)
     return boxes
 
 
-def _box_xywh_to_xyxy(boxes):
-    """
-    Converts bounding boxes from (x, y, w, h) format to (x1, y1, x2, y2) format.
-    (x, y) refers to top left of bounding box.
-    (w, h) refers to width and height of box.
-    Args:
-        boxes (ndarray[N, 4]): boxes in (x, y, w, h) which will be converted.
-
-    Returns:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) format.
-    """
-    x, y, w, h = np.split(boxes, 4, axis=-1)
-    x1 = x
-    y1 = y
-    x2 = x + w
-    y2 = y + h
-    converted_boxes = np.concatenate([x1, y1, x2, y2], axis=-1)
-    return converted_boxes
+def _box_xywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
+    """Convert boxes from xywh to xyxy; formats as in box_convert."""
+    x, y, w, h = boxes[..., 0:1], boxes[..., 1:2], boxes[..., 2:3], boxes[..., 3:4]
+    return np.concatenate([x, y, x + w, y + h], axis=-1)
 
 
-def _box_cxcywh_to_xyxy(boxes):
-    """
-    Converts bounding boxes from (cx, cy, w, h) format to (x1, y1, x2, y2) format.
-    (cx, cy) refers to center of bounding box
-    (w, h) are width and height of bounding box
-    Args:
-        boxes (ndarray[N, 4]): boxes in (cx, cy, w, h) format which will be converted.
-
-    Returns:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) format.
-    """
-    cx, cy, w, h = np.split(boxes, 4, axis=-1)
+def _box_cxcywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
+    """Convert boxes from cxcywh to xyxy; formats as in box_convert."""
+    cx, cy, w, h = boxes[..., 0:1], boxes[..., 1:2], boxes[..., 2:3], boxes[..., 3:4]
     x1 = cx - 0.5 * w
     y1 = cy - 0.5 * h
     x2 = cx + 0.5 * w
     y2 = cy + 0.5 * h
-    converted_boxes = np.concatenate([x1, y1, x2, y2], axis=-1)
-    return converted_boxes
+    return np.concatenate([x1, y1, x2, y2], axis=-1)
 
 
-def _box_xyxy_to_xywh(boxes):
-    """
-    Converts bounding boxes from (x1, y1, x2, y2) format to (x, y, w, h) format.
-    (x1, y1) refer to top left of bounding box
-    (x2, y2) refer to bottom right of bounding box
-    Args:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) which will be converted.
-
-    Returns:
-        boxes (ndarray[N, 4]): boxes in (x, y, w, h) format.
-    """
-    x1, y1, x2, y2 = np.split(boxes, 4, axis=-1)
-    w = x2 - x1
-    h = y2 - y1
-    converted_boxes = np.concatenate([x1, y1, w, h], axis=-1)
-    return converted_boxes
+def _box_xyxy_to_xywh(boxes: np.ndarray) -> np.ndarray:
+    """Convert boxes from xyxy to xywh; formats as in box_convert."""
+    x1, y1, x2, y2 = boxes[..., 0:1], boxes[..., 1:2], boxes[..., 2:3], boxes[..., 3:4]
+    return np.concatenate([x1, y1, x2 - x1, y2 - y1], axis=-1)
 
 
-def _box_xyxy_to_cxcywh(boxes):
-    """
-    Converts bounding boxes from (x1, y1, x2, y2) format to (cx, cy, w, h) format.
-    (x1, y1) refer to top left of bounding box
-    (x2, y2) refer to bottom right of bounding box
-    Args:
-        boxes (ndarray[N, 4]): boxes in (x1, y1, x2, y2) format which will be converted.
-
-    Returns:
-        boxes (ndarray[N, 4]): boxes in (cx, cy, w, h) format.
-    """
-    x1, y1, x2, y2 = np.split(boxes, 4, axis=-1)
+def _box_xyxy_to_cxcywh(boxes: np.ndarray) -> np.ndarray:
+    """Convert boxes from xyxy to cxcywh; formats as in box_convert."""
+    x1, y1, x2, y2 = boxes[..., 0:1], boxes[..., 1:2], boxes[..., 2:3], boxes[..., 3:4]
     cx = (x1 + x2) / 2
     cy = (y1 + y2) / 2
     w = x2 - x1
     h = y2 - y1
-    converted_boxes = np.concatenate([cx, cy, w, h], axis=-1)
-    return converted_boxes
+    return np.concatenate([cx, cy, w, h], axis=-1)
 
 
-def _fix_empty_arrays(boxes: np.ndarray) -> np.ndarray:
+_TO_XYXY = {"xywh": _box_xywh_to_xyxy, "cxcywh": _box_cxcywh_to_xyxy}
+_FROM_XYXY = {"xywh": _box_xyxy_to_xywh, "cxcywh": _box_xyxy_to_cxcywh}
+
+
+def fix_empty_arrays(boxes: np.ndarray) -> np.ndarray:
     """Empty tensors can cause problems, this methods corrects them."""
     if boxes.size == 0 and boxes.ndim == 1:
         return np.expand_dims(boxes, axis=0)
     return boxes
 
 
-def _input_validator(preds, targets, iou_type="bbox", labels=None):
-    """Ensure the correct input format of `preds` and `targets`."""
+def input_validator(
+    preds: Sequence[Dict[str, np.ndarray]],
+    targets: Sequence[Dict[str, np.ndarray]],
+    iou_type: str = "bbox",
+    labels: Optional[List[int]] = None,
+) -> None:
+    """Ensure the correct input format of `preds` and `targets`.
+
+    Raises:
+        ValueError: If ``iou_type`` is unsupported or the inputs are malformed.
+    """
     if iou_type == "bbox":
         item_val_name = "boxes"
     elif iou_type == "segm":
         item_val_name = "masks"
     else:
-        raise Exception(f"IOU type {iou_type} is not supported")
+        raise ValueError(f"IOU type {iou_type} is not supported")
 
-    if not isinstance(preds, (list, tuple)):
-        raise ValueError(
-            f"Expected argument `preds` to be of type list or tuple, but got {type(preds)}"
-        )
-    if not isinstance(targets, (list, tuple)):
-        raise ValueError(
-            f"Expected argument `targets` to be of type list or tuple, but got {type(targets)}"
-        )
-    if len(preds) != len(targets):
-        raise ValueError(
-            f"Expected argument `preds` and `targets` to have the same length, but got {len(preds)} and {len(targets)}"
-        )
-
-    for k in [item_val_name, "scores", "labels"]:
-        if any(k not in p for p in preds):
-            raise ValueError(f"Expected all dicts in `preds` to contain the `{k}` key")
-
-    for k in [item_val_name, "labels"]:
-        if any(k not in p for p in targets):
-            raise ValueError(
-                f"Expected all dicts in `targets` to contain the `{k}` key"
-            )
-
-    if any(type(pred[item_val_name]) is not np.ndarray for pred in preds):
-        raise ValueError(
-            f"Expected all {item_val_name} in `preds` to be of type ndarray"
-        )
-    if any(type(pred["scores"]) is not np.ndarray for pred in preds):
-        raise ValueError("Expected all scores in `preds` to be of type ndarray")
-    if any(type(pred["labels"]) is not np.ndarray for pred in preds):
-        raise ValueError("Expected all labels in `preds` to be of type ndarray")
-    if any(type(target[item_val_name]) is not np.ndarray for target in targets):
-        raise ValueError(
-            f"Expected all {item_val_name} in `targets` to be of type ndarray"
-        )
-    if any(type(target["labels"]) is not np.ndarray for target in targets):
-        raise ValueError("Expected all labels in `targets` to be of type ndarray")
+    _check_containers(preds, targets)
+    pred_keys = [item_val_name, "scores", "labels"]
+    target_keys = [item_val_name, "labels"]
+    _check_keys(preds, pred_keys, "preds")
+    _check_keys(targets, target_keys, "targets")
+    _check_types(preds, pred_keys, "preds")
+    _check_types(targets, target_keys, "targets")
 
     for i, item in enumerate(targets):
         if item[item_val_name].shape[0] != item["labels"].shape[0]:
             raise ValueError(
                 f"Input {item_val_name} and labels of sample {i} in targets have a"
-                f" different length (expected {item[item_val_name].shape[0]} labels, got {item['labels'].shape[0]})"
+                f" different length (expected {item[item_val_name].shape[0]} labels,"
+                f" got {item['labels'].shape[0]})"
             )
-        if labels and not set(item["labels"]).issubset(set(labels)):
-            raise ValueError(
-                f"Labels are predefined to be {labels},"
-                f" but you provide unknown labels in {item['labels']}."
-            )
+        _check_known_labels(item, labels)
     for i, item in enumerate(preds):
         if not (
             item[item_val_name].shape[0]
@@ -205,12 +129,58 @@ def _input_validator(preds, targets, iou_type="bbox", labels=None):
             == item["scores"].shape[0]
         ):
             raise ValueError(
-                f"Input {item_val_name}, labels and scores of sample {i} in predictions have a"
-                f" different length (expected {item[item_val_name].shape[0]} labels and scores,"
-                f" got {item['labels'].shape[0]} labels and {item['scores'].shape[0]})"
+                f"Input {item_val_name}, labels and scores of sample {i} in"
+                " predictions have a different length (expected"
+                f" {item[item_val_name].shape[0]} labels and scores,"
+                f" got {item['labels'].shape[0]} labels and"
+                f" {item['scores'].shape[0]})"
             )
-        if labels and not set(item["labels"]).issubset(set(labels)):
-            raise ValueError(
-                f"Labels are predefined to be {labels},"
-                f" but you provide unknown labels in {item['labels']}."
-            )
+        _check_known_labels(item, labels)
+
+
+def _check_containers(preds: object, targets: object) -> None:
+    """Raise ValueError unless preds and targets are equal-length lists or tuples."""
+    if not isinstance(preds, (list, tuple)):
+        raise ValueError(
+            "Expected argument `preds` to be of type list or tuple,"
+            f" but got {type(preds)}"
+        )
+    if not isinstance(targets, (list, tuple)):
+        raise ValueError(
+            "Expected argument `targets` to be of type list or tuple,"
+            f" but got {type(targets)}"
+        )
+    if len(preds) != len(targets):
+        raise ValueError(
+            "Expected argument `preds` and `targets` to have the same length,"
+            f" but got {len(preds)} and {len(targets)}"
+        )
+
+
+def _check_keys(
+    items: Sequence[Dict[str, np.ndarray]], keys: List[str], name: str
+) -> None:
+    """Raise ValueError unless every item holds every key."""
+    for k in keys:
+        if any(k not in item for item in items):
+            raise ValueError(f"Expected all dicts in `{name}` to contain the `{k}` key")
+
+
+def _check_types(
+    items: Sequence[Dict[str, np.ndarray]], keys: List[str], name: str
+) -> None:
+    """Raise ValueError unless every value under ``keys`` is an ndarray."""
+    for k in keys:
+        if any(not isinstance(item[k], np.ndarray) for item in items):
+            raise ValueError(f"Expected all {k} in `{name}` to be of type ndarray")
+
+
+def _check_known_labels(
+    item: Dict[str, np.ndarray], labels: Optional[List[int]]
+) -> None:
+    """Raise ValueError if ``labels`` is set and the item has a label outside it."""
+    if labels and not set(item["labels"]).issubset(set(labels)):
+        raise ValueError(
+            f"Labels are predefined to be {labels},"
+            f" but you provide unknown labels in {item['labels']}."
+        )
