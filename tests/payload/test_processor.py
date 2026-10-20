@@ -689,6 +689,7 @@ class TestBatchedFetching:
         ({"gt_field": None}, TypeError, "gt_field must be of type str"),
         ({"tracking_mode": "yes"}, TypeError, "tracking_mode must be of type bool"),
         ({"tags": "tag1"}, TypeError, "tags must be a list of strings or None"),
+        ({"data_type": []}, ValueError, "data_type must be 'rgb' or 'thermal'"),
         (
             {"tracking_mode": True, "models": ["m1", "m2"]},
             ValueError,

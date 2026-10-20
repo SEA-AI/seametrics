@@ -132,7 +132,10 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             )
 
         # Check data_type is either "rgb" or "thermal"
-        if self.data_type not in {"rgb", "thermal"}:
+        if not isinstance(self.data_type, str) or self.data_type not in {
+            "rgb",
+            "thermal",
+        }:
             raise ValueError(
                 f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
             )
