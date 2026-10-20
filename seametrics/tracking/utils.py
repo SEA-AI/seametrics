@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import pathlib
+from itertools import compress
 
 import numpy as np
 import pandas as pd
@@ -271,40 +272,6 @@ def get_values(
     raise ValueError(f"Unsupported media type: {view.media_type}")
 
 
-def _filter_to_keyframes(
-    values: list,
-    keyframes: list,
-    pred_field: str,
-    field_name: str,
-) -> list:
-    """Drop the entries whose keyframe flag is falsy.
-
-    Args:
-        values: One entry per frame.
-        keyframes: One keyframe flag per frame.
-        pred_field: Prediction field the mask came from, for error messages.
-        field_name: Field being filtered, for error messages.
-
-    Returns:
-        Only the entries flagged as keyframes.
-
-    Raises:
-        ValueError: If *keyframes* and *values* have different lengths. Zipping
-            them anyway would misalign ground truth against predictions and
-            silently evaluate the wrong frames.
-    """
-    if len(keyframes) != len(values):
-        raise ValueError(
-            f"Keyframe mask from {pred_field!r} has {len(keyframes)} entries but"
-            f" {field_name!r} has {len(values)} frames."
-        )
-    return [
-        value
-        for value, is_keyframe in zip(values, keyframes, strict=True)
-        if is_keyframe
-    ]
-
-
 def build_detection_inputs(
     view: fo.DatasetView,
     gt_field: str,
@@ -327,7 +294,7 @@ def build_detection_inputs(
         ImportError: If ``fiftyone`` is not installed.
         ValueError: If the view contains no samples after field selection, if
             *pred_field* carries no keyframe data or flags no frame, or if the
-            keyframe mask does not cover every frame.
+            keyframe mask and a field differ in length.
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
@@ -339,50 +306,30 @@ def build_detection_inputs(
     img_w = sample["metadata"]["frame_width"]
     img_h = sample["metadata"]["frame_height"]
 
-    gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
-    gt_track_ids_per_frame = get_values(view, f"{gt_field}.detections.index")
-    dt_bboxes_per_frame = get_values(view, f"{pred_field}.detections.bounding_box")
-    dt_scores_per_frame = get_values(view, f"{pred_field}.detections.confidence")
-    dt_track_ids_per_frame = get_values(view, f"{pred_field}.detections.index")
-
     keyframes = get_values(view, f"{pred_field}.keyframe")
-    # an all-False/None mask would drop every frame just like an empty one
     if not keyframes or not any(keyframes):
         raise ValueError(
             f"No keyframe data for {pred_field!r}; every frame would be dropped."
         )
 
-    (
-        gt_bboxes_per_frame,
-        gt_track_ids_per_frame,
-        dt_bboxes_per_frame,
-        dt_scores_per_frame,
-        dt_track_ids_per_frame,
-    ) = (
-        _filter_to_keyframes(values, keyframes, pred_field, name)
-        for values, name in (
-            (gt_bboxes_per_frame, f"{gt_field}.detections.bounding_box"),
-            (gt_track_ids_per_frame, f"{gt_field}.detections.index"),
-            (dt_bboxes_per_frame, f"{pred_field}.detections.bounding_box"),
-            (dt_scores_per_frame, f"{pred_field}.detections.confidence"),
-            (dt_track_ids_per_frame, f"{pred_field}.detections.index"),
-        )
-    )
+    def on_keyframes(path: str) -> list:
+        values = get_values(view, path)
+        if len(values) != len(keyframes):
+            raise ValueError(
+                f"Keyframe mask from {pred_field!r} has {len(keyframes)} entries but"
+                f" {path!r} has {len(values)} frames."
+            )
+        return list(compress(values, keyframes))
 
-    target, preds = prepare_data_for_det_metrics(
-        gt_bboxes_per_frame,
-        gt_track_ids_per_frame,
-        dt_bboxes_per_frame,
-        dt_track_ids_per_frame,
-        dt_scores_per_frame,
+    return prepare_data_for_det_metrics(
+        on_keyframes(f"{gt_field}.detections.bounding_box"),
+        on_keyframes(f"{gt_field}.detections.index"),
+        on_keyframes(f"{pred_field}.detections.bounding_box"),
+        on_keyframes(f"{pred_field}.detections.index"),
+        on_keyframes(f"{pred_field}.detections.confidence"),
         img_w=img_w,
         img_h=img_h,
     )
-
-    del gt_bboxes_per_frame, gt_track_ids_per_frame
-    del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
-
-    return target, preds
 
 
 def compute_metrics(
@@ -608,7 +555,6 @@ def compute_metrics_by_sequence(
                 view=sequence_view, gt_field=gt_field, pred_field=pred_field
             )
         except (ValueError, IndexError) as e:
-            # missing or misaligned keyframes: record why, keep the run going
             metric.log_failed_sequence(sequence_name, [], [], exc=e)
     for sequence, (gt, pred) in sequence_results.items():
         try:
@@ -714,7 +660,6 @@ def _run_metric_updates(
                     view=sequence_view, gt_field=gt_field, pred_field=pred_field
                 )
             except (ValueError, IndexError) as e:
-                # missing or misaligned keyframes: record why, keep the run going
                 for instance in instances[pred_field].values():
                     instance.log_failed_sequence(sequence_name, [], [], exc=e)
                 continue

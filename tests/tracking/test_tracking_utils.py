@@ -492,97 +492,69 @@ class _KeyframeMetric:
         self.failed_sequences[sequence_name] = exc
 
 
-def test_build_detection_inputs_keeps_only_keyframes():
-    """The base fixture flags frames 0 and 2, so frame 1 must be dropped."""
-    gt, pred = utils.build_detection_inputs(
-        view=_FakeVideoView(), gt_field="gt", pred_field="pred"
-    )
-    # column 1 holds the track id: frames 0 and 2 keep gt 1, 3 and predictions 10, 30
-    assert gt[:, 1].tolist() == [1, 3]
-    assert pred[:, 1].tolist() == [10, 30]
+class _SequencesView(_FakeVideoView):
+    """Matches the given views in evaluation order, one per sequence."""
+
+    def __init__(self, *views: object) -> None:
+        super().__init__()
+        self._views = iter(views)
+
+    def match(self, _condition):
+        return next(self._views)
 
 
-def test_build_detection_inputs_raises_when_mask_is_empty():
-    """An empty mask would silently drop every frame."""
-    with pytest.raises(ValueError, match="No keyframe data"):
-        utils.build_detection_inputs(
-            view=_KeyframeView([]), gt_field="gt", pred_field="pred"
-        )
-
-
-def test_build_detection_inputs_raises_when_mask_is_none():
-    with pytest.raises(ValueError, match="No keyframe data"):
-        utils.build_detection_inputs(
-            view=_KeyframeView(None), gt_field="gt", pred_field="pred"
-        )
-
-
-@pytest.mark.parametrize("mask", [[False, False, False], [None, None, None]])
+@pytest.mark.parametrize(
+    "mask",
+    [
+        pytest.param([], id="empty"),
+        pytest.param(None, id="none"),
+        pytest.param([False, False, False], id="all-false"),
+        pytest.param([None, None, None], id="all-none"),
+    ],
+)
 def test_build_detection_inputs_raises_when_no_frame_is_flagged(mask):
-    """A full-length mask that flags nothing would also drop every frame."""
+    """A mask that flags nothing would silently drop every frame."""
     with pytest.raises(ValueError, match="No keyframe data"):
         utils.build_detection_inputs(
             view=_KeyframeView(mask), gt_field="gt", pred_field="pred"
         )
 
 
-def test_build_detection_inputs_raises_on_mask_length_mismatch():
-    """A short mask used to truncate silently via zip(strict=False)."""
-    with pytest.raises(ValueError, match="has 2 entries"):
+@pytest.mark.parametrize("mask", [[True, False], [True, False, True, True]])
+def test_build_detection_inputs_raises_on_mask_length_mismatch(mask):
+    with pytest.raises(ValueError, match=f"has {len(mask)} entries"):
         utils.build_detection_inputs(
-            view=_KeyframeView([True, False]), gt_field="gt", pred_field="pred"
+            view=_KeyframeView(mask), gt_field="gt", pred_field="pred"
         )
 
 
-def test_compute_metrics_by_sequence_logs_keyframe_failure(monkeypatch):
-    """A bad mask must not abort the run; it is recorded like any other failure."""
+def test_compute_metrics_by_sequence_logs_bad_mask_and_continues():
     metric = _KeyframeMetric()
-    monkeypatch.setattr(utils, "_FIFTYONE_AVAILABLE", True)
-
-    result = utils.compute_metrics_by_sequence(
-        view=_KeyframeView([True, False]),
-        gt_field="gt",
-        pred_field="pred",
-        metric_fn=lambda **_: metric,
-        metric_kwargs={},
-        sequence_list=["seq-1"],
-    )
-
-    assert result is metric
-    assert "seq-1" in metric.failed_sequences
-    assert "has 2 entries" in str(metric.failed_sequences["seq-1"])
-    assert metric.updated == []
-
-
-def test_compute_metrics_by_sequence_still_updates_valid_sequences(monkeypatch):
-    metric = _KeyframeMetric()
-    monkeypatch.setattr(utils, "_FIFTYONE_AVAILABLE", True)
 
     utils.compute_metrics_by_sequence(
-        view=_FakeVideoView(),
+        view=_SequencesView(_KeyframeView([True, False]), _FakeVideoView()),
         gt_field="gt",
         pred_field="pred",
         metric_fn=lambda **_: metric,
         metric_kwargs={},
-        sequence_list=["seq-1"],
+        sequence_list=["seq-bad", "seq-ok"],
     )
 
-    assert metric.failed_sequences == {}
-    assert metric.updated == ["seq-1"]
+    assert list(metric.failed_sequences) == ["seq-bad"]
+    assert "has 2 entries" in str(metric.failed_sequences["seq-bad"])
+    assert metric.updated == ["seq-ok"]
 
 
-def test_run_metric_updates_logs_keyframe_failure_and_continues(monkeypatch):
-    """Every metric instance for the field is marked failed, and no update runs."""
+def test_run_metric_updates_logs_bad_mask_and_continues():
     metric = _KeyframeMetric()
-    monkeypatch.setattr(utils, "_FIFTYONE_AVAILABLE", True)
 
     utils._run_metric_updates(
-        valid_sequences=["seq-1"],
-        view=_KeyframeView([True, False]),
+        valid_sequences=["seq-bad", "seq-ok"],
+        view=_SequencesView(_KeyframeView([True, False]), _FakeVideoView()),
         pred_fields=["pred"],
         gt_field="gt",
         instances={"pred": {"Recording": metric}},
     )
 
-    assert "seq-1" in metric.failed_sequences
-    assert metric.updated == []
+    assert list(metric.failed_sequences) == ["seq-bad"]
+    assert metric.updated == ["seq-ok"]
