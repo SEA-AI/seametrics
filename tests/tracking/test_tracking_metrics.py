@@ -429,6 +429,12 @@ class TestLogFailedSequence:
         m.log_failed_sequence("s", [], [])
         assert m.failed_sequences["s"] == "No ground truth and no predictions"
 
+    def test_exception_beats_empty_inputs(self):
+        """Callers that fail before building inputs pass empty lists and the error."""
+        m = TrackingMetrics()
+        m.log_failed_sequence("s", [], [], exc=ValueError("bad keyframe mask"))
+        assert m.failed_sequences["s"] == "ValueError: bad keyframe mask"
+
     def test_no_gt(self):
         m = TrackingMetrics()
         m.log_failed_sequence("s", [], [1])
