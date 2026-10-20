@@ -702,7 +702,7 @@ class TestBatchedFetching:
     ],
 )
 def test_invalid_parameters_raise(overrides, error, match):
-    """Each invalid argument raises with a message naming it."""
+    """Invalid arguments raise the expected error."""
     kwargs = {
         "dataset_name": "valid_dataset",
         "gt_field": "ground_truth_det",

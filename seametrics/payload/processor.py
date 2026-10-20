@@ -65,10 +65,10 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 the dataset's slices matching ``data_type``.
             tags (List[str], optional): The list of tags to filter the dataset.
                 Defaults to None.
-            start_frame_id (int, optional): The start frame id.
-                Defaults to None.
-            end_frame_id (int, optional): The end frame id.
-                Defaults to None.
+            start_frame_id (int, optional): 0-based index of the first frame to
+                keep. Defaults to None.
+            end_frame_id (int, optional): 0-based index of the last frame to keep
+                (inclusive). Defaults to None.
             confidence_threshold (float, optional): Confidence threshold to filter
                 the model fields. Defaults to 0.
             batch_size (int, optional): How many sequences to fetch per query. Larger
@@ -116,9 +116,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
     def validate_input_parameters(self) -> None:
         """Validates the input parameters.
 
-        Raises:
-            ValueError: If dataset is not found in FiftyOne or if tracking mode is
-                enabled for RGB data.
+        ``_validate_types`` raises TypeError for a parameter of the wrong type.
 
         Raises:
             ValueError: If ``data_type`` is not "rgb" or "thermal", the dataset is
