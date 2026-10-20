@@ -31,7 +31,7 @@ def _is_str_list(value: object) -> bool:
 class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
     """Builds a Payload of per-sequence detections from a FiftyOne dataset."""
 
-    def __init__(  # noqa: PLR0913, PLR0917  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         dataset_name: str,
         gt_field: str,
