@@ -679,3 +679,35 @@ class TestBatchedFetching:
         assert sorted(sequences) == sorted(names)
         # 3 batches x 5 queries, versus 5 x 5 if it queried per sequence
         assert view.query_count == 15
+
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+@pytest.mark.parametrize(
+    ("overrides", "error", "match"),
+    [
+        ({"dataset_name": 1}, TypeError, "dataset_name must be of type str"),
+        ({"gt_field": None}, TypeError, "gt_field must be of type str"),
+        ({"tracking_mode": "yes"}, TypeError, "tracking_mode must be of type bool"),
+        ({"tags": "tag1"}, TypeError, "tags must be a list of strings or None"),
+        (
+            {"tracking_mode": True, "models": ["m1", "m2"]},
+            ValueError,
+            "only one model is supported, but got 2 models",
+        ),
+        (
+            {"tracking_mode": True, "models": ["m1"], "data_type": "rgb"},
+            ValueError,
+            "not supported for RGB data",
+        ),
+    ],
+)
+def test_invalid_parameters_raise(overrides, error, match):
+    """Each invalid argument raises with a message naming it."""
+    kwargs = {
+        "dataset_name": "valid_dataset",
+        "gt_field": "ground_truth_det",
+        "models": ["model1"],
+        **overrides,
+    }
+    with pytest.raises(error, match=match):
+        PayloadProcessor(**kwargs)

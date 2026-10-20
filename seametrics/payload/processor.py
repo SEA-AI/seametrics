@@ -152,7 +152,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         Raises:
             TypeError: If any of the parameters are of the wrong type.
         """
-        # Check dataset_name is a string
         if not isinstance(self.dataset_name, str):
             raise TypeError(
                 f"dataset_name must be of type str, but got {type(self.dataset_name)}"
@@ -163,7 +162,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 f"gt_field must be of type str, but got {type(self.gt_field)}"
             )
 
-        # Check models is a list of strings
         if not _is_str_list(self.models):
             raise TypeError(f"models must be a list of strings, but got {self.models}")
 
@@ -173,7 +171,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 f" but got {type(self.tracking_mode)}"
             )
 
-        # Check optional list fields are None or a list of strings
         for name in ("sequence_list", "excluded_classes", "slices", "tags"):
             value = getattr(self, name)
             if value is not None and not _is_str_list(value):
