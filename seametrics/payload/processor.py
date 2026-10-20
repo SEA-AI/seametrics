@@ -6,6 +6,7 @@ from typing import Dict, List, Literal, Optional, Set, Tuple
 import fiftyone as fo
 from fiftyone import ViewField as F
 from fiftyone.core.aggregations import Count, Values
+from pymongo.errors import PyMongoError
 from tqdm import tqdm
 
 from seametrics.constants import EXCLUDED_CLASSES
@@ -26,11 +27,11 @@ def _is_str_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
+# Public constructor: every argument is part of the API and stored on the instance.
 class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
     """Builds a Payload of per-sequence detections from a FiftyOne dataset."""
 
-    # ruff: ignore[too-many-arguments, too-many-positional-arguments]
-    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def __init__(  # noqa: PLR0913, PLR0917  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         dataset_name: str,
         gt_field: str,
@@ -112,11 +113,10 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         )
         return self.payload
 
-    def validate_input_parameters(self) -> None:  # ruff: ignore[complex-structure]
+    def validate_input_parameters(self) -> None:
         """Validates the input parameters.
 
         Raises:
-            TypeError: If any of the parameters are of the wrong type.
             ValueError: If dataset is not found in FiftyOne or if tracking mode is
                 enabled for RGB data.
 
@@ -124,6 +124,33 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             ValueError: If ``data_type`` is not "rgb" or "thermal", the dataset is
                 not found in FiftyOne, or tracking mode is enabled for RGB data or
                 with more than one model.
+        """
+        self._validate_types()
+
+        if self.tracking_mode and len(self.models) != 1:
+            raise ValueError(
+                "When tracking mode is enabled only one model is supported,"
+                f" but got {len(self.models)} models"
+            )
+
+        # Check data_type is either "rgb" or "thermal"
+        if self.data_type not in {"rgb", "thermal"}:
+            raise ValueError(
+                f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
+            )
+
+        # Additional validation logic can go here, like dataset name lookup
+        if self.dataset_name not in fo.list_datasets():
+            raise ValueError(f"Dataset {self.dataset_name} not found in FiftyOne.")
+
+        if self.tracking_mode and self.data_type == "rgb":
+            raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
+
+    def _validate_types(self) -> None:
+        """Checks the type of every input parameter.
+
+        Raises:
+            TypeError: If any of the parameters are of the wrong type.
         """
         # Check dataset_name is a string
         if not isinstance(self.dataset_name, str):
@@ -146,18 +173,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 f" but got {type(self.tracking_mode)}"
             )
 
-        if self.tracking_mode and len(self.models) != 1:
-            raise ValueError(
-                "When tracking mode is enabled only one model is supported,"
-                f" but got {len(self.models)} models"
-            )
-
-        # Check data_type is either "rgb" or "thermal"
-        if self.data_type not in {"rgb", "thermal"}:
-            raise ValueError(
-                f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
-            )
-
         # Check optional list fields are None or a list of strings
         for name in ("sequence_list", "excluded_classes", "slices", "tags"):
             value = getattr(self, name)
@@ -165,13 +180,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 raise TypeError(
                     f"{name} must be a list of strings or None, but got {value}"
                 )
-
-        # Additional validation logic can go here, like dataset name lookup
-        if self.dataset_name not in fo.list_datasets():
-            raise ValueError(f"Dataset {self.dataset_name} not found in FiftyOne.")
-
-        if self.tracking_mode and self.data_type == "rgb":
-            raise ValueError("Tracking-mode evaluation is not supported for RGB data.")
 
     def process_dataset(self) -> Dict[str, Sequence]:
         """Processes the dataset and generates sequence data.
@@ -382,7 +390,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         """
         try:
             return self._fetch_sequences(batch)
-        except Exception as exc:  # pylint: disable=broad-except
+        except PyMongoError as exc:
             if not _is_result_too_large(exc):
                 raise
             if len(batch) == 1:
@@ -398,7 +406,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             fetched.update(self.fetch_sequences(batch[middle:]))
             return fetched
 
-    def _fetch_sequences(  # pylint: disable=too-many-locals
+    def _fetch_sequences(
         self, batch: List[str], unwound: bool = False
     ) -> Dict[str, Sequence]:
         """Fetch a batch of sequences without the size fallback.

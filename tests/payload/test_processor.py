@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pymongo.errors import OperationFailure
 
 from seametrics.payload import Resolution
 from seametrics.payload.processor import PayloadProcessor
@@ -312,7 +313,7 @@ class _FakeSequenceView:
             and isinstance(value, list)
             and len(value) > self._too_large_above
         ):
-            raise RuntimeError(
+            raise OperationFailure(
                 "Executor error during getMore :: caused by :: BSONObj size:"
                 " 17355147 is invalid. Size must be between 0 and 16793600(16MB)"
             )
@@ -324,7 +325,7 @@ class _NestedTooLargeView(_FakeSequenceView):
 
     def _value(self, path):
         if path.startswith("frames."):
-            raise RuntimeError("BSONObj size: 17355147 is invalid.")
+            raise OperationFailure("BSONObj size: 17355147 is invalid.")
         return super()._value(path)
 
 
@@ -525,7 +526,7 @@ class TestBatchedFetching:
         processor = _processor()
         processor.dataset = view
 
-        with pytest.raises(RuntimeError, match="BSONObj size"):
+        with pytest.raises(OperationFailure, match="BSONObj size"):
             processor.fetch_sequences(names)
 
     def test_single_oversized_sequence_is_refetched_unwound(self):
