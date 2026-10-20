@@ -21,6 +21,11 @@ def _is_result_too_large(exc: Exception) -> bool:
     return "BSONObj size" in message or "BSONObjectTooLarge" in message
 
 
+def _is_str_list(value: object) -> bool:
+    """Return True if *value* is a list of strings."""
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
 class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
     """Builds a Payload of per-sequence detections from a FiftyOne dataset."""
 
@@ -132,9 +137,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             )
 
         # Check models is a list of strings
-        if not isinstance(self.models, list) or not all(
-            isinstance(model, str) for model in self.models
-        ):
+        if not _is_str_list(self.models):
             raise TypeError(f"models must be a list of strings, but got {self.models}")
 
         if not isinstance(self.tracking_mode, bool):
@@ -149,49 +152,19 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 f" but got {len(self.models)} models"
             )
 
-        # Check sequence_list is None or a list of strings
-        if self.sequence_list is not None and (
-            not isinstance(self.sequence_list, list)
-            or not all(isinstance(seq, str) for seq in self.sequence_list)
-        ):
-            raise TypeError(
-                "sequence_list must be a list of strings or None,"
-                f" but got {self.sequence_list}"
-            )
-
         # Check data_type is either "rgb" or "thermal"
         if self.data_type not in {"rgb", "thermal"}:
             raise ValueError(
                 f"data_type must be 'rgb' or 'thermal', but got {self.data_type}"
             )
 
-        # Check excluded_classes is None or a list of strings
-        if self.excluded_classes is not None and (
-            not isinstance(self.excluded_classes, list)
-            or not all(isinstance(cls, str) for cls in self.excluded_classes)
-        ):
-            raise TypeError(
-                "excluded_classes must be a list of strings or None,"
-                f" but got {self.excluded_classes}"
-            )
-
-        # Check slices is None or a list of strings
-        if self.slices is not None and (
-            not isinstance(self.slices, list)
-            or not all(isinstance(s, str) for s in self.slices)
-        ):
-            raise TypeError(
-                f"slices must be a list of strings or None, but got {self.slices}"
-            )
-
-        # Check tags is None or a list of strings
-        if self.tags is not None and (
-            not isinstance(self.tags, list)
-            or not all(isinstance(tag, str) for tag in self.tags)
-        ):
-            raise TypeError(
-                f"tags must be a list of strings or None, but got {self.tags}"
-            )
+        # Check optional list fields are None or a list of strings
+        for name in ("sequence_list", "excluded_classes", "slices", "tags"):
+            value = getattr(self, name)
+            if value is not None and not _is_str_list(value):
+                raise TypeError(
+                    f"{name} must be a list of strings or None, but got {value}"
+                )
 
         # Additional validation logic can go here, like dataset name lookup
         if self.dataset_name not in fo.list_datasets():
@@ -470,33 +443,62 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
 
         resolutions = self.get_resolutions(view)
 
-        sequences = {}
-        for name in dict.fromkeys(names):
-            fields = {
-                field: [frame or [] for frame in per_seq.get(name, [])][frame_range]
-                for field, per_seq in detections.items()
-            }
-            masks = {}
-            for field, per_seq in keyframes.items():
-                mask = self.normalize_keyframes(per_seq.get(name, [])[frame_range])
-                if mask is not None:
-                    masks[field] = mask
-
-            if self.tracking_mode:
-                blanking = masks.get(self.models[0])
-                if blanking is not None:
-                    fields = {
-                        field: [
-                            frame if keep else []
-                            for frame, keep in zip(frames, blanking, strict=False)
-                        ]
-                        for field, frames in fields.items()
-                    }
-
-            sequences[name] = Sequence(
-                resolution=resolutions[name], keyframes=masks, **fields
+        return {
+            name: self.build_sequence(
+                name,
+                detections=detections,
+                keyframes=keyframes,
+                resolution=resolutions[name],
+                frame_range=frame_range,
             )
-        return sequences
+            for name in dict.fromkeys(names)
+        }
+
+    def build_sequence(
+        self,
+        name: str,
+        *,
+        detections: Dict[str, Dict[str, list]],
+        keyframes: Dict[str, Dict[str, list]],
+        resolution: Resolution,
+        frame_range: slice,
+    ) -> Sequence:
+        """Assemble one fetched sequence from its grouped field values.
+
+        Args:
+            name (str): Sequence name.
+            detections (Dict[str, Dict[str, list]]): Per field, the frames of
+                each sequence in the batch.
+            keyframes (Dict[str, Dict[str, list]]): Per flagged model, the
+                keyframe flags of each sequence in the batch.
+            resolution (Resolution): The sequence's resolution.
+            frame_range (slice): Frames to keep.
+
+        Returns:
+            Sequence: The sequence, with detections blanked on non-keyframes in
+                tracking mode when the model has a usable keyframe mask.
+        """
+        fields = {
+            field: [frame or [] for frame in per_seq.get(name, [])][frame_range]
+            for field, per_seq in detections.items()
+        }
+        masks = {}
+        for field, per_seq in keyframes.items():
+            mask = self.normalize_keyframes(per_seq.get(name, [])[frame_range])
+            if mask is not None:
+                masks[field] = mask
+
+        blanking = masks.get(self.models[0]) if self.tracking_mode else None
+        if blanking is not None:
+            fields = {
+                field: [
+                    frame if keep else []
+                    for frame, keep in zip(frames, blanking, strict=False)
+                ]
+                for field, frames in fields.items()
+            }
+
+        return Sequence(resolution=resolution, keyframes=masks, **fields)
 
     def read_batch(self, view: fo.DatasetView) -> Tuple[list, list, Set[str]]:
         """Read a batch's samples and find which models flag any keyframe.
