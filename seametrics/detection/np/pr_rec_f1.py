@@ -129,10 +129,8 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
         - masks: :class:`~np.ndarray` of shape
           ``(num_boxes, image_height, image_width)`` containing boolean masks.
           Only required when `iou_type="segm"`.
-        - iscrowd: :class:`~np.ndarray` of shape ``(num_boxes)`` containing 0/1
-          values indicating whether the bounding box/masks indicate a crowd of
-          objects. Value is optional, and if not provided it will automatically be
-          set to 0.
+        - iscrowd: optional :class:`~np.ndarray` of shape ``(num_boxes)``, 1 where
+          the box or mask covers a crowd of objects. Defaults to 0.
         - area: accepted for backwards compatibility but IGNORED. The area of
           every object is always computed from its bounding box (or mask), so
           area-range bucketing uses the same geometry as the IoU.
