@@ -306,67 +306,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             expression &= F("confidence") > self.confidence_threshold
         return expression
 
-    @staticmethod
-    def normalize_keyframes(values: list) -> "List[bool] | None":
-        """Turn raw keyframe values for one sequence into a mask.
-
-        The flags are recorded on the `Sequence` rather than applied, so each
-        metric family can decide what to do with them: `seametrics.tracking`
-        evaluates keyframes only, while detection evaluates every frame unless the
-        caller opts in.
-
-        Args:
-            values (list): Raw per-frame keyframe values, already sliced to the
-                configured frame range.
-
-        Returns:
-            List[bool] | None: One flag per frame, or None when the field carries
-                no usable keyframe data (no attribute, or no frame flagged) — the
-                common case for a plain detection model.
-        """
-        if not values or not any(values):
-            return None
-        return [bool(value) for value in values]
-
-    def group_by_sequence(self, names: list, values: list) -> Dict[str, list]:
-        """Group per-sample values by sequence name.
-
-        For video data every sample already holds a whole sequence, so its value
-        is a list of frames. For image data each sample is a single frame and the
-        samples of a sequence have to be collected in order.
-
-        Args:
-            names (list): Sequence name of each sample, in view order.
-            values (list): Value of each sample, in the same order.
-
-        Returns:
-            Dict[str, list]: Per-frame values keyed by sequence name.
-        """
-        if values is None:
-            return {}
-        if self.dataset.media_type == "video":
-            return {name: (values[i] or []) for i, name in enumerate(names)}
-        grouped: Dict[str, list] = {}
-        for name, value in zip(names, values, strict=True):
-            grouped.setdefault(name, []).append(value)
-        return grouped
-
-    def group_values(self, names: list, values: list, unwound: bool) -> Dict[str, list]:
-        """Group fetched values by sequence name.
-
-        Args:
-            names (list): Sequence name of each sample, in view order.
-            values (list): Fetched values.
-            unwound (bool): True when the query unwound frames, in which case
-                *values* is already the flat frame list of the single sequence.
-
-        Returns:
-            Dict[str, list]: Per-frame values keyed by sequence name.
-        """
-        if unwound:
-            return {names[0]: values or []}
-        return self.group_by_sequence(names, values)
-
     def fetch_sequences(self, batch: List[str]) -> Dict[str, Sequence]:
         """Fetch a batch of sequences with one query per field.
 
@@ -384,7 +323,8 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
 
         Note:
             Any query error that is not the BSON size limit propagates unchanged,
-            as does the size limit itself once a single sequence is still too big.
+            as does the size limit itself once a single sequence is too big even
+            unwound.
         """
         try:
             return self._fetch_sequences(batch)
@@ -434,18 +374,13 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 only_matches=False,
             )
             path = self.get_field_name(view, field_name, unwinding=unwound)
-            detections[field_name] = self.group_values(
-                names,
-                self.aligned_values(filter_view, ids, f"{path}.detections", unwound),
-                unwound,
+            detections[field_name] = self.grouped_values(
+                filter_view, ids, names, f"{path}.detections", unwound=unwound
             )
-            if field_name not in flagged:
-                continue  # ground truth, or a model with no keyframe flag here
-            keyframes[field_name] = self.group_values(
-                names,
-                self.aligned_values(filter_view, ids, f"{path}.keyframe", unwound),
-                unwound,
-            )
+            if field_name in flagged:  # never the ground truth
+                keyframes[field_name] = self.grouped_values(
+                    filter_view, ids, names, f"{path}.keyframe", unwound=unwound
+                )
 
         resolutions = self.get_resolutions(view)
 
@@ -485,14 +420,14 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 tracking mode when the model has a usable keyframe mask.
         """
         fields = {
-            field: [frame or [] for frame in per_seq.get(name, [])][frame_range]
+            field: [frame or [] for frame in per_seq.get(name, [])[frame_range]]
             for field, per_seq in detections.items()
         }
         masks = {}
         for field, per_seq in keyframes.items():
-            mask = self.normalize_keyframes(per_seq.get(name, [])[frame_range])
-            if mask is not None:
-                masks[field] = mask
+            flags = per_seq.get(name, [])[frame_range]
+            if any(flags):
+                masks[field] = [bool(flag) for flag in flags]
 
         blanking = masks.get(self.models[0]) if self.tracking_mode else None
         if blanking is not None:
@@ -533,10 +468,10 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         )
         return ids, names, {m for m, n in zip(self.models, counts, strict=True) if n}
 
-    def aligned_values(
-        self, view: fo.DatasetView, ids: list, path: str, unwound: bool = False
-    ) -> list:
-        """Read *path* from *view* in the sample order of *ids*.
+    def grouped_values(
+        self, view: fo.DatasetView, ids: list, names: list, path: str, *, unwound: bool
+    ) -> Dict[str, list]:
+        """Read *path* from *view* and group the values by sequence name.
 
         Separate ``values()`` queries do not share one sample order: MongoDB may
         return each query's samples in a different order, which hands one
@@ -546,18 +481,29 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         Args:
             view (fo.DatasetView): View to read from.
             ids (list): Sample ids, in the order the sequence names were read.
+            names (list): Sequence name of each sample, in the same order.
             path (str): Field path to read.
             unwound (bool): True when *path* unwinds the frames of a single
                 video sample, which come back as one flat list in frame order.
 
         Returns:
-            list: One value per id, or one per frame when unwound.
+            Dict[str, list]: Per-frame values keyed by sequence name. A video
+                sample holds a whole sequence; image samples are single frames,
+                collected in view order.
         """
-        if unwound and self.dataset.media_type == "video":
-            return view.values(path)
+        video = self.dataset.media_type == "video"
+        if unwound and video:
+            return {names[0]: view.values(path) or []}
         found_ids, values = view.values(["id", path])
         by_id = dict(zip(found_ids, values, strict=True))
-        return [by_id.get(sample_id) for sample_id in ids]
+        if video:
+            return {
+                name: by_id.get(i) or [] for i, name in zip(ids, names, strict=True)
+            }
+        grouped: Dict[str, list] = {}
+        for sample_id, name in zip(ids, names, strict=True):
+            grouped.setdefault(name, []).append(by_id.get(sample_id))
+        return grouped
 
     @staticmethod
     def get_resolutions(view: fo.DatasetView) -> Dict[str, Resolution]:
@@ -588,9 +534,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
 
     def process_sequences(self) -> Dict[str, Sequence]:
         """Process the sequences and generate sequence data.
-
-        Sequences are fetched in batches so that each field costs one query per
-        batch rather than one per sequence.
 
         Returns:
             Dict: A dictionary containing sequence data.

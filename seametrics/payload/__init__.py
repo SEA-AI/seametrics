@@ -59,8 +59,7 @@ class Sequence:
     def field_names(self) -> List[str]:
         """Detection field names of the sequence.
 
-        Excludes the resolution and keyframes attributes, which are metadata
-        about the sequence rather than detection fields.
+        Excludes the resolution and keyframes attributes.
 
         Returns:
             List[str]: The list of field names.
