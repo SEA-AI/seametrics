@@ -3,6 +3,7 @@
 import contextlib
 import io
 import pathlib
+from itertools import compress
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import fiftyone as fo
@@ -15,74 +16,8 @@ from tqdm import tqdm
 from seametrics.detection.np.utils import box_convert
 from seametrics.detection.pooling import OVERALL_KEY, aggregate_sequence_results
 from seametrics.payload import Payload
-from seametrics.payload import Sequence as PayloadSequence
 
 # payload functions
-
-
-def _sequence_keyframes(
-    sequence: PayloadSequence, sequence_name: str, model_name: str
-) -> List[bool]:
-    """Return the keyframe mask a sequence recorded for one prediction field.
-
-    Args:
-        sequence (PayloadSequence): The payload sequence.
-        sequence_name (str): Name of the sequence, used in error messages.
-        model_name (str): Prediction field whose mask is wanted.
-
-    Returns:
-        List[bool]: One flag per frame.
-
-    Raises:
-        ValueError: If the sequence carries no keyframe mask for *model_name*.
-            Filtering silently on a missing mask would evaluate every frame while
-            reporting keyframe-only numbers.
-    """
-    keyframes = getattr(sequence, "keyframes", None) or {}
-    mask = keyframes.get(model_name)
-    if mask is None:
-        raise ValueError(
-            f"Sequence {sequence_name!r} has no keyframe data for {model_name!r}."
-            " Rebuild the payload with a PayloadProcessor that records keyframes,"
-            " or pass keyframes_only=False."
-        )
-    return mask
-
-
-def _filter_to_keyframes(
-    frames: List[List[fo.Detection]],
-    mask: List[bool],
-    sequence_name: str,
-    field_name: str,
-) -> List[List[fo.Detection]]:
-    """Drop the frames whose keyframe flag is falsy.
-
-    Applied to ground truth and predictions alike, mirroring
-    ``seametrics.tracking.utils.build_detection_inputs``: a frame the model never
-    emitted on is removed from the evaluation entirely rather than counted as a
-    miss, and stops contributing to ``nImgs``.
-
-    Args:
-        frames (List[List[fo.Detection]]): Per-frame detection lists.
-        mask (List[bool]): One keyframe flag per frame.
-        sequence_name (str): Name of the sequence, used in error messages.
-        field_name (str): Field being filtered, used in error messages.
-
-    Returns:
-        List[List[fo.Detection]]: Only the frames flagged as keyframes.
-
-    Raises:
-        ValueError: If *mask* and *frames* have different lengths, which would
-            silently misalign ground truth and predictions.
-    """
-    if len(mask) != len(frames):
-        raise ValueError(
-            f"Keyframe mask for sequence {sequence_name!r} has {len(mask)} entries"
-            f" but field {field_name!r} has {len(frames)} frames."
-        )
-    return [
-        frame for frame, is_keyframe in zip(frames, mask, strict=True) if is_keyframe
-    ]
 
 
 def _sequence_det_inputs(
@@ -106,16 +41,30 @@ def _sequence_det_inputs(
     Returns:
         Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
             ``(predictions, references)``, one dict per frame.
+
+    Raises:
+        ValueError: If *keyframes_only* is set and the sequence has no keyframe
+            mask for *model_name*, or one whose length differs from the frames.
     """
     sequence = payload.sequences[sequence_name]
     pred_frames = sequence[model_name]
     gt_frames = sequence[payload.gt_field_name]
     if keyframes_only:
-        mask = _sequence_keyframes(sequence, sequence_name, model_name)
-        pred_frames = _filter_to_keyframes(pred_frames, mask, sequence_name, model_name)
-        gt_frames = _filter_to_keyframes(
-            gt_frames, mask, sequence_name, payload.gt_field_name
-        )
+        mask = (getattr(sequence, "keyframes", None) or {}).get(model_name)
+        if mask is None:
+            raise ValueError(
+                f"Sequence {sequence_name!r} has no keyframe data for {model_name!r}."
+                " Rebuild the payload with a PayloadProcessor that records keyframes,"
+                " or pass keyframes_only=False."
+            )
+        if not len(mask) == len(pred_frames) == len(gt_frames):
+            raise ValueError(
+                f"Keyframe mask for sequence {sequence_name!r} has {len(mask)} entries"
+                f" but the sequence has {len(pred_frames)} prediction and"
+                f" {len(gt_frames)} ground-truth frames."
+            )
+        pred_frames = list(compress(pred_frames, mask))
+        gt_frames = list(compress(gt_frames, mask))
     w, h = sequence.resolution.width, sequence.resolution.height
     predictions = payload_sequence_to_det_metrics(
         sequence_dets=pred_frames, w=w, h=h, label_mapping=label_mapping
@@ -146,17 +95,14 @@ def payload_to_det_metric(
         class_agnostic (bool, optional): Flag indicating if the metrics should be
             calculated in a class-agnostic way. Defaults to True.
         keyframes_only (bool, optional): Keep only the frames the model flagged as
-            keyframes, dropping ground truth and predictions alike, as
-            ``seametrics.tracking`` does. Frames the model never emitted on are
-            excluded from the evaluation instead of counting as misses. Requires a
-            payload built by a ``PayloadProcessor`` that records keyframes.
-            Defaults to False.
+            keyframes, in ground truth and predictions alike, as
+            ``seametrics.tracking`` does. Requires sequences that record
+            keyframes. Defaults to False.
 
     Returns:
         Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
-            A tuple containing the converted (predictions, references). Boxes are
-            in absolute ``xywh`` pixel coordinates, so the metric consuming them
-            must be created with ``box_format="xywh"``.
+            A tuple containing the converted (predictions, references), with
+            absolute ``xywh`` boxes: create the metric with ``box_format="xywh"``.
     """
     if class_agnostic and label_mapping is not None:
         raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
@@ -188,15 +134,10 @@ def payload_to_det_metrics_by_sequence(
 ) -> Dict[str, dict]:
     """Evaluate every sequence of a payload separately, plus a pooled total.
 
-    Unlike :func:`payload_to_det_metric`, which flattens all sequences into one
-    pooled evaluation, this runs an independent ``PrecisionRecallF1Support`` per
-    sequence. Use it to see which sequences regressed: the pooled precision and
-    recall are support-weighted, so a single long sequence can hide a regression
-    in a short one.
-
-    Boxes are converted with :func:`frame_dets_to_det_metrics`, which emits
-    absolute ``xywh``, so ``box_format`` is fixed to ``"xywh"`` and may not be
-    overridden.
+    One metric over every frame weights precision and recall by support, so one
+    long sequence can hide a regression in a short one.
+    ``box_format`` is fixed to ``"xywh"``, the layout
+    :func:`frame_dets_to_det_metrics` emits.
 
     Args:
         payload (Payload): The payload containing sequences, models and the
@@ -207,44 +148,24 @@ def payload_to_det_metrics_by_sequence(
             to numbers, required for class-specific metrics. Defaults to None.
         class_agnostic (bool, optional): Flag indicating if the metrics should be
             calculated in a class-agnostic way. Defaults to True.
-        include_overall (bool, optional): Add an ``"OVERALL"`` entry holding the
-            pooled result. Computed by summing the per-sequence counts, so the
-            data is still traversed exactly once. Defaults to True.
-        keyframes_only (bool, optional): Keep only the frames *model_name* flagged
-            as keyframes, dropping ground truth and predictions alike, as
-            ``seametrics.tracking`` does. ``nImgs`` then counts keyframes only.
-            Requires a payload built by a ``PayloadProcessor`` that records
-            keyframes. Defaults to False.
-        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support`` (e.g.
-            ``iou_thresholds``, ``area_ranges``, ``area_ranges_labels``). When
-            *label_mapping* is given and ``labels`` is not, ``labels`` defaults to
-            the sorted mapping values so that every sequence reports the same
-            classes in the same order — otherwise per-sequence result arrays would
-            have different lengths and could not be compared.
+        include_overall (bool, optional): Add an ``"OVERALL"`` entry pooled from
+            the per-sequence counts. Defaults to True.
+        keyframes_only (bool, optional): As for :func:`payload_to_det_metric`.
+            Masks are per model, so two models may be scored on different frames.
+            Defaults to False.
+        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support``. With
+            *label_mapping*, ``labels`` defaults to the sorted mapping values so
+            every sequence reports the same classes.
 
     Returns:
-        Dict[str, dict]: ``{sequence_name: results}``, where each value is the
-            full ``PrecisionRecallF1Support.compute()`` output. When
-            *include_overall* is set, a final ``"OVERALL"`` entry holds the pooled
-            result and is byte-for-byte what :func:`payload_to_det_metric` plus a
-            single metric would produce. Pass the whole dict straight to
-            :func:`sequence_results_to_df` to get one row per
-            (sequence, area range) with OVERALL last.
+        Dict[str, dict]: ``{sequence_name: compute() output}``. ``"OVERALL"``
+            comes last and equals one metric over every frame.
 
     Raises:
         ValueError: If *label_mapping* is combined with ``class_agnostic=True``,
-            if ``box_format`` is passed in *metric_kwargs*, or if a sequence is
-            literally named ``"OVERALL"`` while *include_overall* is set.
-
-    Note:
-        A sequence that fails to evaluate propagates the exception, aborting the
-        whole call. This differs from ``seametrics.tracking``, where per-sequence
-        errors are routed to ``metric.failed_sequences``.
-
-    Note:
-        Keyframe masks are per prediction field, so two models with different
-        keyframes are evaluated over different frame subsets. Their numbers are
-        each internally consistent but not strictly comparable to one another.
+            if ``box_format`` is in *metric_kwargs*, or if a sequence is named
+            ``"OVERALL"`` while *include_overall* is set. Errors in a sequence
+            propagate; ``seametrics.tracking`` logs them to ``failed_sequences``.
     """
     from seametrics.detection import PrecisionRecallF1Support
 
@@ -309,8 +230,7 @@ def payload_sequence_to_det_metrics(
 
     Returns:
         List[Dict[str, np.ndarray]]: A list containing the converted detections,
-            one dict per frame. Boxes are absolute ``xywh`` — see
-            :func:`frame_dets_to_det_metrics`.
+            one dict per frame, as :func:`frame_dets_to_det_metrics` builds it.
     """
     output = []
 
@@ -319,22 +239,6 @@ def payload_sequence_to_det_metrics(
         output.append(frame_dict)
 
     return output
-
-
-def _denormalize_fo_bbox(bounding_box: List[float], w: int, h: int) -> List[float]:
-    """Scale a relative fiftyone bounding box to absolute pixel coordinates.
-
-    Args:
-        bounding_box (List[float]): Relative ``[x, y, width, height]`` as stored
-            by fiftyone, with ``(x, y)`` the top-left corner.
-        w (int): Width in pixels of the image.
-        h (int): Height in pixels of the image.
-
-    Returns:
-        List[float]: ``[x, y, width, height]`` in absolute pixel coordinates.
-    """
-    rel_x, rel_y, rel_w, rel_h = bounding_box
-    return [rel_x * w, rel_y * h, rel_w * w, rel_h * h]
 
 
 def frame_dets_to_det_metrics(
@@ -346,15 +250,11 @@ def frame_dets_to_det_metrics(
 ) -> Dict[str, np.ndarray]:
     """Convert one frame's fiftyone detections to PrecisionRecallF1Support input.
 
-    FiftyOne stores ``Detection.bounding_box`` as ``[x, y, width, height]``
-    *relative* to the image size, with ``(x, y)`` the top-left corner. The boxes
-    returned here keep that ``xywh`` layout but are scaled to absolute pixel
-    coordinates, so the consuming metric must be constructed with
-    ``box_format="xywh"``.
+    FiftyOne boxes are relative ``[x, y, width, height]``; the output keeps that
+    layout in pixels, so the metric needs ``box_format="xywh"``.
 
     Args:
-        fo_dets (List[fo.Detection]): A list of fiftyone detections belonging to
-            a single frame.
+        fo_dets (List[fo.Detection]): A list of fiftyone detections.
         w (int): Width in pixels of the image.
         h (int): Height in pixels of the image.
         is_gt (bool, optional): Flag indicating if the input data is ground truth.
@@ -365,15 +265,10 @@ def frame_dets_to_det_metrics(
             from the mapping are dropped. Defaults to None.
 
     Returns:
-        Dict[str, np.ndarray]: ``boxes`` of shape ``(N, 4)`` in absolute ``xywh``
-            pixel coordinates and ``labels`` of shape ``(N,)``. Predictions
-            additionally carry ``scores`` (``1.0`` when a detection has no
-            confidence). Empty input yields empty (1-D) arrays.
-
-            No ``area`` is emitted: ``PrecisionRecallF1Support`` always derives
-            the area from the bounding box, so a fiftyone ``area`` attribute
-            would be silently discarded. Area-range bucketing therefore uses the
-            same geometry as the IoU.
+        Dict[str, np.ndarray]: ``boxes`` ``(N, 4)`` and ``labels`` ``(N,)``, plus
+            ``scores`` for predictions (``1.0`` when confidence is None). Empty
+            input yields 1-D empty arrays. No ``area``: the metric derives it from
+            the box.
     """
     boxes = []
     labels = []
@@ -387,7 +282,8 @@ def frame_dets_to_det_metrics(
             )
             continue
 
-        boxes.append(_denormalize_fo_bbox(det["bounding_box"], w, h))
+        x, y, box_w, box_h = det["bounding_box"]
+        boxes.append([x * w, y * h, box_w * w, box_h * h])
         labels.append(0 if label_mapping is None else label_mapping[det["label"]])
 
         if not is_gt:
@@ -855,10 +751,8 @@ def get_confidence_metric_vals(  # pylint: disable=too-many-positional-arguments
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     """Denormalize boxes from [0, 1] to [0, img_w] and [0, img_h].
 
-    The box layout only matters insofar as x-like values must sit at even column
-    indices and y-like values at odd ones, which holds for ``xyxy``, ``xywh`` and
-    ``cxcywh``. Boxes containing any value greater than ``1.0`` are assumed to be
-    in pixel coordinates already and are returned untouched.
+    Works for any layout with x-like values in even columns (``xyxy``, ``xywh``,
+    ``cxcywh``). Boxes with any value above ``1.0`` are returned untouched.
 
     Args:
         boxes (np.ndarray): Boxes which will be denormalized, shape ``(N, 4)``.
@@ -866,8 +760,8 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
         img_h (int): Height of image in pixels.
 
     Returns:
-        np.ndarray: Denormalized boxes of shape ``(N, 4)`` and floating-point
-            dtype. The input array is never modified in place.
+        np.ndarray: A float copy of the denormalized boxes, or *boxes* itself when
+            empty or already in pixels.
     """
     if boxes.size == 0:
         return boxes
@@ -876,8 +770,7 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     if np.any(boxes > 1.0):
         return boxes
 
-    # copy so callers keep their normalized boxes, and cast so that integer
-    # inputs (e.g. an all-zero/one box) do not truncate the scaled values
+    # a float copy: callers keep their boxes, and integer input does not truncate
     boxes = boxes.astype(np.float64)
     boxes[:, 0::2] *= img_w
     boxes[:, 1::2] *= img_h

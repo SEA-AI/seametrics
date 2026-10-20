@@ -2,14 +2,21 @@ import fiftyone as fo
 import numpy as np
 import pytest
 
+from seametrics.detection import PrecisionRecallF1Support
 from seametrics.detection.utils import (
+    OVERALL_KEY,
     _validate_arrays,
+    box_denormalize,
     frame_dets_to_det_metrics,
     get_relevant_fields,
     get_values,
     payload_sequence_to_det_metrics,
+    payload_to_det_metric,
+    payload_to_det_metrics_by_sequence,
     prepare_data_for_det_metrics,
+    sequence_results_to_df,
 )
+from seametrics.payload import Payload, Resolution, Sequence
 
 
 def assert_det_dicts(dict1, dict2):
@@ -78,12 +85,12 @@ def test_frame_dets_to_det_metrics_with_ground_truth():
         fo.Detection(
             label="FAR_AWAY_OBJECT",
             bounding_box=[0, 0, 1, 1],
-            area=100,  # ignored: the metric always derives area from the bbox
+            area=100,  # not forwarded: the metric derives area from the box
         ),
         fo.Detection(
             label="FAR_AWAY_OBJECT",
             bounding_box=[0, 0, 0.5, 0.5],
-            area=50,  # ignored: the metric always derives area from the bbox
+            area=50,  # not forwarded: the metric derives area from the box
         ),
     ]
     w = 640
@@ -170,12 +177,12 @@ def test_payload_sequence_to_det_metrics_with_ground_truth():
             fo.Detection(
                 label="FAR_AWAY_OBJECT",
                 bounding_box=[0, 0, 1, 1],
-                area=100,  # ignored by the metric
+                area=100,  # not forwarded: the metric derives area from the box
             ),
             fo.Detection(
                 label="FAR_AWAY_OBJECT",
                 bounding_box=[0, 0, 0.5, 0.5],
-                area=50,  # ignored by the metric
+                area=50,  # not forwarded: the metric derives area from the box
             ),
         ]
     ] * 10
@@ -248,3 +255,359 @@ def test_validate_arrays_wraps_a_single_frame():
 def test_validate_arrays_rejects_unknown_data_type():
     with pytest.raises(ValueError, match="Unsupported data type: keypoint"):
         _validate_arrays([[0, 0, 1, 1]], data_type="keypoint")
+
+
+# On a 100x100 image these boxes have IoU exactly 1/3:
+#   gt   rel [0.1, 0.1, 0.2, 0.2] -> px xywh [10, 10, 20, 20]
+#   pred rel [0.2, 0.1, 0.2, 0.2] -> px xywh [20, 10, 20, 20]
+#   intersection 10 * 20 = 200, union 400 + 400 - 200 = 600
+GT_BOX = [0.1, 0.1, 0.2, 0.2]
+PRED_BOX = [0.2, 0.1, 0.2, 0.2]
+# split at 300 px², so the 20x20 px (400 px²) box is "large"
+AREA_KWARGS = {
+    "area_ranges": [[0, 300], [300, 1e10]],
+    "area_ranges_labels": ["small", "large"],
+}
+LABEL_MAPPING = {"BOAT": 1, "BUOY": 2}
+
+
+def _det(bbox=GT_BOX, label="BOAT", **kwargs: object):
+    return fo.Detection(label=label, bounding_box=list(bbox), **kwargs)
+
+
+def _pred(bbox=GT_BOX, label="BOAT"):
+    return _det(bbox, label, confidence=0.9)
+
+
+def _sequence(gt, pred, width=100, height=100, gt_field="gt", **fields: object):
+    return Sequence(
+        resolution=Resolution(height=height, width=width),
+        **{gt_field: gt, "model": pred, **fields},
+    )
+
+
+def _payload(sequences, models=("model",), gt_field="gt"):
+    return Payload(
+        dataset="synthetic",
+        models=list(models),
+        gt_field_name=gt_field,
+        sequences=sequences,
+    )
+
+
+def _compute(preds, refs, **kwargs: object):
+    metric = PrecisionRecallF1Support(
+        **{"box_format": "xywh", "iou_thresholds": [0.5], **kwargs}
+    )
+    metric.update(preds, refs)
+    return metric.compute()["metrics"]
+
+
+def _by_sequence(payload, **kwargs: object):
+    return payload_to_det_metrics_by_sequence(
+        payload, **{"iou_thresholds": [0.5], **kwargs}
+    )
+
+
+def _hit_and_miss():
+    return _payload(
+        {
+            "hit": _sequence([[_det()]], [[_pred()]]),
+            "miss": _sequence([[_det()]], [[]]),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("bbox", "w", "h", "expected"),
+    [
+        pytest.param([0.25, 0.5, 0.5, 0.25], 640, 512, [160, 256, 320, 128], id="xywh"),
+        pytest.param([0.1, 0.2, 0.3, 0.4], 400, 100, [40, 20, 120, 40], id="wide"),
+        pytest.param([0.1, 0.2, 0.3, 0.4], 100, 400, [10, 80, 30, 160], id="tall"),
+        pytest.param(
+            [0.9, 0.9, 0.5, 0.5], 100, 200, [90, 180, 50, 100], id="unclipped"
+        ),
+    ],
+)
+def test_frame_dets_scale_relative_xywh_to_pixels(bbox, w, h, expected):
+    """x-like values scale by width, y-like by height; the layout stays xywh."""
+    out = frame_dets_to_det_metrics([_pred(bbox)], w, h)
+    np.testing.assert_allclose(out["boxes"], [expected])
+
+
+def test_frame_dets_scores_keep_zero_and_default_missing_to_one():
+    dets = [_det(confidence=0.0), _det(), _det(confidence=0.75)]
+    out = frame_dets_to_det_metrics(dets, 100, 100)
+    np.testing.assert_array_equal(out["scores"], [0.0, 1.0, 0.75])
+
+
+def test_frame_dets_ground_truth_ignores_area():
+    """The metric derives area from the box, so an fo ``area`` is not forwarded."""
+    out = frame_dets_to_det_metrics([_det(area=1234.5)], 100, 100, is_gt=True)
+    assert set(out) == {"boxes", "labels"}
+
+
+def test_frame_dets_unmapped_labels_dropped_keeping_alignment():
+    dets = [
+        _det([0.0, 0.0, 0.1, 0.1], confidence=0.9),
+        _det([0.1, 0.1, 0.1, 0.1], "UNKNOWN", confidence=0.1),
+        _det([0.2, 0.2, 0.1, 0.1], confidence=0.5),
+    ]
+    out = frame_dets_to_det_metrics(dets, 100, 100, label_mapping={"BOAT": 1})
+    np.testing.assert_array_equal(out["labels"], [1, 1])
+    np.testing.assert_array_equal(out["scores"], [0.9, 0.5])
+    np.testing.assert_allclose(out["boxes"][:, 0], [0.0, 20.0])
+
+
+@pytest.mark.parametrize(
+    ("w", "h", "gt", "pred", "threshold", "counts"),
+    [
+        pytest.param(100, 100, GT_BOX, PRED_BOX, 0.3, (1, 0, 0), id="square-match"),
+        pytest.param(100, 100, GT_BOX, PRED_BOX, 0.35, (0, 1, 1), id="square-miss"),
+        # px gt [0, 0, 50, 200], pred [0, 100, 50, 200]: IoU 5000 / 15000 = 1/3
+        pytest.param(
+            100, 400, [0, 0, 0.5, 0.5], [0, 0.25, 0.5, 0.5], 0.3, (1, 0, 0), id="tall"
+        ),
+        pytest.param(
+            100,
+            400,
+            [0, 0, 0.5, 0.5],
+            [0, 0.25, 0.5, 0.5],
+            0.35,
+            (0, 1, 1),
+            id="tall-miss",
+        ),
+    ],
+)
+def test_converted_boxes_give_the_hand_computed_iou(w, h, gt, pred, threshold, counts):
+    preds = payload_sequence_to_det_metrics([[_pred(pred)]], w, h)
+    refs = payload_sequence_to_det_metrics([[_det(gt)]], w, h, is_gt=True)
+    res = _compute(preds, refs, iou_thresholds=[threshold])["all"]
+    assert (res["tp"], res["fp"], res["fn"]) == counts
+
+
+def test_converted_boxes_need_box_format_xywh():
+    """Read as xyxy, the prediction [20, 10, 20, 20] has zero width: no match."""
+    preds = payload_sequence_to_det_metrics([[_pred(PRED_BOX)]], 100, 100)
+    refs = payload_sequence_to_det_metrics([[_det()]], 100, 100, is_gt=True)
+    assert _compute(preds, refs, iou_thresholds=[0.3])["all"]["tp"] == 1
+    xyxy = _compute(preds, refs, iou_thresholds=[0.3], box_format="xyxy")
+    assert xyxy["all"]["tp"] == 0
+
+
+def test_area_bucket_comes_from_the_box_not_an_annotated_area():
+    """A 400 px² box stays "large" even when fo and the target dict say 100."""
+    preds = payload_sequence_to_det_metrics([[_pred()]], 100, 100)
+    refs = payload_sequence_to_det_metrics([[_det(area=100.0)]], 100, 100, is_gt=True)
+    refs[0]["area"] = np.array([100.0])
+    metrics = _compute(preds, refs, **AREA_KWARGS)
+    assert (metrics["small"]["tp"], metrics["large"]["tp"]) == (0, 1)
+
+
+def test_two_frames_one_hit_one_duplicate_one_miss():
+    preds = payload_sequence_to_det_metrics([[_pred(), _pred()], []], 100, 100)
+    refs = payload_sequence_to_det_metrics([[_det()], [_det()]], 100, 100, is_gt=True)
+    res = _compute(preds, refs)["all"]
+    assert (res["tp"], res["fp"], res["fn"], res["duplicates"]) == (1, 1, 1, 1)
+    assert res["precision"] == res["recall"] == res["f1"] == pytest.approx(0.5)
+
+
+def test_payload_to_det_metric_scales_each_sequence_by_its_resolution():
+    payload = _payload(
+        {
+            "a": _sequence([[_det()]], [[_pred()]], width=200, height=100),
+            "b": _sequence([[_det()]], [[_pred()]], width=400, height=50),
+        }
+    )
+    preds, refs = payload_to_det_metric(payload, model_name="model")
+    np.testing.assert_allclose(preds[0]["boxes"], [[20, 10, 40, 20]])
+    np.testing.assert_allclose(preds[1]["boxes"], [[40, 5, 80, 10]])
+    np.testing.assert_allclose(refs[1]["boxes"], preds[1]["boxes"])
+
+
+def test_payload_to_det_metric_applies_label_mapping():
+    preds, refs = payload_to_det_metric(
+        _payload({"a": _sequence([[_det()]], [[_pred()]])}),
+        label_mapping={"BOAT": 4},
+        class_agnostic=False,
+    )
+    assert preds[0]["labels"].tolist() == refs[0]["labels"].tolist() == [4]
+
+
+@pytest.mark.parametrize(
+    ("fn", "kwargs", "match"),
+    [
+        (payload_to_det_metric, {"label_mapping": {"BOAT": 1}}, "Label mapping"),
+        (_by_sequence, {"label_mapping": {"BOAT": 1}}, "Label mapping"),
+        (_by_sequence, {"box_format": "xyxy"}, "box_format` cannot be overridden"),
+    ],
+)
+def test_invalid_conversion_arguments_raise(fn, kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        fn(_hit_and_miss(), **kwargs)
+
+
+def test_by_sequence_scores_each_sequence_and_pools_overall_last():
+    """Pooled recall 0.5 hides that one sequence scored 1.0 and the other 0.0."""
+    res = _by_sequence(_hit_and_miss())
+    hit, miss, overall = (res[k]["metrics"]["all"] for k in res)
+    assert list(res) == ["hit", "miss", OVERALL_KEY]
+    assert (hit["tp"], hit["fn"], hit["recall"]) == (1, 0, 1.0)
+    assert (miss["tp"], miss["fn"], miss["recall"], miss["precision"]) == (0, 1, 0, -1)
+    assert (overall["tp"], overall["fn"], overall["recall"]) == (1, 1, 0.5)
+    assert list(sequence_results_to_df(res)["n_imgs"]) == [1, 1, 2]
+
+
+def test_by_sequence_forwards_metric_kwargs():
+    res = _by_sequence(_hit_and_miss(), **AREA_KWARGS)
+    assert all(set(r["metrics"]) == {"small", "large"} for r in res.values())
+    assert res["hit"]["metrics"]["large"]["tp"] == 1
+
+
+@pytest.mark.parametrize(("model_name", "tp"), [(None, 1), ("model_b", 0)])
+def test_by_sequence_model_defaults_to_the_first(model_name, tp):
+    sequence = _sequence([[_det()]], [[_pred()]], model_b=[[]])
+    payload = _payload({"s": sequence}, models=("model", "model_b"))
+    assert (
+        _by_sequence(payload, model_name=model_name)["s"]["metrics"]["all"]["tp"] == tp
+    )
+
+
+def test_by_sequence_reads_ground_truth_from_gt_field_name():
+    sequence = _sequence([[_det()]], [[]], gt_field="ground_truth")
+    payload = _payload({"s": sequence}, gt_field="ground_truth")
+    assert _by_sequence(payload)["s"]["metrics"]["all"]["support"] == 1
+
+
+def test_by_sequence_on_no_sequences_has_no_overall():
+    assert _by_sequence(_payload({})) == {}
+
+
+def test_sequence_named_overall_needs_include_overall_false():
+    payload = _payload({OVERALL_KEY: _sequence([[_det()]], [[_pred()]])})
+    with pytest.raises(ValueError, match="collides with the pooled entry"):
+        _by_sequence(payload)
+    res = _by_sequence(payload, include_overall=False)
+    assert res[OVERALL_KEY]["metrics"]["all"]["tp"] == 1
+
+
+@pytest.mark.parametrize("area_kwargs", [{}, AREA_KWARGS], ids=["all", "area-ranges"])
+def test_overall_equals_one_evaluation_of_every_frame(area_kwargs):
+    """seq_a: a match, then a prediction on an empty frame (tp 1, fp 1, fpi 1).
+
+    seq_b: a miss, then a misplaced prediction (fp 1, fn 2).
+    """
+    payload = _payload(
+        {
+            "seq_a": _sequence([[_det()], []], [[_pred()], [_pred()]]),
+            "seq_b": _sequence([[_det()], [_det()]], [[], [_pred(PRED_BOX)]]),
+        }
+    )
+    overall = _by_sequence(payload, **area_kwargs)[OVERALL_KEY]["metrics"]
+    assert overall == _compute(*payload_to_det_metric(payload), **area_kwargs)
+
+
+def _disjoint_classes():
+    return _payload(
+        {
+            "boat": _sequence([[_det()]], [[_pred()]]),
+            "buoy": _sequence([[_det(label="BUOY")]], [[_pred(label="BUOY")]]),
+        }
+    )
+
+
+def test_class_specific_sequences_report_every_mapped_class():
+    """Each sequence reports both classes, so OVERALL sums them by position."""
+    payload = _disjoint_classes()
+    kwargs = {"label_mapping": LABEL_MAPPING, "class_agnostic": False}
+    res = _by_sequence(payload, **kwargs)
+    tps = [res[k]["metrics"]["all"]["tp"].tolist() for k in res]
+    assert tps == [[1, 0], [0, 1], [1, 1]]
+    pooled = _compute(
+        *payload_to_det_metric(payload, **kwargs), class_agnostic=False, labels=[1, 2]
+    )["all"]
+    overall = res[OVERALL_KEY]["metrics"]["all"]
+    for key in ("tp", "fp", "fn", "precision", "recall", "f1", "support"):
+        np.testing.assert_allclose(overall[key], pooled[key], err_msg=key)
+
+
+def test_class_specific_explicit_labels_are_kept():
+    res = _by_sequence(
+        _disjoint_classes(),
+        label_mapping=LABEL_MAPPING,
+        class_agnostic=False,
+        labels=[1, 2, 3],
+    )
+    assert np.shape(res["boat"]["metrics"]["all"]["tp"]) == (3,)
+
+
+def _keyframe_sequence(pred=None, mask=(True, False, True, False)):
+    """GT on four frames; the model emits on, and flags, frames 0 and 2."""
+    return _sequence(
+        [[_det()]] * 4,
+        pred or [[_pred()], [], [_pred()], []],
+        keyframes={"model": list(mask)},
+    )
+
+
+@pytest.mark.parametrize(
+    ("keyframes_only", "expected"), [(False, (2, 0, 2, 4)), (True, (2, 0, 0, 2))]
+)
+def test_keyframes_only_drops_other_frames_from_both_sides(keyframes_only, expected):
+    """GT on skipped frames is a miss unless keyframes_only drops those frames."""
+    res = _by_sequence(
+        _payload({"s": _keyframe_sequence()}), keyframes_only=keyframes_only
+    )["s"]["metrics"]["all"]
+    assert (res["tp"], res["fp"], res["fn"], res["nImgs"]) == expected
+
+
+def test_keyframes_only_ignores_predictions_on_dropped_frames():
+    pred = [[_pred()], [_pred(PRED_BOX)], [_pred()], []]
+    payload = _payload({"s": _keyframe_sequence(pred=pred)})
+    res = _by_sequence(payload, keyframes_only=True)["s"]["metrics"]["all"]
+    assert (res["tp"], res["fp"], res["fn"]) == (2, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("sequence", "match"),
+    [
+        pytest.param(_sequence([[_det()]], [[]]), "no keyframe data", id="no-mask"),
+        pytest.param(
+            _sequence([[_det()]], [[]], keyframes={"other": [True]}),
+            "no keyframe data",
+            id="other-model",
+        ),
+        pytest.param(
+            _keyframe_sequence(mask=(True, False)), "has 2 entries", id="length"
+        ),
+    ],
+)
+def test_keyframes_only_rejects_a_missing_or_misaligned_mask(sequence, match):
+    with pytest.raises(ValueError, match=match):
+        _by_sequence(_payload({"s": sequence}), keyframes_only=True)
+
+
+def test_keyframes_only_overall_equals_the_pooled_route():
+    payload = _payload({"a": _keyframe_sequence(), "b": _keyframe_sequence()})
+    overall = _by_sequence(payload, keyframes_only=True)[OVERALL_KEY]["metrics"]
+    assert overall == _compute(*payload_to_det_metric(payload, keyframes_only=True))
+
+
+def test_box_denormalize_scales_x_by_width_and_y_by_height():
+    result = box_denormalize(np.array([[0.1, 0.2, 0.3, 0.4]]), 100, 50)
+    np.testing.assert_allclose(result, [[10.0, 10.0, 30.0, 20.0]])
+
+
+@pytest.mark.parametrize(
+    "boxes", [np.empty((0, 4)), np.array([[10.0, 20.0, 30.0, 40.0]])]
+)
+def test_box_denormalize_leaves_empty_and_pixel_boxes_alone(boxes):
+    """Any value above 1.0 means the boxes are already in pixels."""
+    np.testing.assert_array_equal(box_denormalize(boxes, 640, 480), boxes)
+
+
+def test_box_denormalize_casts_integers_without_mutating_the_input():
+    boxes = np.array([[0, 0, 1, 1]])
+    result = box_denormalize(boxes, 640, 512)
+    np.testing.assert_allclose(result, [[0.0, 0.0, 640.0, 512.0]])
+    np.testing.assert_array_equal(boxes, [[0, 0, 1, 1]])

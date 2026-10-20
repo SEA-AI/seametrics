@@ -131,9 +131,7 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
           Only required when `iou_type="segm"`.
         - iscrowd: optional :class:`~np.ndarray` of shape ``(num_boxes)``, 1 where
           the box or mask covers a crowd of objects. Defaults to 0.
-        - area: accepted for backwards compatibility but IGNORED. The area of
-          every object is always computed from its bounding box (or mask), so
-          area-range bucketing uses the same geometry as the IoU.
+        - area: ignored; the area always comes from the box or mask, like the IoU.
 
     ``compute`` returns a dict with:
 
@@ -579,11 +577,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
         """Transforms and returns all cached targets or predictions in COCO format.
 
         Format is defined at https://cocodataset.org/#format-data
-
-        The ``area`` of every annotation is always derived from the bounding box
-        (or the mask, for ``iou_type="segm"``). Any ``area`` supplied by the
-        caller is ignored, so area-range bucketing depends only on the geometry
-        that is also used for the IoU.
         """
         images = []
         annotations = []

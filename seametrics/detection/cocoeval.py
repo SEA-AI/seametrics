@@ -11,21 +11,10 @@ from collections import defaultdict
 from pycocotools import mask as maskUtils
 import copy
 
-# below this, two-decimal formatting collapses the value to "0.00"
-_IOU_DECIMAL_FLOOR = 0.005
-
 
 def _format_iou(value: float) -> str:
-    """Render an IoU threshold without rounding small values away.
-
-    ``'{:0.2f}'`` turns any threshold below 0.005 into ``"0.00"``, so a report run
-    at 1e-5 records the same string as one run at 0 and ``results_to_df`` parses
-    it back as 0.0. Values that survive two decimals keep the familiar format; the
-    rest fall back to a representation that round-trips through ``float()``.
-    """
-    if value >= _IOU_DECIMAL_FLOOR:
-        return f"{value:0.2f}"
-    return f"{value:g}"
+    """Two decimals round a threshold below 0.005 to "0.00"; use ``g`` there."""
+    return f"{value:0.2f}" if value >= 0.005 else f"{value:g}"
 
 
 class COCOeval:

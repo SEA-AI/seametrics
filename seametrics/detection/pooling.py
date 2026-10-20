@@ -1,28 +1,21 @@
 """Pool per-sequence detection results into one overall result."""
 
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import numpy as np
 
 # Key under which the pooled result is stored alongside the per-sequence results.
 OVERALL_KEY = "OVERALL"
 
-# Count fields that are additive across sequences. Ratios (precision/recall/f1)
-# are NOT additive and must be recomputed from the pooled counts.
+# Counts that add across sequences; ratios are recomputed from their sums.
 _ADDITIVE_KEYS = ("tp", "fp", "fn", "duplicates", "fpi", "nImgs")
-
-
-def _as_scalar_or_array(value: np.ndarray, cast: type) -> Union[int, float, np.ndarray]:
-    """Return a python scalar for 0-d input, else the array, like COCOeval."""
-    return cast(value) if value.ndim == 0 else value
 
 
 def _pool_area_range_metrics(entries: List[dict]) -> dict:
     """Pool one area range's per-sequence metric dicts into a single dict.
 
-    Counts are summed; precision, recall and f1 are recomputed from those sums
-    using the same ``-1`` sentinel rules as ``COCOeval._summarize_pr_rec_f1``, so
-    the result is indistinguishable from evaluating every frame in one metric.
+    Counts are summed; precision, recall and f1 are recomputed from the sums with
+    the ``-1`` sentinel rules of ``COCOeval._summarize_pr_rec_f1``.
 
     Args:
         entries (List[dict]): One metric dict per sequence, all for the same area
@@ -49,9 +42,7 @@ def _pool_area_range_metrics(entries: List[dict]) -> dict:
         totals[key] = np.sum(values, axis=0)
 
     tp, fp, fn = totals["tp"], totals["fp"], totals["fn"]
-    support = tp + fn
 
-    # mirror COCOeval: compute, then overwrite undefined entries with -1
     with np.errstate(divide="ignore", invalid="ignore"):
         precision = np.where(tp + fp == 0, -1.0, tp / (tp + fp))
         recall = np.where(tp + fn == 0, -1.0, tp / (tp + fn))
@@ -61,35 +52,21 @@ def _pool_area_range_metrics(entries: List[dict]) -> dict:
             2 * precision * recall / (precision + recall),
         )
 
-    first = entries[0]
-    return {
-        "range": first["range"],
-        "iouThr": first["iouThr"],
-        "maxDets": first["maxDets"],
-        "tp": _as_scalar_or_array(tp, int),
-        "fp": _as_scalar_or_array(fp, int),
-        "fn": _as_scalar_or_array(fn, int),
-        "duplicates": _as_scalar_or_array(totals["duplicates"], int),
-        "precision": _as_scalar_or_array(precision, float),
-        "recall": _as_scalar_or_array(recall, float),
-        "f1": _as_scalar_or_array(f1, float),
-        "support": _as_scalar_or_array(support, int),
-        "fpi": _as_scalar_or_array(totals["fpi"], int),
-        "nImgs": int(np.sum([entry["nImgs"] for entry in entries])),
-    }
+    pooled = {**totals, "support": tp + fn}
+    pooled.update(precision=precision, recall=recall, f1=f1)
+    result = dict(entries[0])  # keeps COCOeval's key order, range and iouThr
+    for key, value in pooled.items():
+        result[key] = value.item() if value.ndim == 0 else value
+    return result
 
 
 def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
     """Pool per-sequence detection results into one overall result.
 
-    Detection counts are additive across sequences because matching never crosses
-    a frame boundary, so the pooled numbers can be obtained by summing tp, fp, fn,
-    duplicates and fpi and recomputing the ratios once. No second pass over the
-    detections is needed.
-
-    Each area range is pooled independently, mirroring ``COCOeval.summarize``.
-    Note that area ranges are not nested pools: "small" + "large" does not sum to
-    "all", because ground truth outside a range is ignored rather than counted.
+    Matching never crosses a frame boundary, so counts are additive across
+    sequences and the result equals one evaluation of every frame. Each area range
+    is pooled on its own: "small" + "large" is not "all", because ground truth
+    outside a range is ignored, not counted.
 
     Args:
         sequence_results (Dict[str, dict]): ``{sequence_name: results}`` as
@@ -97,9 +74,8 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
             ``"OVERALL"`` entry is skipped so the function is idempotent.
 
     Returns:
-        dict: A results dict shaped like ``PrecisionRecallF1Support.compute()``,
-            containing only the ``"metrics"`` key (the per-sequence ``params`` and
-            ``eval`` objects cannot be meaningfully pooled).
+        dict: ``{"metrics": ...}`` shaped like ``PrecisionRecallF1Support.compute()``;
+            ``params`` and ``eval`` do not pool.
 
     Raises:
         ValueError: If *sequence_results* holds no poolable sequences, if the
