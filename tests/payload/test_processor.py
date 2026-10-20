@@ -1,7 +1,9 @@
 # test_payload_processor.py
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from seametrics.payload.processor import PayloadProcessor
 
 # Mock EXCLUDED_CLASSES if necessary
@@ -10,8 +12,10 @@ EXCLUDED_CLASSES = ["class1", "class2"]
 
 @pytest.fixture
 def mock_fiftyone():
-    """
-    Fixture to mock the entire fiftyone (fo) module and its functions.
+    """Fixture to mock the entire fiftyone (fo) module and its functions.
+
+    Yields:
+        MagicMock: The patched ``fo`` module.
     """
     # Patch the entire fiftyone module (fo)
     with patch("seametrics.payload.processor.fo") as mock_fo:
@@ -29,17 +33,18 @@ def mock_fiftyone():
 
 @pytest.fixture
 def mock_compute_payload():
-    """
-    Fixture to mock compute_payload function in the PayloadProcessor class.
+    """Fixture to mock compute_payload function in the PayloadProcessor class.
+
+    Yields:
+        MagicMock: The patched ``compute_payload`` method.
     """
     with patch.object(PayloadProcessor, "compute_payload") as mock_compute_payload:
         yield mock_compute_payload
 
 
-def test_payload_processor_initialization(mock_fiftyone, mock_compute_payload):
-    """
-    Test that PayloadProcessor initializes correctly with valid inputs.
-    """
+@pytest.mark.usefixtures("mock_fiftyone")
+def test_payload_processor_initialization(mock_compute_payload):
+    """Test that PayloadProcessor initializes correctly with valid inputs."""
     # Given
     dataset_name = "valid_dataset"
     gt_field = "ground_truth_det"
@@ -65,12 +70,9 @@ def test_payload_processor_initialization(mock_fiftyone, mock_compute_payload):
     mock_compute_payload.assert_called_once()
 
 
-def test_validate_input_parameters_invalid_data_type(
-    mock_fiftyone, mock_compute_payload
-):
-    """
-    Test validate_input_parameters with an invalid data_type value.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_validate_input_parameters_invalid_data_type():
+    """Test validate_input_parameters with an invalid data_type value."""
     with pytest.raises(ValueError, match="data_type must be 'rgb' or 'thermal'"):
         PayloadProcessor(
             dataset_name="valid_dataset",
@@ -81,16 +83,11 @@ def test_validate_input_parameters_invalid_data_type(
         )
 
 
-def test_validate_input_parameters_dataset_not_found(
-    mock_fiftyone, mock_compute_payload
-):
-    """
-    Test validate_input_parameters when the dataset is not found in FiftyOne.
-    """
+@pytest.mark.usefixtures("mock_compute_payload")
+def test_validate_input_parameters_dataset_not_found(mock_fiftyone):
+    """Test validate_input_parameters when the dataset is not found in FiftyOne."""
     # Mock FiftyOne list_datasets to return an empty list, simulating dataset not found
-    mock_fiftyone.list_datasets.return_value = (
-        []
-    )  # fo.list_datasets returns an empty list
+    mock_fiftyone.list_datasets.return_value = []
 
     with pytest.raises(ValueError, match="Dataset valid_dataset not found in FiftyOne"):
         PayloadProcessor(
@@ -103,10 +100,9 @@ def test_validate_input_parameters_dataset_not_found(
     mock_fiftyone.list_datasets.assert_called_once()
 
 
-def test_compute_payload_function_called_once(mock_fiftyone, mock_compute_payload):
-    """
-    Test that compute_payload is called exactly once during initialization.
-    """
+@pytest.mark.usefixtures("mock_fiftyone")
+def test_compute_payload_function_called_once(mock_compute_payload):
+    """Test that compute_payload is called exactly once during initialization."""
     # Given
     dataset_name = "valid_dataset"
     gt_field = "ground_truth_det"
@@ -124,10 +120,9 @@ def test_compute_payload_function_called_once(mock_fiftyone, mock_compute_payloa
     mock_compute_payload.assert_called_once()
 
 
-def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
-    """
-    Test that a ValueError is raised if models is a tuple.
-    """
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_accidental_tuple_as_models():
+    """Test that a TypeError is raised if models is a tuple."""
     models = (["model1", "model2"],)
     with pytest.raises(TypeError, match="models must be a list"):
         PayloadProcessor(
@@ -137,10 +132,10 @@ def test_accidental_tuple_as_models(mock_fiftyone, mock_compute_payload):
             tracking_mode=False,
         )
 
-def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_payload):
-    """
-    Test that start_frame_id and end_frame_id are set correctly.
-    """
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+def test_payload_initialization_with_frame_ids():
+    """Test that start_frame_id and end_frame_id are set correctly."""
     processor = PayloadProcessor(
         dataset_name="valid_dataset",
         gt_field="ground_truth_det",
@@ -150,7 +145,7 @@ def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_paylo
         end_frame_id=10,
     )
     assert processor.start_frame_id == 5
-    assert processor.end_frame_id == 11  
+    assert processor.end_frame_id == 11
 
     processor = PayloadProcessor(
         dataset_name="valid_dataset",
@@ -163,11 +158,35 @@ def test_payload_initialization_with_frame_ids(mock_fiftyone, mock_compute_paylo
     assert processor.start_frame_id == 2
     assert processor.end_frame_id is None
 
-    processor = PayloadProcessor(
-        dataset_name="valid_dataset",
-        gt_field="ground_truth_det",
-        models=["model1"],
-        tracking_mode=False,
-    )
-    assert processor.start_frame_id is None
-    assert processor.end_frame_id is None
+
+@pytest.mark.usefixtures("mock_fiftyone", "mock_compute_payload")
+@pytest.mark.parametrize(
+    ("overrides", "error", "match"),
+    [
+        ({"dataset_name": 1}, TypeError, "dataset_name must be of type str"),
+        ({"gt_field": None}, TypeError, "gt_field must be of type str"),
+        ({"tracking_mode": "yes"}, TypeError, "tracking_mode must be of type bool"),
+        ({"tags": "tag1"}, TypeError, "tags must be a list of strings or None"),
+        ({"data_type": []}, ValueError, "data_type must be 'rgb' or 'thermal'"),
+        (
+            {"tracking_mode": True, "models": ["m1", "m2"]},
+            ValueError,
+            "only one model is supported, but got 2 models",
+        ),
+        (
+            {"tracking_mode": True, "models": ["m1"], "data_type": "rgb"},
+            ValueError,
+            "not supported for RGB data",
+        ),
+    ],
+)
+def test_invalid_parameters_raise(overrides, error, match):
+    """Invalid arguments raise the expected error."""
+    kwargs = {
+        "dataset_name": "valid_dataset",
+        "gt_field": "ground_truth_det",
+        "models": ["model1"],
+        **overrides,
+    }
+    with pytest.raises(error, match=match):
+        PayloadProcessor(**kwargs)

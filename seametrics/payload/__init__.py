@@ -1,6 +1,8 @@
+"""Data carriers for evaluation payloads: resolutions, sequences and payloads."""
+
 import logging
-from typing import List, Dict
 from dataclasses import dataclass
+from typing import Dict, List
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -8,23 +10,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Resolution:
-    """
-    Represents the resolution of a sequence.
-    """
+    """Represents the resolution of a sequence."""
 
     height: int
     width: int
 
 
 class Sequence:
-    """
-    Class to store sequence data.
+    """Class to store sequence data.
+
     Allows for dynamic attributes to be added to the object.
     """
 
-    def __init__(self, resolution: Resolution, **kwargs):
-        """
-        Initializes a Sequence object.
+    def __init__(self, resolution: Resolution, **kwargs: object) -> None:
+        """Initializes a Sequence object.
 
         Args:
             resolution (Resolution): The resolution of the sequence.
@@ -33,19 +32,8 @@ class Sequence:
         self.resolution = resolution
         self.__dict__.update(kwargs)
 
-    def __getattr__(self, attr):
-        """
-        Fallback for undefined attributes.
-
-        Args:
-            attr (str): The name of the attribute.
-
-        Returns:
-            Any: The value of the attribute.
-
-        Raises:
-            AttributeError: If the attribute is not found.
-        """
+    def __getattr__(self, attr: str) -> object:
+        """Fallback lookup; raises AttributeError for a missing attribute."""
         try:
             return self.__dict__[attr]
         except KeyError as e:
@@ -53,53 +41,23 @@ class Sequence:
                 f"'{type(self).__name__}' object has no attribute '{attr}'"
             ) from e
 
-    def __setattr__(self, key, value):
-        """
-        Sets the value of an attribute.
-
-        Args:
-            key (str): The name of the attribute.
-            value (Any): The value to be set.
-        """
+    def __setattr__(self, key: str, value: object) -> None:
         self.__dict__[key] = value
 
-    def __getitem__(self, key):
-        """
-        Retrieves the value of an attribute.
-
-        Args:
-            key (str): The name of the attribute.
-
-        Returns:
-            Any: The value of the attribute.
-        """
+    def __getitem__(self, key: str) -> object:
         return self.__getattr__(key)
 
-    def __setitem__(self, key, value):
-        """
-        Sets the value of an attribute.
-
-        Args:
-            key (str): The name of the attribute.
-            value (Any): The value to be set.
-        """
+    def __setitem__(self, key: str, value: object) -> None:
         self.__setattr__(key, value)
 
-    def __repr__(self):
-        """
-        Returns a string representation of the Sequence object.
-
-        Returns:
-            str: The string representation of the object.
-        """
+    def __repr__(self) -> str:
         attrs = [f"{k}: {type(v).__name__}" for k, v in self.__dict__.items()]
         joined_attrs = ", ".join(attrs)
         return f"{self.__class__.__name__}({joined_attrs})"
 
     @property
     def field_names(self) -> List[str]:
-        """
-        Returns a list of field names, excluding the resolution attribute.
+        """Field names of the sequence, excluding the resolution attribute.
 
         Returns:
             List[str]: The list of field names.
@@ -109,9 +67,7 @@ class Sequence:
 
 @dataclass
 class Payload:
-    """
-    Represents a payload containing dataset and model information.
-    """
+    """Represents a payload containing dataset and model information."""
 
     dataset: str
     models: List[str]
@@ -119,9 +75,8 @@ class Payload:
     sequences: Dict[str, Sequence]  # key is sequence name
 
     @property
-    def sequences_list(self):
-        """
-        Returns a list of sequence names in the payload.
+    def sequences_list(self) -> List[str]:
+        """Sequence names in the payload.
 
         Returns:
             List[str]: The list of sequence names.
@@ -129,8 +84,7 @@ class Payload:
         return list(self.sequences.keys())
 
     def to_dict(self) -> Dict:
-        """
-        Returns a dictionary representation of the payload.
+        """Returns a dictionary representation of the payload.
 
         Returns:
             Dict: The dictionary representation of the payload.
