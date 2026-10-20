@@ -1,19 +1,21 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+requires = ["hatchling", "hatch-vcs"]
 
-[project]
-name = "seametrics"
-dynamic = ["version"]
-authors = [{ name = "Kevin Serrano" }, { name = "Vasco Rodrigues" }]
-description = "Custom metrics for evaluating performance of A.I. pipelines at SEA.AI"
-readme = "README.md"
-requires-python = ">=3.10"
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "Operating System :: OS Independent",
+[dependency-groups]
+dev = [
+  "pytest>=7",
+  "pytest-cov>=4",
+  "pytest-mock>=3",
+  "pylint"
 ]
 
+[project]
+authors = [{ name = "Kevin Serrano" }, { name = "Vasco Rodrigues" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent"
+]
 # Required dependencies
 dependencies = [
   "numpy>=1.22.2",
@@ -22,8 +24,13 @@ dependencies = [
   "tqdm>=4.64.0",
   "typing_extensions>=4.7.0",
   "motmetrics>=1.4.0",
-  "scipy>=1.7.0",
+  "scipy>=1.7.0"
 ]
+description = "Custom metrics for evaluating performance of A.I. pipelines at SEA.AI"
+dynamic = ["version"]
+name = "seametrics"
+readme = "README.md"
+requires-python = ">=3.10"
 
 [project.optional-dependencies]
 fiftyone = ["fiftyone>=0.23.4"]
@@ -32,62 +39,76 @@ panoptic = [
   "torchmetrics>=1.4.0",
   "cleanlab",
   "transformers",
-  "scipy",
+  "scipy"
 ]
 test = [
   "pytest>=7",
   "pytest-cov>=4",
-  "pytest-mock>=3",
+  "pytest-mock>=3"
 ]
 
 [project.urls]
 Homepage = "https://github.com/SEA-AI/seametrics"
 Issues = "https://github.com/SEA-AI/seametrics/issues"
 
-[tool.hatch.version]
-source = "vcs"
-fallback-version = "0.0.0"
+# Coverage settings
+[tool.coverage.report]
+exclude_lines = ["if TYPE_CHECKING"]
+include = ["seametrics/*"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["seametrics"]
 
-[dependency-groups]
-dev = [
-  "pytest>=7",
-  "pytest-cov>=4",
-  "pytest-mock>=3",
-  "ruff",
-  "pylint",
-]
-
-# Pytest settings
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-q --cov --tb=short --cov-report=term:skip-covered"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-filterwarnings = ["ignore::DeprecationWarning"]
-
-# Coverage settings
-[tool.coverage.report]
-include = ["seametrics/*"]
-exclude_lines = ["if TYPE_CHECKING"]
+[tool.hatch.version]
+fallback-version = "0.0.0"
+source = "vcs"
 
 # Pylint settings
 [tool.pylint]
-ignored-modules = ["cv2"]
-jobs = 0
-# Exclude non-package dirs. `ignore-paths` (regex on the full path) is used rather
-# than `ignore` because CI passes explicit file paths, which `ignore` does not
-# filter (it only applies during directory discovery).
-ignore-paths = ["^tests/.*$", "^docs/.*$", "^build/.*$", "^\\.venv/.*$"]
-max-args = 10
-max-attributes = 10
-max-line-length = 120
-min-similarity-lines = 6
 disable = [
   "import-outside-toplevel",
   "missing-function-docstring",
   "logging-fstring-interpolation",
-  "too-few-public-methods",
+  "too-few-public-methods"
 ]
+# Mirrors [lint.pep8-naming] extend-ignore-names in ruff.toml.
+good-names-rgxs = [
+  "^A.*$",  # Area range index (COCOeval)
+  "^H.*$",  # Homography matrix / Height
+  "^K.*$",  # Camera intrinsics matrix / Category index (COCOeval)
+  "^M.*$",  # Max detections index (COCOeval)
+  "^R.*$",  # Rotation matrix / Recall threshold index (COCOeval)
+  "^T.*$",  # Transformation matrix / IoU threshold index (COCOeval)
+  "^P.*$",  # Homogeneous point
+  "^B.*$",  # Batch size
+  "^C.*$",  # Channel size
+  "^W.*$",  # Width
+  "^G.*$",  # Gray level or Green channel
+  "^X.*$",  # X coordinate
+  "^Y.*$",  # Y coordinate
+  "^Z.*$"  # Z coordinate
+]
+# Exclude non-package dirs. `ignore-paths` (regex on the full path) is used rather
+# than `ignore` because CI passes explicit file paths, which `ignore` does not
+# filter (it only applies during directory discovery).
+ignore-paths = [
+  "^seametrics/detection/cocoeval[.]py$",  # vendored from pycocotools; [.] since pylint rewrites backslashes
+  "^tests/.*$",
+  "^docs/.*$",
+  "^build/.*$",
+  "^\\.venv/.*$"
+]
+ignored-modules = ["cv2"]
+jobs = 0
+max-args = 10
+max-attributes = 10
+max-line-length = 120
+min-similarity-lines = 6
+
+# Pytest settings
+[tool.pytest.ini_options]
+addopts = "-q --cov --tb=short --cov-report=term:skip-covered"
+filterwarnings = ["ignore::DeprecationWarning"]
+minversion = "6.0"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
