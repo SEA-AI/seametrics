@@ -275,7 +275,7 @@ def test_pred_with_wrong_classification_different_area_class_specific():
     assert val["nImgs"] == 1
 
     val = results["metrics"]["large"]
-    # same as for medium
+    # only the class-2 prediction (~100x50 px) is large: one FP
     assert val["iouThr"] == "1e-10"  # records the threshold exactly
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([0, 0, 0]))
