@@ -15,12 +15,6 @@ from seametrics.payload import Payload, Resolution, Sequence
 logger = logging.getLogger(__name__)
 
 
-def _is_result_too_large(exc: Exception) -> bool:
-    """Return True if *exc* is MongoDB rejecting a result for exceeding 16 MB."""
-    message = str(exc)
-    return "BSONObj size" in message or "BSONObjectTooLarge" in message
-
-
 def _is_str_list(value: object) -> bool:
     """Return True if *value* is a list of strings."""
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
@@ -290,21 +284,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         """
         return self.fetch_sequences([sequence])[sequence]
 
-    def label_filter(self, field_name: str) -> object:
-        """Build the label filter expression for one field.
-
-        Args:
-            field_name (str): Detection field the filter applies to.
-
-        Returns:
-            ViewExpression: Excludes the configured classes, and for prediction
-                fields also drops detections below the confidence threshold.
-        """
-        expression = ~(F("label").is_in(self.excluded_classes))
-        if self.confidence_threshold > 0 and field_name != self.gt_field:
-            expression &= F("confidence") > self.confidence_threshold
-        return expression
-
     def fetch_sequences(self, batch: List[str]) -> Dict[str, Sequence]:
         """Fetch a batch of sequences with one query per field.
 
@@ -326,7 +305,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         try:
             return self._fetch_sequences(batch)
         except PyMongoError as exc:
-            if not _is_result_too_large(exc):
+            if "BSONObj" not in str(exc):  # BSONObj size, BSONObjectTooLarge
                 raise
             logger.debug(f"Batch of {len(batch)} exceeded the BSON limit; unwinding")
             fetched = {}
@@ -353,22 +332,25 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         if not names:
             return {}
 
-        frame_range = slice(self.start_frame_id, self.end_frame_id)
         detections: Dict[str, Dict[str, list]] = {}
         keyframes: Dict[str, Dict[str, list]] = {}
 
         for field_name in [*self.models, self.gt_field]:
-            filter_view = view.filter_labels(
-                self.get_field_name(view, field_name),
-                self.label_filter(field_name),
-                only_matches=False,
-            )
+            labels = ~(F("label").is_in(self.excluded_classes))
+            if self.confidence_threshold > 0 and field_name != self.gt_field:
+                labels &= F("confidence") > self.confidence_threshold
             path = self.get_field_name(view, field_name, unwinding=unwound)
             paths = [f"{path}.detections"]
             if field_name != self.gt_field:
                 paths.append(f"{path}.keyframe")  # None where a model sets none
             detections[field_name], *flags = self.grouped_values(
-                filter_view, ids, names, paths, unwound=unwound
+                view.filter_labels(
+                    self.get_field_name(view, field_name), labels, only_matches=False
+                ),
+                ids,
+                names,
+                paths,
+                unwound=unwound,
             )
             if flags:
                 keyframes[field_name] = flags[0]
@@ -381,7 +363,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 detections=detections,
                 keyframes=keyframes,
                 resolution=resolutions[name],
-                frame_range=frame_range,
             )
             for name in dict.fromkeys(names)
         }
@@ -393,7 +374,6 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         detections: Dict[str, Dict[str, list]],
         keyframes: Dict[str, Dict[str, list]],
         resolution: Resolution,
-        frame_range: slice,
     ) -> Sequence:
         """Assemble one fetched sequence from its grouped field values.
 
@@ -404,12 +384,12 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             keyframes (Dict[str, Dict[str, list]]): Per flagged model, the
                 keyframe flags of each sequence in the batch.
             resolution (Resolution): The sequence's resolution.
-            frame_range (slice): Frames to keep.
 
         Returns:
             Sequence: The sequence, with detections blanked on non-keyframes in
                 tracking mode when the model has a usable keyframe mask.
         """
+        frame_range = slice(self.start_frame_id, self.end_frame_id)
         fields = {
             field: [frame or [] for frame in per_seq.get(name, [])[frame_range]]
             for field, per_seq in detections.items()
