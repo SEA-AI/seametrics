@@ -1,11 +1,10 @@
 """Build evaluation payloads from FiftyOne datasets."""
 
 import logging
-from typing import Dict, List, Literal, Optional, Set, Tuple
+from typing import Dict, List, Literal, Optional
 
 import fiftyone as fo
 from fiftyone import ViewField as F
-from fiftyone.core.aggregations import Count, Values
 from pymongo.errors import PyMongoError
 from tqdm import tqdm
 
@@ -310,10 +309,9 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         """Fetch a batch of sequences with one query per field.
 
         Querying once per field for a whole batch is far cheaper than querying
-        per sequence, but the aggregation result has to fit inside MongoDB's 16 MB
-        BSON limit. Dense sequences exceed it, so rather than guessing a safe batch
-        size the batch is halved whenever the server rejects the result, down to a
-        single sequence.
+        per sequence. Each sample comes back as one document, which MongoDB caps
+        at 16 MB, so only a dense sequence can fail a batch. When one does, the
+        batch is refetched unwound, which streams frames as separate documents.
 
         Args:
             batch (List[str]): Sequence names to fetch.
@@ -323,25 +321,17 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
 
         Note:
             Any query error that is not the BSON size limit propagates unchanged,
-            as does the size limit itself once a single sequence is too big even
-            unwound.
+            as does the size limit itself for a sequence too big even unwound.
         """
         try:
             return self._fetch_sequences(batch)
         except PyMongoError as exc:
             if not _is_result_too_large(exc):
                 raise
-            if len(batch) == 1:
-                # A nested query packs a whole sequence into one BSON document,
-                # which cannot exceed 16 MB. Unwinding streams the frames as
-                # separate documents instead, so a dense sequence still fits.
-                return self._fetch_sequences(batch, unwound=True)
-            middle = len(batch) // 2
-            logger.debug(
-                f"Batch of {len(batch)} exceeded the BSON limit; splitting in two"
-            )
-            fetched = self.fetch_sequences(batch[:middle])
-            fetched.update(self.fetch_sequences(batch[middle:]))
+            logger.debug(f"Batch of {len(batch)} exceeded the BSON limit; unwinding")
+            fetched = {}
+            for name in batch:
+                fetched.update(self._fetch_sequences([name], unwound=True))
             return fetched
 
     def _fetch_sequences(
@@ -359,7 +349,7 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             Dict[str, Sequence]: The fetched sequences, keyed by name.
         """
         view = self.dataset.match(F("sequence").is_in(batch))
-        ids, names, flagged = self.read_batch(view)
+        ids, names = view.values(["id", "sequence"])
         if not names:
             return {}
 
@@ -374,13 +364,14 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
                 only_matches=False,
             )
             path = self.get_field_name(view, field_name, unwinding=unwound)
-            detections[field_name] = self.grouped_values(
-                filter_view, ids, names, f"{path}.detections", unwound=unwound
+            paths = [f"{path}.detections"]
+            if field_name != self.gt_field:
+                paths.append(f"{path}.keyframe")  # None where a model sets none
+            detections[field_name], *flags = self.grouped_values(
+                filter_view, ids, names, paths, unwound=unwound
             )
-            if field_name in flagged:  # never the ground truth
-                keyframes[field_name] = self.grouped_values(
-                    filter_view, ids, names, f"{path}.keyframe", unwound=unwound
-                )
+            if flags:
+                keyframes[field_name] = flags[0]
 
         resolutions = self.get_resolutions(view)
 
@@ -441,37 +432,16 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
 
         return Sequence(resolution=resolution, keyframes=masks, **fields)
 
-    def read_batch(self, view: fo.DatasetView) -> Tuple[list, list, Set[str]]:
-        """Read a batch's samples and find which models flag any keyframe.
-
-        One query returns the sample ids, their sequence names and a count of
-        each model's keyframe flags, so a model with none (most detection
-        fields) costs no keyframe query at all.
-
-        Args:
-            view (fo.DatasetView): The batch's samples.
-
-        Returns:
-            Tuple[list, list, Set[str]]: Sample ids, the sequence name of each
-                sample in the same order, and the models with at least one
-                keyframe flag in *view*.
-        """
-        ids, names, *counts = view.aggregate(
-            [
-                Values("id"),
-                Values("sequence"),
-                *(
-                    Count(f"{self.get_field_name(view, m)}.keyframe")
-                    for m in self.models
-                ),
-            ]
-        )
-        return ids, names, {m for m, n in zip(self.models, counts, strict=True) if n}
-
     def grouped_values(
-        self, view: fo.DatasetView, ids: list, names: list, path: str, *, unwound: bool
-    ) -> Dict[str, list]:
-        """Read *path* from *view* and group the values by sequence name.
+        self,
+        view: fo.DatasetView,
+        ids: list,
+        names: list,
+        paths: List[str],
+        *,
+        unwound: bool,
+    ) -> List[Dict[str, list]]:
+        """Read *paths* from *view* in one query, grouping each by sequence name.
 
         Separate ``values()`` queries do not share one sample order: MongoDB may
         return each query's samples in a different order, which hands one
@@ -482,27 +452,29 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             view (fo.DatasetView): View to read from.
             ids (list): Sample ids, in the order the sequence names were read.
             names (list): Sequence name of each sample, in the same order.
-            path (str): Field path to read.
-            unwound (bool): True when *path* unwinds the frames of a single
+            paths (List[str]): Field paths to read.
+            unwound (bool): True when *paths* unwind the frames of a single
                 video sample, which come back as one flat list in frame order.
 
         Returns:
-            Dict[str, list]: Per-frame values keyed by sequence name. A video
-                sample holds a whole sequence; image samples are single frames,
-                collected in view order.
+            List[Dict[str, list]]: Per path, the per-frame values keyed by
+                sequence name. A video sample holds a whole sequence; image
+                samples are single frames, collected in view order.
         """
         video = self.dataset.media_type == "video"
         if unwound and video:
-            return {names[0]: view.values(path) or []}
-        found_ids, values = view.values(["id", path])
-        by_id = dict(zip(found_ids, values, strict=True))
-        if video:
-            return {
-                name: by_id.get(i) or [] for i, name in zip(ids, names, strict=True)
-            }
-        grouped: Dict[str, list] = {}
-        for sample_id, name in zip(ids, names, strict=True):
-            grouped.setdefault(name, []).append(by_id.get(sample_id))
+            return [{names[0]: values or []} for values in view.values(paths)]
+        found_ids, *columns = view.values(["id", *paths])
+        grouped = []
+        for values in columns:
+            by_id = dict(zip(found_ids, values, strict=True))
+            per_name: Dict[str, list] = {}
+            for sample_id, name in zip(ids, names, strict=True):
+                if video:
+                    per_name[name] = by_id.get(sample_id) or []
+                else:
+                    per_name.setdefault(name, []).append(by_id.get(sample_id))
+            grouped.append(per_name)
         return grouped
 
     @staticmethod

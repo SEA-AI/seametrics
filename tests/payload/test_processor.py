@@ -209,37 +209,16 @@ class _FakeSequenceView:
     def filter_labels(self, *_args: object, **_kwargs: object):
         return self
 
-    @property
-    def read_paths(self):
-        return self._stats.setdefault("paths", [])
-
     def values(self, path):
         """One query; a list of paths gives one aligned list per path."""
         self._stats["queries"] += 1
         paths = list(path) if isinstance(path, (list, tuple)) else [path]
-        self.read_paths.extend(paths)
         found = [self._value(p) for p in paths]
         return found if isinstance(path, (list, tuple)) else found[0]
 
-    def aggregate(self, aggregations):
-        """One query computing several aggregations, as fiftyone batches them."""
-        self._stats["queries"] += 1
-        return [self._aggregate(agg) for agg in aggregations]
-
-    def _aggregate(self, agg):
-        path = agg.field_name
-        if type(agg).__name__ != "Count":
-            return self._value(path)
-        # a count over frames sees the same flags whether stored nested or unwound
-        value = self._values_by_path.get(path)
-        if value is None:
-            value = self._values_by_path.get(
-                path.replace("frames.", "frames[].", 1), []
-            )
-        flat = [x for v in value for x in (v if isinstance(v, list) else [v])]
-        return sum(x is not None for x in flat)
-
     def _value(self, path):
+        if path.endswith(".keyframe") and path not in self._values_by_path:
+            return [None] * len(self._values_by_path["id"])  # as fiftyone does
         if path not in self._values_by_path:
             raise ValueError(f"no such field: {path}")
         value = self._values_by_path[path]
@@ -386,13 +365,6 @@ class TestBatchedFetching:
         assert sequence[self.GT] == [[], ["g2"]]
         assert sequence.keyframes == {"model1": [False, True]}
 
-    def test_oversized_batch_is_split_and_still_complete(self):
-        """A BSON size error halves the batch until the result fits."""
-        names, view = self._view(4, too_large_above=2)
-        sequences = _fetch(view, names)
-
-        assert sorted(sequences) == sorted(names)
-
     def test_single_sequence_too_large_still_raises(self):
         """A sequence too large even when unwound raises."""
         names, view = self._view(1, too_large_above=0)
@@ -466,8 +438,7 @@ class TestBatchedFetching:
         assert sequences["seq-b"].keyframes == {"model1": [False, True]}
         assert sequences["seq-b"].resolution == Resolution(height=80, width=200)
 
-    def test_keyframes_read_only_for_models_that_flag_any(self):
-        """A model without a single keyframe flag costs no keyframe query."""
+    def test_models_without_flags_get_no_keyframe_mask(self):
         view = _FakeSequenceView(
             {
                 "id": ["s1"],
@@ -478,15 +449,12 @@ class TestBatchedFetching:
                 "frames.model2.detections": [[["b0"], ["b1"]]],
                 f"frames.{self.GT}.detections": [[["g0"], ["g1"]]],
                 "frames.model1.keyframe": [[True, False]],
-                "frames.model2.keyframe": [[None, None]],
             }
         )
 
         sequence = _fetch(view, ["seq-a"], models=["model1", "model2"])["seq-a"]
 
         assert sequence.keyframes == {"model1": [True, False]}
-        assert "frames.model1.keyframe" in view.read_paths
-        assert "frames.model2.keyframe" not in view.read_paths
 
     def test_unrelated_query_errors_are_not_retried(self):
         """Only the size limit triggers the split; other failures propagate."""
