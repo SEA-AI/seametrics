@@ -38,14 +38,17 @@ def failed_sequence_reason(
     Returns:
         A short explanation string.
     """
-    if exc is not None:
-        return f"{type(exc).__name__}: {exc}"
     if len(gt) == 0 and len(pred) == 0:
+        # a caller that failed before building inputs passes the error with them
+        if exc is not None:
+            return f"{type(exc).__name__}: {exc}"
         return "No ground truth and no predictions"
     if len(gt) == 0:
         return "No ground truth"
     if len(pred) == 0:
         return "No predictions"
+    if exc is not None:
+        return f"{type(exc).__name__}: {exc}"
     return "Missing IDs from GT or Pred"
 
 
