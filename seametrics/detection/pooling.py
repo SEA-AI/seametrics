@@ -70,27 +70,23 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
 
     Args:
         sequence_results (Dict[str, dict]): ``{sequence_name: results}`` as
-            returned by :func:`payload_to_det_metrics_by_sequence`. Any existing
-            ``"OVERALL"`` entry is skipped so the function is idempotent.
+            returned by :func:`payload_to_det_metrics_by_sequence`.
 
     Returns:
         dict: ``{"metrics": ...}`` shaped like ``PrecisionRecallF1Support.compute()``;
             ``params`` and ``eval`` do not pool.
 
     Raises:
-        ValueError: If *sequence_results* holds no poolable sequences, if the
+        ValueError: If *sequence_results* is empty, if the
             sequences disagree on their area-range labels, or if a count field has
             inconsistent shapes across sequences.
     """
-    poolable = {
-        name: results
-        for name, results in sequence_results.items()
-        if name != OVERALL_KEY
-    }
-    if not poolable:
+    if not sequence_results:
         raise ValueError("No sequence results to pool.")
 
-    area_label_sets = {tuple(results["metrics"]) for results in poolable.values()}
+    area_label_sets = {
+        tuple(results["metrics"]) for results in sequence_results.values()
+    }
     if len(area_label_sets) > 1:
         raise ValueError(
             f"Sequences disagree on area-range labels: {sorted(area_label_sets)}."
@@ -101,7 +97,7 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
     return {
         "metrics": {
             area_label: _pool_area_range_metrics(
-                [results["metrics"][area_label] for results in poolable.values()]
+                [r["metrics"][area_label] for r in sequence_results.values()]
             )
             for area_label in area_labels
         }

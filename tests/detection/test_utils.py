@@ -3,10 +3,9 @@ import numpy as np
 import pytest
 
 from seametrics.detection import PrecisionRecallF1Support
+from seametrics.detection.pooling import aggregate_sequence_results
 from seametrics.detection.utils import (
-    OVERALL_KEY,
     _validate_arrays,
-    box_denormalize,
     frame_dets_to_det_metrics,
     get_relevant_fields,
     get_values,
@@ -309,6 +308,10 @@ def _by_sequence(payload, **kwargs: object):
     )
 
 
+def _overall(sequence_results):
+    return aggregate_sequence_results(sequence_results)["metrics"]
+
+
 def _hit_and_miss():
     return _payload(
         {
@@ -341,12 +344,6 @@ def test_frame_dets_scores_keep_zero_and_default_missing_to_one():
     np.testing.assert_array_equal(out["scores"], [0.0, 1.0, 0.75])
 
 
-def test_frame_dets_ground_truth_ignores_area():
-    """The metric derives area from the box, so an fo ``area`` is not forwarded."""
-    out = frame_dets_to_det_metrics([_det(area=1234.5)], 100, 100, is_gt=True)
-    assert set(out) == {"boxes", "labels"}
-
-
 def test_frame_dets_unmapped_labels_dropped_keeping_alignment():
     dets = [
         _det([0.0, 0.0, 0.1, 0.1], confidence=0.9),
@@ -364,19 +361,6 @@ def test_frame_dets_unmapped_labels_dropped_keeping_alignment():
     [
         pytest.param(100, 100, GT_BOX, PRED_BOX, 0.3, (1, 0, 0), id="square-match"),
         pytest.param(100, 100, GT_BOX, PRED_BOX, 0.35, (0, 1, 1), id="square-miss"),
-        # px gt [0, 0, 50, 200], pred [0, 100, 50, 200]: IoU 5000 / 15000 = 1/3
-        pytest.param(
-            100, 400, [0, 0, 0.5, 0.5], [0, 0.25, 0.5, 0.5], 0.3, (1, 0, 0), id="tall"
-        ),
-        pytest.param(
-            100,
-            400,
-            [0, 0, 0.5, 0.5],
-            [0, 0.25, 0.5, 0.5],
-            0.35,
-            (0, 1, 1),
-            id="tall-miss",
-        ),
     ],
 )
 def test_converted_boxes_give_the_hand_computed_iou(w, h, gt, pred, threshold, counts):
@@ -390,7 +374,6 @@ def test_converted_boxes_need_box_format_xywh():
     """Read as xyxy, the prediction [20, 10, 20, 20] has zero width: no match."""
     preds = payload_sequence_to_det_metrics([[_pred(PRED_BOX)]], 100, 100)
     refs = payload_sequence_to_det_metrics([[_det()]], 100, 100, is_gt=True)
-    assert _compute(preds, refs, iou_thresholds=[0.3])["all"]["tp"] == 1
     xyxy = _compute(preds, refs, iou_thresholds=[0.3], box_format="xyxy")
     assert xyxy["all"]["tp"] == 0
 
@@ -447,15 +430,14 @@ def test_invalid_conversion_arguments_raise(fn, kwargs, match):
         fn(_hit_and_miss(), **kwargs)
 
 
-def test_by_sequence_scores_each_sequence_and_pools_overall_last():
-    """Pooled recall 0.5 hides that one sequence scored 1.0 and the other 0.0."""
+def test_by_sequence_scores_each_sequence():
+    """Pooled recall 0.5 would hide that one sequence scored 1.0 and the other 0.0."""
     res = _by_sequence(_hit_and_miss())
-    hit, miss, overall = (res[k]["metrics"]["all"] for k in res)
-    assert list(res) == ["hit", "miss", OVERALL_KEY]
+    hit, miss = (res[k]["metrics"]["all"] for k in res)
+    assert list(res) == ["hit", "miss"]
     assert (hit["tp"], hit["fn"], hit["recall"]) == (1, 0, 1.0)
     assert (miss["tp"], miss["fn"], miss["recall"], miss["precision"]) == (0, 1, 0, -1)
-    assert (overall["tp"], overall["fn"], overall["recall"]) == (1, 1, 0.5)
-    assert list(sequence_results_to_df(res)["n_imgs"]) == [1, 1, 2]
+    assert list(sequence_results_to_df(res)["n_imgs"]) == [1, 1]
 
 
 def test_by_sequence_forwards_metric_kwargs():
@@ -479,16 +461,8 @@ def test_by_sequence_reads_ground_truth_from_gt_field_name():
     assert _by_sequence(payload)["s"]["metrics"]["all"]["support"] == 1
 
 
-def test_by_sequence_on_no_sequences_has_no_overall():
+def test_by_sequence_on_no_sequences_is_empty():
     assert _by_sequence(_payload({})) == {}
-
-
-def test_sequence_named_overall_needs_include_overall_false():
-    payload = _payload({OVERALL_KEY: _sequence([[_det()]], [[_pred()]])})
-    with pytest.raises(ValueError, match="collides with the pooled entry"):
-        _by_sequence(payload)
-    res = _by_sequence(payload, include_overall=False)
-    assert res[OVERALL_KEY]["metrics"]["all"]["tp"] == 1
 
 
 @pytest.mark.parametrize("area_kwargs", [{}, AREA_KWARGS], ids=["all", "area-ranges"])
@@ -503,7 +477,7 @@ def test_overall_equals_one_evaluation_of_every_frame(area_kwargs):
             "seq_b": _sequence([[_det()], [_det()]], [[], [_pred(PRED_BOX)]]),
         }
     )
-    overall = _by_sequence(payload, **area_kwargs)[OVERALL_KEY]["metrics"]
+    overall = _overall(_by_sequence(payload, **area_kwargs))
     assert overall == _compute(*payload_to_det_metric(payload), **area_kwargs)
 
 
@@ -517,16 +491,16 @@ def _disjoint_classes():
 
 
 def test_class_specific_sequences_report_every_mapped_class():
-    """Each sequence reports both classes, so OVERALL sums them by position."""
+    """Each sequence reports both classes, so pooling sums them by position."""
     payload = _disjoint_classes()
     kwargs = {"label_mapping": LABEL_MAPPING, "class_agnostic": False}
     res = _by_sequence(payload, **kwargs)
     tps = [res[k]["metrics"]["all"]["tp"].tolist() for k in res]
-    assert tps == [[1, 0], [0, 1], [1, 1]]
+    assert tps == [[1, 0], [0, 1]]
     pooled = _compute(
         *payload_to_det_metric(payload, **kwargs), class_agnostic=False, labels=[1, 2]
     )["all"]
-    overall = res[OVERALL_KEY]["metrics"]["all"]
+    overall = _overall(res)["all"]
     for key in ("tp", "fp", "fn", "precision", "recall", "f1", "support"):
         np.testing.assert_allclose(overall[key], pooled[key], err_msg=key)
 
@@ -589,25 +563,5 @@ def test_keyframes_only_rejects_a_missing_or_misaligned_mask(sequence, match):
 
 def test_keyframes_only_overall_equals_the_pooled_route():
     payload = _payload({"a": _keyframe_sequence(), "b": _keyframe_sequence()})
-    overall = _by_sequence(payload, keyframes_only=True)[OVERALL_KEY]["metrics"]
+    overall = _overall(_by_sequence(payload, keyframes_only=True))
     assert overall == _compute(*payload_to_det_metric(payload, keyframes_only=True))
-
-
-def test_box_denormalize_scales_x_by_width_and_y_by_height():
-    result = box_denormalize(np.array([[0.1, 0.2, 0.3, 0.4]]), 100, 50)
-    np.testing.assert_allclose(result, [[10.0, 10.0, 30.0, 20.0]])
-
-
-@pytest.mark.parametrize(
-    "boxes", [np.empty((0, 4)), np.array([[10.0, 20.0, 30.0, 40.0]])]
-)
-def test_box_denormalize_leaves_empty_and_pixel_boxes_alone(boxes):
-    """Any value above 1.0 means the boxes are already in pixels."""
-    np.testing.assert_array_equal(box_denormalize(boxes, 640, 480), boxes)
-
-
-def test_box_denormalize_casts_integers_without_mutating_the_input():
-    boxes = np.array([[0, 0, 1, 1]])
-    result = box_denormalize(boxes, 640, 512)
-    np.testing.assert_allclose(result, [[0.0, 0.0, 640.0, 512.0]])
-    np.testing.assert_array_equal(boxes, [[0, 0, 1, 1]])

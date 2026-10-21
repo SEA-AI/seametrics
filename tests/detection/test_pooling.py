@@ -3,30 +3,13 @@
 import numpy as np
 import pytest
 
-from seametrics.detection.pooling import OVERALL_KEY, aggregate_sequence_results
+from seametrics.detection.pooling import aggregate_sequence_results
 
 
 def _result(tp, fp, fn, fpi=0, n_imgs=1, duplicates=0, area_label="all"):
     """One sequence's compute() output, holding only what pooling reads."""
-    return {
-        "metrics": {
-            area_label: {
-                "range": [0, 1e10],
-                "iouThr": "0.50",
-                "maxDets": 100,
-                "tp": tp,
-                "fp": fp,
-                "fn": fn,
-                "duplicates": duplicates,
-                "precision": None,  # recomputed, never read
-                "recall": None,
-                "f1": None,
-                "support": None,
-                "fpi": fpi,
-                "nImgs": n_imgs,
-            }
-        }
-    }
+    counts = {"tp": tp, "fp": fp, "fn": fn, "duplicates": duplicates, "fpi": fpi}
+    return {"metrics": {area_label: {**counts, "nImgs": n_imgs}}}
 
 
 def _pooled(*results: dict):
@@ -73,21 +56,10 @@ def test_per_class_counts_are_summed_position_by_position():
     np.testing.assert_array_equal(overall["precision"], [1.0, 1.0])
 
 
-def test_existing_overall_is_skipped_so_pooling_is_idempotent():
-    results = {"a": _result(1, 0, 0), "b": _result(0, 1, 1)}
-    results[OVERALL_KEY] = aggregate_sequence_results(results)
-    again = aggregate_sequence_results(results)
-    assert again == results[OVERALL_KEY]
-    assert set(again) == {"metrics"}
-
-
 @pytest.mark.parametrize(
     ("results", "match"),
     [
         pytest.param({}, "No sequence results to pool", id="empty"),
-        pytest.param(
-            {OVERALL_KEY: _result(1, 0, 0)}, "No sequence results", id="only-overall"
-        ),
         pytest.param(
             {"a": _result(1, 0, 0), "b": _result(1, 0, 0, area_label="large")},
             "disagree on area-range labels",

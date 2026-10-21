@@ -14,7 +14,6 @@ from fiftyone import ViewField as F
 from tqdm import tqdm
 
 from seametrics.detection.np.utils import box_convert
-from seametrics.detection.pooling import OVERALL_KEY, aggregate_sequence_results
 from seametrics.payload import Payload
 
 # payload functions
@@ -128,11 +127,10 @@ def payload_to_det_metrics_by_sequence(
     label_mapping: Optional[Dict[str, int]] = None,
     class_agnostic: bool = True,
     *,
-    include_overall: bool = True,
     keyframes_only: bool = False,
     **metric_kwargs: object,
 ) -> Dict[str, dict]:
-    """Evaluate every sequence of a payload separately, plus a pooled total.
+    """Evaluate every sequence of a payload separately.
 
     One metric over every frame weights precision and recall by support, so one
     long sequence can hide a regression in a short one.
@@ -148,8 +146,6 @@ def payload_to_det_metrics_by_sequence(
             to numbers, required for class-specific metrics. Defaults to None.
         class_agnostic (bool, optional): Flag indicating if the metrics should be
             calculated in a class-agnostic way. Defaults to True.
-        include_overall (bool, optional): Add an ``"OVERALL"`` entry pooled from
-            the per-sequence counts. Defaults to True.
         keyframes_only (bool, optional): As for :func:`payload_to_det_metric`.
             Masks are per model, so two models may be scored on different frames.
             Defaults to False.
@@ -158,13 +154,12 @@ def payload_to_det_metrics_by_sequence(
             every sequence reports the same classes.
 
     Returns:
-        Dict[str, dict]: ``{sequence_name: compute() output}``. ``"OVERALL"``
-            comes last and equals one metric over every frame.
+        Dict[str, dict]: ``{sequence_name: compute() output}``. Pool them with
+            :func:`~seametrics.detection.pooling.aggregate_sequence_results`.
 
     Raises:
         ValueError: If *label_mapping* is combined with ``class_agnostic=True``,
-            if ``box_format`` is in *metric_kwargs*, or if a sequence is named
-            ``"OVERALL"`` while *include_overall* is set. Errors in a sequence
+            or if ``box_format`` is in *metric_kwargs*. Errors in a sequence
             propagate; ``seametrics.tracking`` logs them to ``failed_sequences``.
     """
     from seametrics.detection import PrecisionRecallF1Support
@@ -176,12 +171,6 @@ def payload_to_det_metrics_by_sequence(
         raise ValueError(
             "`box_format` cannot be overridden: frame_dets_to_det_metrics always"
             " produces absolute xywh boxes."
-        )
-
-    if include_overall and OVERALL_KEY in payload.sequences:
-        raise ValueError(
-            f"A sequence is named {OVERALL_KEY!r}, which collides with the pooled"
-            f" entry. Rename it or pass include_overall=False."
         )
 
     if model_name is None:
@@ -202,9 +191,6 @@ def payload_to_det_metrics_by_sequence(
         )
         metric.update(predictions, references)
         sequence_results[sequence_name] = metric.compute()
-
-    if include_overall and sequence_results:
-        sequence_results[OVERALL_KEY] = aggregate_sequence_results(sequence_results)
 
     return sequence_results
 
@@ -749,19 +735,15 @@ def get_confidence_metric_vals(  # pylint: disable=too-many-positional-arguments
 
 
 def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
-    """Denormalize boxes from [0, 1] to [0, img_w] and [0, img_h].
-
-    Works for any layout with x-like values in even columns (``xyxy``, ``xywh``,
-    ``cxcywh``). Boxes with any value above ``1.0`` are returned untouched.
+    """Denormalizes boxes from [0, 1] to [0, img_w] and [0, img_h].
 
     Args:
-        boxes (np.ndarray): Boxes which will be denormalized, shape ``(N, 4)``.
-        img_w (int): Width of image in pixels.
-        img_h (int): Height of image in pixels.
+        boxes (Tensor[N, 4]): boxes which will be denormalized.
+        img_w (int): Width of image.
+        img_h (int): Height of image.
 
     Returns:
-        np.ndarray: A float copy of the denormalized boxes, or *boxes* itself when
-            empty or already in pixels.
+        Tensor[N, 4]: Denormalized boxes.
     """
     if boxes.size == 0:
         return boxes
@@ -770,8 +752,6 @@ def box_denormalize(boxes: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
     if np.any(boxes > 1.0):
         return boxes
 
-    # a float copy: callers keep their boxes, and integer input does not truncate
-    boxes = boxes.astype(np.float64)
     boxes[:, 0::2] *= img_w
     boxes[:, 1::2] *= img_h
     return boxes
