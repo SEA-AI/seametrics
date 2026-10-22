@@ -76,10 +76,10 @@ def test_report_df_flags_pooled_rows_and_lists_exclusions():
     assert report.excluded_sequences == ["other"]
 
 
-def _video(dataset, sequence, frames):
+def _video(dataset, sequence, frames, **sample_fields: object):
     """Add one video sample; *frames* maps frame number to {field: Detections}."""
     sample = fo.Sample(
-        filepath=f"{sequence}.mp4",
+        **{"filepath": f"{sequence}.mp4", **sample_fields},
         sequence=sequence,
         metadata=fo.VideoMetadata(frame_width=100, frame_height=100),
     )
@@ -256,37 +256,28 @@ def test_a_requested_sequence_that_is_missing_is_excluded(dataset):
     assert report.pooled_sequences == ["seq-1"]
 
 
-@pytest.mark.parametrize("slices", [None, ["wide", "narrow"]])
-def test_a_group_dataset_needs_exactly_one_slice(dataset, slices):
-    """Slices share sequence names, so two would overwrite each other."""
-    dataset.add_group_field("group", default="wide")
+def test_eval_key_tags_the_slice_the_processor_picked(dataset):
+    """Without `slices` the processor picks the thermal slice, not the default."""
+    dataset.add_group_field("group", default="rgb")
     group = fo.Group()
-    dataset.add_samples(
-        [
-            fo.Sample(filepath=f"{s}.mp4", group=group.element(s))
-            for s in ("wide", "narrow")
-        ]
-    )
-    with pytest.raises(ValueError, match="one slice"):
-        evaluate_models(dataset.name, "gt", ["model"], slices=slices)
-
-
-def test_only_the_chosen_slice_is_evaluated(dataset):
-    """The wide slice hits the boat and the narrow one misses it."""
-    dataset.add_group_field("group", default="wide")
-    group = fo.Group()
-    for name, preds in (("wide", [_pred()]), ("narrow", [])):
-        sample = fo.Sample(
+    for name, preds in (("thermal_wide", [_pred()]), ("rgb", [])):
+        frame = {
+            "gt": fo.Detections(detections=[_gt()]),
+            "model": fo.Detections(detections=preds),
+        }
+        _video(
+            dataset,
+            "seq",
+            {1: frame},
             filepath=f"{name}.mp4",
             group=group.element(name),
-            sequence="seq",
-            metadata=fo.VideoMetadata(frame_width=100, frame_height=100),
         )
-        sample.frames[1] = fo.Frame(
-            gt=fo.Detections(detections=[_gt()]),
-            model=fo.Detections(detections=preds),
+    report = evaluate_models(dataset.name, "gt", ["model"], eval_key="ev")
+    assert report.per_sequence["model"]["seq"]["metrics"]["all"]["tp"] == 1
+    tags = {
+        name: dataset.select_group_slices([name]).values(
+            "frames.gt.detections.ev_model"
         )
-        dataset.add_sample(sample)
-    report = evaluate_models(dataset.name, "gt", ["model"], slices=["narrow"])
-    summary = report.per_sequence["model"]["seq"]["metrics"]["all"]
-    assert (summary["tp"], summary["fn"]) == (0, 1)
+        for name in ("thermal_wide", "rgb")
+    }
+    assert tags == {"thermal_wide": [[["tp"]]], "rgb": [[[None]]]}

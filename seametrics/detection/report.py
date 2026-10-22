@@ -315,9 +315,8 @@ def evaluate_models(
         models (List[str]): Prediction fields to compare.
         options (EvaluationOptions, optional): Keyframes, IoU threshold and
             classes. Defaults to ``EvaluationOptions()``.
-        slices (List[str], optional): Required for a group dataset: exactly one
-            slice, e.g. ``["thermal_wide"]``. Slices share sequence names, so
-            one would overwrite another; run one report per slice.
+        slices (List[str], optional): Group slices to use, e.g.
+            ``["thermal_wide"]``. Defaults to the processor's automatic choice.
         sequence_list (List[str], optional): Restrict to these sequences.
         batch_size (int, optional): Sequences fetched per query. Defaults to 8.
         eval_key (str, optional): **Writes to the dataset.** Also run FiftyOne's
@@ -330,8 +329,8 @@ def evaluate_models(
         DetectionReport: Per-sequence results, pooled totals and coverage.
 
     Raises:
-        ValueError: If *models* is empty, a group dataset does not get exactly
-            one slice, or ``<eval_key>_<model>`` is not a valid identifier.
+        ValueError: If *models* is empty or ``<eval_key>_<model>`` is not a
+            valid identifier.
     """
     if not models:
         raise ValueError("Provide at least one model field.")
@@ -344,9 +343,7 @@ def evaluate_models(
     options = options or EvaluationOptions()
 
     view = fo.load_dataset(dataset_name)
-    if view.media_type == "group":
-        if len(slices or []) != 1:
-            raise ValueError(f"Pick one slice of {view.group_slices}, got {slices}.")
+    if slices and view.media_type == "group":
         view = view.select_group_slices(slices)
     if sequence_list is None:
         sequence_list = view.distinct("sequence")
@@ -361,29 +358,29 @@ def evaluate_models(
     )
     for start in tqdm(range(0, len(sequences), batch_size), desc="Batches"):
         # the batch payload is dropped once evaluated, so only one is in memory
+        processor = PayloadProcessor(
+            dataset_name=dataset_name,
+            gt_field=gt_field,
+            models=models,
+            slices=slices,
+            sequence_list=sequences[start : start + batch_size],
+            batch_size=batch_size,
+        )
+        slices = processor.slices  # resolved: later batches and FiftyOne agree
         _evaluate_batch(
-            report,
-            PayloadProcessor(
-                dataset_name=dataset_name,
-                gt_field=gt_field,
-                models=models,
-                slices=slices,
-                sequence_list=sequences[start : start + batch_size],
-                batch_size=batch_size,
-            ).payload,
-            options=options,
-            metric_kwargs=metric_kwargs,
+            report, processor.payload, options=options, metric_kwargs=metric_kwargs
         )
 
-    for model in models:  # requested but never fetched, e.g. a typo
-        report.skipped[model] += sorted(
-            set(sequences)
-            - report.per_sequence[model].keys()
-            - {*report.skipped[model]}
-        )
+    report.skipped = {  # add requested but never fetched, e.g. a typo
+        model: skipped
+        + sorted(set(sequences) - report.per_sequence[model].keys() - {*skipped})
+        for model, skipped in report.skipped.items()
+    }
     report.overall, report.pooled_sequences = _pool_comparable(
         report.per_sequence, models
     )
     if eval_key:
+        if slices and view.media_type == "group":
+            view = view.select_group_slices(slices)
         _write_evaluations(view, gt_field, report, options, eval_key)
     return report
