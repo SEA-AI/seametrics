@@ -186,9 +186,11 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
             else:
                 relevant_slices = set(self.slices)
 
-            logger.info(f"Using slice: {relevant_slices}")
-
-            self.dataset = self.dataset.select_group_slices(relevant_slices)
+            self.slices = sorted(relevant_slices)  # callers select the same view
+            logger.info(f"Using slices: {self.slices}")
+            self.dataset = self.dataset.select_group_slices(self.slices)
+        else:
+            self.slices = None
 
         if self.tags:
             self.dataset = self.dataset.match_tags(self.tags, all=True)
@@ -326,11 +328,21 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
 
         Returns:
             Dict[str, Sequence]: The fetched sequences, keyed by name.
+
+        Raises:
+            ValueError: If a video sequence has more than one sample, e.g. one per
+                group slice: they would overwrite each other.
         """
         view = self.dataset.match(F("sequence").is_in(batch))
         ids, names = view.values(["id", "sequence"])
         if not names:
             return {}
+        if self.dataset.media_type == "video" and len(set(names)) < len(names):
+            name = next(n for n in names if names.count(n) > 1)
+            raise ValueError(
+                f"Sequence {name!r} has {names.count(name)} videos"
+                f" (slices: {self.slices}); select one slice per sequence."
+            )
 
         detections: Dict[str, Dict[str, list]] = {}
         keyframes: Dict[str, Dict[str, list]] = {}
@@ -396,9 +408,9 @@ class PayloadProcessor:  # pylint: disable=too-many-instance-attributes
         }
         masks = {}
         for field, per_seq in keyframes.items():
-            flags = per_seq.get(name, [])[frame_range]
-            if any(flags):
-                masks[field] = [bool(flag) for flag in flags]
+            flags = per_seq.get(name, [])
+            if any(flags):  # over the whole sequence: a window may hold no keyframe
+                masks[field] = [bool(flag) for flag in flags[frame_range]]
 
         blanking = masks.get(self.models[0]) if self.tracking_mode else None
         if blanking is not None:

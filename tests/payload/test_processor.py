@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import fiftyone as fo
 import pytest
 from pymongo.errors import OperationFailure
 
@@ -332,6 +333,15 @@ class TestBatchedFetching:
         assert sequence[GT] == [[], ["g2"]]
         assert sequence.keyframes == {"model1": [False, True]}
 
+    def test_a_window_without_keyframes_is_blanked_in_tracking_mode(self):
+        """Frame 1 has no flag, but the model flags keyframes elsewhere."""
+        view = _FakeSequenceView(_nest(FRAMES))
+        sequence = _fetch(
+            view, ["seq-1"], start_frame_id=1, end_frame_id=1, tracking_mode=True
+        )["seq-1"]
+        assert sequence["model1"] == [[]]
+        assert sequence.keyframes == {"model1": [False]}
+
     def test_single_sequence_too_large_still_raises(self):
         """A sequence too large even when unwound raises."""
         names, view = self._view(1, _TooLargeView)
@@ -479,3 +489,40 @@ def test_invalid_parameters_raise(overrides, error, match):
     }
     with pytest.raises(error, match=match):
         PayloadProcessor(**kwargs)
+
+
+@pytest.fixture
+def two_slice_dataset():
+    """One sequence filmed by two slices: 2 frames wide, 3 frames narrow.
+
+    Yields:
+        fo.Dataset: A throwaway group dataset, deleted after the test.
+    """
+    dataset = fo.Dataset()
+    dataset.add_group_field("group", default="thermal_wide")
+    group = fo.Group()
+    for name, n_frames in (("thermal_wide", 2), ("thermal_narrow", 3)):
+        sample = fo.Sample(
+            filepath=f"{name}.mp4",
+            group=group.element(name),
+            sequence="seq-1",
+            metadata=fo.VideoMetadata(frame_width=100, frame_height=50),
+        )
+        for number in range(1, n_frames + 1):
+            sample.frames[number] = fo.Frame(gt=fo.Detections(detections=[]))
+        dataset.add_sample(sample)
+    yield dataset
+    dataset.delete()
+
+
+def test_a_sequence_with_two_videos_raises(two_slice_dataset):
+    with pytest.raises(ValueError, match=r"2 videos .*thermal_narrow', 'thermal_wide"):
+        PayloadProcessor(two_slice_dataset.name, "gt", ["gt"])
+
+
+def test_the_selected_slice_is_recorded_and_fetched(two_slice_dataset):
+    processor = PayloadProcessor(
+        two_slice_dataset.name, "gt", ["gt"], slices=["thermal_narrow"]
+    )
+    assert processor.slices == ["thermal_narrow"]
+    assert len(processor.payload.sequences["seq-1"]["gt"]) == 3
