@@ -2,7 +2,7 @@
 
 Wraps the whole recipe: fetch a dataset in batches, evaluate every sequence for
 every model, pool the comparable subset, and hand back something reportable.
-See ``AGENTS.md`` in this package for the reasoning behind the defaults.
+See ``AGENTS.md`` in this package for how to read the results.
 """
 
 import dataclasses
@@ -25,8 +25,11 @@ from seametrics.detection.utils import (
 from seametrics.payload import Payload
 from seametrics.payload.processor import PayloadProcessor
 
-#: Small enough that any pixel-aligned overlap counts, large enough that a zero
-#: overlap never does. See "IoU threshold" in AGENTS.md.
+#: Matching skips only ``iou < threshold``, so at 0 a detection matches ground
+#: truth it does not touch. The smallest pixel-aligned overlap is about
+#: ``1 / (width * height)`` (3.05e-6 at 640x512), so 1e-5 already rejects some;
+#: 1e-9 counts any overlap. IoU 0.5 fails a few-pixel thermal target on a
+#: one-pixel offset, measuring localisation rather than detection.
 DEFAULT_IOU = 1e-9
 
 
@@ -308,8 +311,9 @@ def evaluate_models(
         models (List[str]): Prediction fields to compare.
         options (EvaluationOptions, optional): Keyframes, IoU threshold and
             classes. Defaults to ``EvaluationOptions()``.
-        slices (List[str], optional): Group slices to use, e.g.
-            ``["thermal_wide"]``. Defaults to the processor's automatic choice.
+        slices (List[str], optional): Required for a group dataset: exactly one
+            slice, e.g. ``["thermal_wide"]``. Slices share sequence names, so
+            one would overwrite another; run one report per slice.
         sequence_list (List[str], optional): Restrict to these sequences.
         batch_size (int, optional): Sequences fetched per query. Defaults to 8.
         eval_key (str, optional): **Writes to the dataset.** Also run FiftyOne's
@@ -322,17 +326,18 @@ def evaluate_models(
         DetectionReport: Per-sequence results, pooled totals and coverage.
 
     Raises:
-        ValueError: If *models* is empty.
+        ValueError: If *models* is empty, or a group dataset does not get
+            exactly one slice.
     """
     if not models:
         raise ValueError("Provide at least one model field.")
     options = options or EvaluationOptions()
 
     view = fo.load_dataset(dataset_name)
-    if slices and view.media_type == "group":
+    if view.media_type == "group":
+        if len(slices or []) != 1:
+            raise ValueError(f"Pick one slice of {view.group_slices}, got {slices}.")
         view = view.select_group_slices(slices)
-    if eval_key and view.media_type == "group":
-        raise ValueError("Evaluating a group dataset needs `slices`, the ones used.")
     if sequence_list is None:
         sequence_list = view.distinct("sequence")
     sequences = sorted(sequence_list)
