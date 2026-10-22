@@ -1,9 +1,10 @@
 """Convert FiftyOne and payload detections to metric inputs, and report results."""
 
 import contextlib
-import functools
 import io
 import pathlib
+import sys
+from itertools import compress
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import fiftyone as fo
@@ -19,13 +20,59 @@ from seametrics.payload import Payload
 # payload functions
 
 
-@functools.cache
-def _warn_missing_area() -> None:
-    """Print, once per process, that ground truth without area uses the bbox area."""
-    print(
-        "⚠️WARNING: Area not found in ground truth annotation(s), \
-                          using bbox area instead for these cases."
+def _sequence_det_inputs(
+    payload: Payload,
+    sequence_name: str,
+    model_name: str,
+    label_mapping: Optional[Dict[str, int]],
+    keyframes_only: bool,
+) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
+    """Convert one sequence's predictions and ground truth to metric inputs.
+
+    Args:
+        payload (Payload): The payload holding the sequence.
+        sequence_name (str): Name of the sequence.
+        model_name (str): Prediction field to read.
+        label_mapping (Dict[str, int], optional): Label to class-id mapping;
+            ``None`` for class-agnostic metrics.
+        keyframes_only (bool): Keep only the frames *model_name* flagged as
+            keyframes, in both the predictions and the ground truth.
+
+    Returns:
+        Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
+            ``(predictions, references)``, one dict per frame.
+
+    Raises:
+        ValueError: If *keyframes_only* is set and the sequence has no keyframe
+            mask for *model_name*, or one whose length differs from the frames.
+    """
+    sequence = payload.sequences[sequence_name]
+    pred_frames = sequence[model_name]
+    gt_frames = sequence[payload.gt_field_name]
+    if keyframes_only:
+        mask = (getattr(sequence, "keyframes", None) or {}).get(model_name)
+        if mask is None:
+            raise ValueError(
+                f"Sequence {sequence_name!r} has no keyframe data for {model_name!r}."
+                " Rebuild the payload with a PayloadProcessor that records keyframes,"
+                " or pass keyframes_only=False."
+            )
+        if not len(mask) == len(pred_frames) == len(gt_frames):
+            raise ValueError(
+                f"Keyframe mask for sequence {sequence_name!r} has {len(mask)} entries"
+                f" but the sequence has {len(pred_frames)} prediction and"
+                f" {len(gt_frames)} ground-truth frames."
+            )
+        pred_frames = list(compress(pred_frames, mask))
+        gt_frames = list(compress(gt_frames, mask))
+    w, h = sequence.resolution.width, sequence.resolution.height
+    predictions = payload_sequence_to_det_metrics(
+        sequence_dets=pred_frames, w=w, h=h, label_mapping=label_mapping
     )
+    references = payload_sequence_to_det_metrics(
+        sequence_dets=gt_frames, w=w, h=h, is_gt=True, label_mapping=label_mapping
+    )
+    return predictions, references
 
 
 def payload_to_det_metric(
@@ -33,6 +80,7 @@ def payload_to_det_metric(
     model_name: Optional[str] = None,
     label_mapping: Optional[Dict[str, int]] = None,
     class_agnostic: bool = True,
+    keyframes_only: bool = False,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
     """Convert the payload data to detection metrics format.
 
@@ -46,10 +94,15 @@ def payload_to_det_metric(
             calculated in a class-specific way. Defaults to None.
         class_agnostic (bool, optional): Flag indicating if the metrics should be
             calculated in a class-agnostic way. Defaults to True.
+        keyframes_only (bool, optional): Keep only the frames the model flagged as
+            keyframes, in ground truth and predictions alike, as
+            ``seametrics.tracking`` does. Requires sequences that record
+            keyframes. Defaults to False.
 
     Returns:
         Tuple[List[Dict[str, np.ndarray]], List[Dict[str, np.ndarray]]]:
-            A tuple containing the converted (predictions, references).
+            A tuple containing the converted (predictions, references), with
+            absolute ``xywh`` boxes: create the metric with ``box_format="xywh"``.
     """
     if class_agnostic and label_mapping is not None:
         raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
@@ -59,30 +112,93 @@ def payload_to_det_metric(
     if model_name is None:
         model_name = payload.models[0]
 
-    for _, sequence in payload.sequences.items():
-        w, h = (
-            sequence.resolution.width,
-            sequence.resolution.height,
+    for sequence_name in payload.sequences:
+        sequence_predictions, sequence_references = _sequence_det_inputs(
+            payload, sequence_name, model_name, label_mapping, keyframes_only
         )
-        predictions.extend(
-            payload_sequence_to_det_metrics(
-                sequence_dets=sequence[model_name],
-                w=w,
-                h=h,
-                label_mapping=label_mapping,
-            )
-        )
-        references.extend(
-            payload_sequence_to_det_metrics(
-                sequence_dets=sequence[payload.gt_field_name],
-                w=w,
-                h=h,
-                is_gt=True,
-                label_mapping=label_mapping,
-            )
-        )
+        predictions.extend(sequence_predictions)
+        references.extend(sequence_references)
 
     return predictions, references
+
+
+def payload_to_det_metrics_by_sequence(
+    payload: Payload,
+    model_name: Optional[str] = None,
+    label_mapping: Optional[Dict[str, int]] = None,
+    class_agnostic: bool = True,
+    *,
+    keyframes_only: bool = False,
+    **metric_kwargs: object,
+) -> Dict[str, dict]:
+    """Evaluate every sequence of a payload separately.
+
+    One metric over every frame weights precision and recall by support, so one
+    long sequence can hide a regression in a short one.
+    ``box_format`` is fixed to ``"xywh"``, the layout
+    :func:`frame_dets_to_det_metrics` emits.
+
+    Args:
+        payload (Payload): The payload containing sequences, models and the
+            ground truth field name.
+        model_name (str, optional): The name of the model to evaluate. If not
+            provided, the first model in the payload is used.
+        label_mapping (Dict[str, int], optional): Dictionary mapping string labels
+            to numbers, required for class-specific metrics. Defaults to None.
+        class_agnostic (bool, optional): Flag indicating if the metrics should be
+            calculated in a class-agnostic way. Defaults to True.
+        keyframes_only (bool, optional): As for :func:`payload_to_det_metric`.
+            Masks are per model, so two models may be scored on different frames.
+            Defaults to False.
+        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support``. For
+            class-specific metrics ``labels`` defaults to the sorted mapping
+            values, or ``[0]`` without one, so every sequence reports the same
+            classes.
+
+    Returns:
+        Dict[str, dict]: ``{sequence_name: compute() output}``. Pool them with
+            :func:`~seametrics.detection.pooling.aggregate_sequence_results`.
+
+    Raises:
+        ValueError: If *label_mapping* is combined with ``class_agnostic=True``,
+            or if ``box_format`` is in *metric_kwargs*. Errors in a sequence
+            propagate; ``seametrics.tracking`` logs them to ``failed_sequences``.
+    """
+    from seametrics.detection import PrecisionRecallF1Support
+
+    if class_agnostic and label_mapping is not None:
+        raise ValueError("Label mapping cannot be provided for class-agnostic metrics.")
+
+    if "box_format" in metric_kwargs:
+        raise ValueError(
+            "`box_format` cannot be overridden: frame_dets_to_det_metrics always"
+            " produces absolute xywh boxes."
+        )
+
+    if model_name is None:
+        model_name = payload.models[0]
+
+    if not class_agnostic:
+        # without a mapping every label is 0 (frame_dets_to_det_metrics)
+        labels = sorted(set(label_mapping.values())) if label_mapping else [0]
+        metric_kwargs.setdefault("labels", labels)
+
+    per_sequence_results = {}
+    for sequence_name in payload.sequences:
+        metric = PrecisionRecallF1Support(
+            box_format="xywh",
+            class_agnostic=class_agnostic,
+            **metric_kwargs,
+        )
+        predictions, references = _sequence_det_inputs(
+            payload, sequence_name, model_name, label_mapping, keyframes_only
+        )
+        metric.update(predictions, references)
+        # compute() prints a summary table; one per sequence floods the output
+        with contextlib.redirect_stdout(sys.stdout if metric.debug else io.StringIO()):
+            per_sequence_results[sequence_name] = metric.compute()
+
+    return per_sequence_results
 
 
 def payload_sequence_to_det_metrics(
@@ -105,7 +221,8 @@ def payload_sequence_to_det_metrics(
             calculated in a class-specific way. Defaults to None.
 
     Returns:
-        List[Dict[str, np.ndarray]]: A list containing the converted detections.
+        List[Dict[str, np.ndarray]]: A list containing the converted detections,
+            one dict per frame, as :func:`frame_dets_to_det_metrics` builds it.
     """
     output = []
 
@@ -125,6 +242,9 @@ def frame_dets_to_det_metrics(
 ) -> Dict[str, np.ndarray]:
     """Convert one frame's fiftyone detections to PrecisionRecallF1Support input.
 
+    FiftyOne boxes are relative ``[x, y, width, height]``; the output keeps that
+    layout in pixels, so the metric needs ``box_format="xywh"``.
+
     Args:
         fo_dets (List[fo.Detection]): A list of fiftyone detections.
         w (int): Width in pixels of the image.
@@ -133,20 +253,20 @@ def frame_dets_to_det_metrics(
             Defaults to False.
         label_mapping (Dict[str, int], optional): Dictionary mapping string labels to
             numbers, which should be provided if the detection metrics should be
-            calculated in a class-specific way. Defaults to None.
+            calculated in a class-specific way. Detections whose label is missing
+            from the mapping are dropped. Defaults to None.
 
     Returns:
-        Dict[str, np.ndarray]: Pixel ``xywh`` ``boxes``, ``labels``, and ``area``
-        (ground truth) or ``scores`` (predictions). Detections whose label is
-        missing from ``label_mapping`` are dropped.
+        Dict[str, np.ndarray]: ``boxes`` ``(N, 4)`` and ``labels`` ``(N,)``, plus
+            ``scores`` for predictions (``1.0`` when confidence is None). Empty
+            input yields 1-D empty arrays. No ``area``: the metric derives it from
+            the box.
     """
-    detections = []
+    boxes = []
     labels = []
     scores = []
-    areas = []
 
     for det in fo_dets:
-        bbox = det["bounding_box"]
         if label_mapping and det["label"] not in label_mapping:
             print(
                 f"could not add sample w/ label {det['label']}, \
@@ -154,23 +274,18 @@ def frame_dets_to_det_metrics(
             )
             continue
 
-        detections.append([bbox[0] * w, bbox[1] * h, bbox[2] * w, bbox[3] * h])
+        x, y, box_w, box_h = det["bounding_box"]
+        boxes.append([x * w, y * h, box_w * w, box_h * h])
         labels.append(0 if label_mapping is None else label_mapping[det["label"]])
-        scores.append(det["confidence"] if det["confidence"] else 1.0)  # None for gt
 
-        if is_gt:
-            if "area" in det.field_names:
-                areas.append(det["area"])
-            else:
-                areas.append(w * (bbox[2] - bbox[0]) * h * (bbox[3] - bbox[1]))
-                _warn_missing_area()
+        if not is_gt:
+            scores.append(1.0 if det["confidence"] is None else det["confidence"])
+
     metrics_dict = {
-        "boxes": np.array(detections),
+        "boxes": np.array(boxes),
         "labels": np.array(labels),
     }
-    if is_gt:
-        metrics_dict["area"] = np.array(areas)
-    else:
+    if not is_gt:
         metrics_dict["scores"] = np.array(scores)
     return metrics_dict
 

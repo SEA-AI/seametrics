@@ -131,8 +131,7 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
           Only required when `iou_type="segm"`.
         - iscrowd: optional :class:`~np.ndarray` of shape ``(num_boxes)``, 1 where
           the box or mask covers a crowd of objects. Defaults to 0.
-        - area: optional :class:`~np.ndarray` of shape ``(num_boxes)``. Missing
-          or non-positive areas are derived from the box or mask.
+        - area: ignored; the area always comes from the box or mask, like the IoU.
 
     ``compute`` returns a dict with:
 
@@ -242,7 +241,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
     groundtruths: List[np.ndarray]
     groundtruth_labels: List[np.ndarray]
     groundtruth_crowds: List[np.ndarray]
-    groundtruth_area: List[np.ndarray]
 
     # Public constructor: every argument is part of the API and stored on the instance.
     def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -324,7 +322,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
         self.groundtruths = []
         self.groundtruth_labels = []
         self.groundtruth_crowds = []
-        self.groundtruth_area = []
 
     def update(
         self, preds: List[Dict[str, np.ndarray]], target: List[Dict[str, np.ndarray]]
@@ -349,9 +346,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
             self.groundtruth_crowds.append(
                 item.get("iscrowd", np.zeros_like(item["labels"]))
             )
-            self.groundtruth_area.append(
-                item.get("area", np.zeros_like(item["labels"]))
-            )
 
     def compute(self) -> dict:
         """Computes the metric."""
@@ -361,7 +355,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
             self.groundtruths,
             self.groundtruth_labels,
             crowds=self.groundtruth_crowds,
-            area=self.groundtruth_area,
         )
         coco_preds.dataset = self._get_coco_format(
             self.detections, self.detection_labels, scores=self.detection_scores
@@ -580,7 +573,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
         *,
         scores: Optional[List[np.ndarray]] = None,
         crowds: Optional[List[np.ndarray]] = None,
-        area: Optional[List[np.ndarray]] = None,
     ) -> Dict:
         """Transforms and returns all cached targets or predictions in COCO format.
 
@@ -616,7 +608,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
                         image_label,
                         # ids have to start with 1, otherwise COCOEval results are wrong
                         annotation_id=len(annotations) + 1,
-                        area=None if area is None else area[image_id][k].tolist(),
                         crowd=0 if crowds is None else crowds[image_id][k].tolist(),
                         score=None if scores is None else scores[image_id][k].tolist(),
                     )
@@ -632,7 +623,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
         image_label: object,
         *,
         annotation_id: int,
-        area: Optional[float],
         crowd: int,
         score: Optional[object],
     ) -> Dict:
@@ -643,8 +633,6 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
             image_box: ``xywh`` box, or ``(size, counts)`` RLE mask for ``segm``.
             image_label: Class of the box; must be an int.
             annotation_id: Unique, 1-based id of the annotation.
-            area: Area to record; ``None`` or non-positive derives it from the box or
-                mask.
             crowd: The ``iscrowd`` flag.
             score: Detection score, must be a float; ``None`` for ground truth.
 
@@ -670,12 +658,11 @@ class PrecisionRecallF1Support:  # pylint: disable=too-many-instance-attributes
             else {"size": image_box[0], "counts": image_box[1]}
         )
 
-        if area is None or area <= 0:
-            area = (
-                image_box[2] * image_box[3]
-                if self.iou_type == "bbox"
-                else mask_utils.area(stat)
-            )
+        area = (
+            image_box[2] * image_box[3]
+            if self.iou_type == "bbox"
+            else mask_utils.area(stat)
+        )
 
         annotation = {
             "id": annotation_id,
