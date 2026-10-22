@@ -47,7 +47,8 @@ class EvaluationOptions:
         class_agnostic: Pool every class together.
 
     Raises:
-        ValueError: If *iou_threshold* is not positive.
+        ValueError: If *iou_threshold* is not positive, or *label_mapping* is
+            set while *class_agnostic* is True.
     """
 
     keyframes_only: bool = False
@@ -56,7 +57,9 @@ class EvaluationOptions:
     class_agnostic: bool = True
 
     def __post_init__(self) -> None:
-        """Reject a threshold at which non-overlapping boxes would match."""
+        """Reject options the metrics would only reject mid-run."""
+        if self.label_mapping is not None and self.class_agnostic:
+            raise ValueError("label_mapping needs class_agnostic=False.")
         if self.iou_threshold <= 0:
             raise ValueError(
                 f"iou_threshold must be > 0, got {self.iou_threshold}. At zero a"
@@ -262,6 +265,7 @@ def _write_evaluations(
             eval_key=key,
             iou=options.iou_threshold,
             classwise=not options.class_agnostic,
+            max_preds=100,  # cocoeval's maxDets, per frame and class
             progress=False,
         )
         _warn_on_disagreement(model_view, key, report.per_sequence[model])
@@ -326,11 +330,17 @@ def evaluate_models(
         DetectionReport: Per-sequence results, pooled totals and coverage.
 
     Raises:
-        ValueError: If *models* is empty, or a group dataset does not get
-            exactly one slice.
+        ValueError: If *models* is empty, a group dataset does not get exactly
+            one slice, or ``<eval_key>_<model>`` is not a valid identifier.
     """
     if not models:
         raise ValueError("Provide at least one model field.")
+    if eval_key and (
+        bad := [m for m in models if not f"{eval_key}_{m}".isidentifier()]
+    ):
+        raise ValueError(
+            f"eval_key {eval_key!r} with models {bad} is not an identifier."
+        )
     options = options or EvaluationOptions()
 
     view = fo.load_dataset(dataset_name)
@@ -365,6 +375,12 @@ def evaluate_models(
             metric_kwargs=metric_kwargs,
         )
 
+    for model in models:  # requested but never fetched, e.g. a typo
+        report.skipped[model] += sorted(
+            set(sequences)
+            - report.per_sequence[model].keys()
+            - {*report.skipped[model]}
+        )
     report.overall, report.pooled_sequences = _pool_comparable(
         report.per_sequence, models
     )

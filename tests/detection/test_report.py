@@ -196,15 +196,26 @@ def test_keyframes_only_skips_a_model_without_flags_and_pools_the_rest(dataset):
     assert dataset.values("frames.gt.detections.ev_a") == [[["tp"], [None]], [["tp"]]]
 
 
-def test_evaluate_models_needs_a_model():
-    with pytest.raises(ValueError, match="at least one model"):
-        evaluate_models("unused", "gt", [])
+@pytest.mark.parametrize(
+    ("models", "eval_key", "match"),
+    [([], None, "at least one model"), (["pred-v2"], "ev", "not an identifier")],
+)
+def test_evaluate_models_rejects_bad_arguments_before_loading(models, eval_key, match):
+    with pytest.raises(ValueError, match=match):
+        evaluate_models("unused", "gt", models, eval_key=eval_key)
 
 
-@pytest.mark.parametrize("threshold", [0, -0.1])
-def test_non_positive_iou_threshold_is_rejected(threshold):
-    with pytest.raises(ValueError, match="iou_threshold must be > 0"):
-        EvaluationOptions(iou_threshold=threshold)
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"iou_threshold": 0}, "iou_threshold must be > 0"),
+        ({"iou_threshold": -0.1}, "iou_threshold must be > 0"),
+        ({"label_mapping": {"BOAT": 1}}, "class_agnostic=False"),
+    ],
+)
+def test_invalid_options_are_rejected(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        EvaluationOptions(**kwargs)
 
 
 def test_evaluation_kwargs_carry_every_option():
@@ -233,6 +244,16 @@ def test_empty_sequence_list_evaluates_nothing(dataset):
     _video(dataset, "seq-1", {1: {"gt": fo.Detections(detections=[_gt()])}})
     report = evaluate_models(dataset.name, "gt", ["model"], sequence_list=[])
     assert report.per_sequence == {"model": {}}
+
+
+def test_a_requested_sequence_that_is_missing_is_excluded(dataset):
+    _hit_and_strays(dataset)
+    report = evaluate_models(
+        dataset.name, "gt", ["model"], sequence_list=["seq-1", "typo"]
+    )
+    assert sorted(report.per_sequence["model"]) == ["seq-1"]
+    assert report.excluded_sequences == ["typo"]
+    assert report.pooled_sequences == ["seq-1"]
 
 
 @pytest.mark.parametrize("slices", [None, ["wide", "narrow"]])
