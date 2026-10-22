@@ -308,8 +308,8 @@ def _by_sequence(payload, **kwargs: object):
     )
 
 
-def _overall(sequence_results):
-    return aggregate_sequence_results(sequence_results)["metrics"]
+def _overall(per_sequence_results):
+    return aggregate_sequence_results(per_sequence_results)["metrics"]
 
 
 def _hit_and_miss():

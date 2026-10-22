@@ -179,7 +179,7 @@ def payload_to_det_metrics_by_sequence(
     if label_mapping is not None:
         metric_kwargs.setdefault("labels", sorted(set(label_mapping.values())))
 
-    sequence_results = {}
+    per_sequence_results = {}
     for sequence_name in payload.sequences:
         metric = PrecisionRecallF1Support(
             box_format="xywh",
@@ -190,9 +190,9 @@ def payload_to_det_metrics_by_sequence(
             payload, sequence_name, model_name, label_mapping, keyframes_only
         )
         metric.update(predictions, references)
-        sequence_results[sequence_name] = metric.compute()
+        per_sequence_results[sequence_name] = metric.compute()
 
-    return sequence_results
+    return per_sequence_results
 
 
 def payload_sequence_to_det_metrics(

@@ -60,7 +60,7 @@ def _pool_area_range_metrics(entries: List[dict]) -> dict:
     return result
 
 
-def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
+def aggregate_sequence_results(per_sequence_results: Dict[str, dict]) -> dict:
     """Pool per-sequence detection results into one overall result.
 
     Matching never crosses a frame boundary, so counts are additive across
@@ -69,7 +69,7 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
     outside a range is ignored, not counted.
 
     Args:
-        sequence_results (Dict[str, dict]): ``{sequence_name: results}`` as
+        per_sequence_results (Dict[str, dict]): ``{sequence_name: results}`` as
             returned by :func:`payload_to_det_metrics_by_sequence`.
 
     Returns:
@@ -77,15 +77,15 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
             ``params`` and ``eval`` do not pool.
 
     Raises:
-        ValueError: If *sequence_results* is empty, if the
+        ValueError: If *per_sequence_results* is empty, if the
             sequences disagree on their area-range labels, or if a count field has
             inconsistent shapes across sequences.
     """
-    if not sequence_results:
+    if not per_sequence_results:
         raise ValueError("No sequence results to pool.")
 
     area_label_sets = {
-        tuple(results["metrics"]) for results in sequence_results.values()
+        tuple(results["metrics"]) for results in per_sequence_results.values()
     }
     if len(area_label_sets) > 1:
         raise ValueError(
@@ -97,7 +97,7 @@ def aggregate_sequence_results(sequence_results: Dict[str, dict]) -> dict:
     return {
         "metrics": {
             area_label: _pool_area_range_metrics(
-                [r["metrics"][area_label] for r in sequence_results.values()]
+                [r["metrics"][area_label] for r in per_sequence_results.values()]
             )
             for area_label in area_labels
         }
