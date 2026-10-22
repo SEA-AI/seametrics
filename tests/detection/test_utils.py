@@ -430,9 +430,10 @@ def test_invalid_conversion_arguments_raise(fn, kwargs, match):
         fn(_hit_and_miss(), **kwargs)
 
 
-def test_by_sequence_scores_each_sequence():
+def test_by_sequence_scores_each_sequence(capsys):
     """Pooled recall 0.5 would hide that one sequence scored 1.0 and the other 0.0."""
     res = _by_sequence(_hit_and_miss())
+    assert not capsys.readouterr().out  # no summary table per sequence
     hit, miss = (res[k]["metrics"]["all"] for k in res)
     assert list(res) == ["hit", "miss"]
     assert (hit["tp"], hit["fn"], hit["recall"]) == (1, 0, 1.0)
@@ -513,11 +514,6 @@ def test_class_specific_explicit_labels_are_kept():
         labels=[1, 2, 3],
     )
     assert np.shape(res["boat"]["metrics"]["all"]["tp"]) == (3,)
-
-
-def test_per_sequence_metrics_print_no_summary_tables(capsys):
-    _by_sequence(_hit_and_miss())
-    assert not capsys.readouterr().out
 
 
 def test_class_specific_without_mapping_pools_an_empty_sequence():
