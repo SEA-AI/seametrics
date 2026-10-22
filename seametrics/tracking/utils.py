@@ -658,19 +658,40 @@ def _run_metric_updates(
     for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
         sequence_view = view.match(F("sequence") == sequence_name)
         for pred_field in tqdm(pred_fields, desc="Models", leave=False):
-            try:
-                gt, pred = build_detection_inputs(
-                    view=sequence_view, gt_field=gt_field, pred_field=pred_field
-                )
-            except (ValueError, IndexError) as e:
-                for instance in instances[pred_field].values():
-                    instance.log_failed_sequence(sequence_name, [], [], exc=e)
-                continue
-            for instance in instances[pred_field].values():
-                try:
-                    instance.update(gt, pred, sequence_name)
-                except (ValueError, IndexError) as e:
-                    instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
+            _update_instances(
+                instances[pred_field],
+                sequence_view,
+                sequence_name,
+                gt_field,
+                pred_field,
+            )
+
+
+def _update_instances(  # pylint: disable=too-many-positional-arguments
+    metrics: dict,
+    sequence_view: fo.DatasetView,
+    sequence_name: str,
+    gt_field: str,
+    pred_field: str,
+) -> None:
+    """Update each ``{name: metric}`` in *metrics* with one sequence.
+
+    Inputs that cannot be built, or that a metric rejects, are logged to that
+    metric's ``failed_sequences`` instead of raised.
+    """
+    try:
+        gt, pred = build_detection_inputs(
+            view=sequence_view, gt_field=gt_field, pred_field=pred_field
+        )
+    except (ValueError, IndexError) as e:
+        for instance in metrics.values():
+            instance.log_failed_sequence(sequence_name, [], [], exc=e)
+        return
+    for instance in metrics.values():
+        try:
+            instance.update(gt, pred, sequence_name)
+        except (ValueError, IndexError) as e:
+            instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
 
 
 def get_excluded_sequences(instances: dict) -> set[str]:
