@@ -3,6 +3,7 @@
 import contextlib
 import io
 import pathlib
+import sys
 from itertools import compress
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -149,9 +150,10 @@ def payload_to_det_metrics_by_sequence(
         keyframes_only (bool, optional): As for :func:`payload_to_det_metric`.
             Masks are per model, so two models may be scored on different frames.
             Defaults to False.
-        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support``. With
-            *label_mapping*, ``labels`` defaults to the sorted mapping values so
-            every sequence reports the same classes.
+        **metric_kwargs: Forwarded to ``PrecisionRecallF1Support``. For
+            class-specific metrics ``labels`` defaults to the sorted mapping
+            values, or ``[0]`` without one, so every sequence reports the same
+            classes.
 
     Returns:
         Dict[str, dict]: ``{sequence_name: compute() output}``. Pool them with
@@ -176,8 +178,10 @@ def payload_to_det_metrics_by_sequence(
     if model_name is None:
         model_name = payload.models[0]
 
-    if label_mapping is not None:
-        metric_kwargs.setdefault("labels", sorted(set(label_mapping.values())))
+    if not class_agnostic:
+        # without a mapping every label is 0 (frame_dets_to_det_metrics)
+        labels = sorted(set(label_mapping.values())) if label_mapping else [0]
+        metric_kwargs.setdefault("labels", labels)
 
     per_sequence_results = {}
     for sequence_name in payload.sequences:
@@ -190,7 +194,9 @@ def payload_to_det_metrics_by_sequence(
             payload, sequence_name, model_name, label_mapping, keyframes_only
         )
         metric.update(predictions, references)
-        per_sequence_results[sequence_name] = metric.compute()
+        # compute() prints a summary table; one per sequence floods the output
+        with contextlib.redirect_stdout(sys.stdout if metric.debug else io.StringIO()):
+            per_sequence_results[sequence_name] = metric.compute()
 
     return per_sequence_results
 

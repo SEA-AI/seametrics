@@ -515,6 +515,23 @@ def test_class_specific_explicit_labels_are_kept():
     assert np.shape(res["boat"]["metrics"]["all"]["tp"]) == (3,)
 
 
+def test_per_sequence_metrics_print_no_summary_tables(capsys):
+    _by_sequence(_hit_and_miss())
+    assert not capsys.readouterr().out
+
+
+def test_class_specific_without_mapping_pools_an_empty_sequence():
+    """Unmapped labels are all 0, so a sequence with no boxes still reports it."""
+    payload = _payload(
+        {
+            "hit": _sequence([[_det()]], [[_pred()]]),
+            "empty": _sequence([[]], [[]]),
+        }
+    )
+    overall = _overall(_by_sequence(payload, class_agnostic=False))["all"]
+    assert (np.sum(overall["tp"]), np.sum(overall["fn"])) == (1, 0)
+
+
 def _keyframe_sequence(pred=None, mask=(True, False, True, False)):
     """GT on four frames; the model emits on, and flags, frames 0 and 2."""
     return _sequence(
