@@ -57,12 +57,14 @@ class Sequence:
 
     @property
     def field_names(self) -> List[str]:
-        """Field names of the sequence, excluding the resolution attribute.
+        """Detection field names of the sequence.
+
+        Excludes the resolution and keyframes attributes.
 
         Returns:
             List[str]: The list of field names.
         """
-        return list(self.__dict__.keys() - {"resolution"})
+        return list(self.__dict__.keys() - {"resolution", "keyframes"})
 
 
 @dataclass
