@@ -458,3 +458,103 @@ def test_classify_num_objects_many():
 
 def test_classify_num_objects_out_of_range_returns_none():
     assert utils.classify_num_objects(100) is None
+
+
+# ---------------------------------------------------------------------------
+# keyframe validation in build_detection_inputs
+# ---------------------------------------------------------------------------
+
+
+class _KeyframeView(_FakeVideoView):
+    """Video view whose keyframe mask can be overridden per test."""
+
+    def __init__(self, keyframes) -> None:
+        super().__init__()
+        self._keyframes = keyframes
+
+    def values(self, field):
+        if field == "frames[].pred.keyframe":
+            return self._keyframes
+        return super().values(field)
+
+
+class _KeyframeMetric:
+    """Metric stub that records failed sequences instead of computing anything."""
+
+    def __init__(self) -> None:
+        self.failed_sequences = {}
+        self.updated = []
+
+    def update(self, _gt, _pred, sequence_name):
+        self.updated.append(sequence_name)
+
+    def log_failed_sequence(self, sequence_name, _gt, _pred, exc=None):
+        self.failed_sequences[sequence_name] = exc
+
+
+class _SequencesView(_FakeVideoView):
+    """Matches the given views in evaluation order, one per sequence."""
+
+    def __init__(self, *views: object) -> None:
+        super().__init__()
+        self._views = iter(views)
+
+    def match(self, _condition):
+        return next(self._views)
+
+
+@pytest.mark.parametrize(
+    "mask",
+    [
+        pytest.param([], id="empty"),
+        pytest.param(None, id="none"),
+        pytest.param([False, False, False], id="all-false"),
+        pytest.param([None, None, None], id="all-none"),
+    ],
+)
+def test_build_detection_inputs_raises_when_no_frame_is_flagged(mask):
+    """A mask that flags nothing would silently drop every frame."""
+    with pytest.raises(ValueError, match="No keyframe data"):
+        utils.build_detection_inputs(
+            view=_KeyframeView(mask), gt_field="gt", pred_field="pred"
+        )
+
+
+@pytest.mark.parametrize("mask", [[True, False], [True, False, True, True]])
+def test_build_detection_inputs_raises_on_mask_length_mismatch(mask):
+    with pytest.raises(ValueError, match=f"has {len(mask)} entries"):
+        utils.build_detection_inputs(
+            view=_KeyframeView(mask), gt_field="gt", pred_field="pred"
+        )
+
+
+def test_compute_metrics_by_sequence_logs_bad_mask_and_continues():
+    metric = _KeyframeMetric()
+
+    utils.compute_metrics_by_sequence(
+        view=_SequencesView(_KeyframeView([True, False]), _FakeVideoView()),
+        gt_field="gt",
+        pred_field="pred",
+        metric_fn=lambda **_: metric,
+        metric_kwargs={},
+        sequence_list=["seq-bad", "seq-ok"],
+    )
+
+    assert list(metric.failed_sequences) == ["seq-bad"]
+    assert "has 2 entries" in str(metric.failed_sequences["seq-bad"])
+    assert metric.updated == ["seq-ok"]
+
+
+def test_run_metric_updates_logs_bad_mask_and_continues():
+    metric = _KeyframeMetric()
+
+    utils._run_metric_updates(
+        valid_sequences=["seq-bad", "seq-ok"],
+        view=_SequencesView(_KeyframeView([True, False]), _FakeVideoView()),
+        pred_fields=["pred"],
+        gt_field="gt",
+        instances={"pred": {"Recording": metric}},
+    )
+
+    assert list(metric.failed_sequences) == ["seq-bad"]
+    assert metric.updated == ["seq-ok"]
