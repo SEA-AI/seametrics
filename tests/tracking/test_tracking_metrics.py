@@ -429,6 +429,20 @@ class TestLogFailedSequence:
         m.log_failed_sequence("s", [], [])
         assert m.failed_sequences["s"] == "No ground truth and no predictions"
 
+    @pytest.mark.parametrize(
+        ("gt", "pred", "reason"),
+        [
+            pytest.param([], [], "ValueError: bad keyframe mask", id="both-empty"),
+            pytest.param([1], [], "No predictions", id="no-pred"),
+            pytest.param([1], [1], "ValueError: bad keyframe mask", id="inputs"),
+        ],
+    )
+    def test_exception_reason_keeps_the_empty_input_reasons(self, gt, pred, reason):
+        """Callers that fail before building inputs pass empty lists and the error."""
+        m = TrackingMetrics()
+        m.log_failed_sequence("s", gt, pred, exc=ValueError("bad keyframe mask"))
+        assert m.failed_sequences["s"] == reason
+
     def test_no_gt(self):
         m = TrackingMetrics()
         m.log_failed_sequence("s", [], [1])
