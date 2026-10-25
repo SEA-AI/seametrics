@@ -162,7 +162,6 @@ def test_pred_with_wrong_classification_same_area_class_specific():
                 ]
             ),
             "labels": np.array([1, 0]),  # first detection has wrong label
-            "area": np.array([132.2, 83.8]),
         }
     ]
 
@@ -170,7 +169,7 @@ def test_pred_with_wrong_classification_same_area_class_specific():
     results = metric.compute()
 
     val = results["metrics"]["small"]
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([0, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 0]))
@@ -184,7 +183,7 @@ def test_pred_with_wrong_classification_same_area_class_specific():
     assert val["nImgs"] == 1
 
     val = results["metrics"]["medium"]
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([1, 0, 0]))  # 1 true positive in class 0
     assert np.all(val["fp"] == np.array([0, 0, 1]))  # 1 false positive in class 2
@@ -200,7 +199,7 @@ def test_pred_with_wrong_classification_same_area_class_specific():
 
     val = results["metrics"]["all"]
     # same as for medium
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([1, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 1]))
@@ -253,7 +252,6 @@ def test_pred_with_wrong_classification_different_area_class_specific():
             "labels": np.array(
                 [1, 0]
             ),  # first detection has wrong label & different area category
-            "area": np.array([132.2, 83.8]),
         }
     ]
 
@@ -261,7 +259,7 @@ def test_pred_with_wrong_classification_different_area_class_specific():
     results = metric.compute()
 
     val = results["metrics"]["medium"]
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([1, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 0]))
@@ -276,7 +274,7 @@ def test_pred_with_wrong_classification_different_area_class_specific():
 
     val = results["metrics"]["large"]
     # only the class-2 prediction (~100x50 px) is large: one FP
-    assert val["iouThr"] == "0.00"
+    assert val["iouThr"] == "1e-10"
     assert val["maxDets"] == 100
     assert np.all(val["tp"] == np.array([0, 0, 0]))
     assert np.all(val["fp"] == np.array([0, 0, 1]))
@@ -324,14 +322,13 @@ def test_pred_with_predefined_labels_class_specific():
                 ]
             ),
             "labels": np.array([3, 0]),
-            "area": np.array([132.2, 83.8]),
         }
     ]
     metric.update(predictions, references)
     results = metric.compute()
     for key, val in results["metrics"].items():
         assert key == "all", "test 1"
-        assert val["iouThr"] == "0.00", "test 1"
+        assert val["iouThr"] == "1e-10", "test 1"
         assert val["maxDets"] == 100, "test 2"
         assert np.all(val["tp"] == np.array([1, 0, 0, 0])), (
             f"{val['tp']}"
@@ -345,6 +342,20 @@ def test_pred_with_predefined_labels_class_specific():
         assert np.all(val["support"] == np.array([1, 0, 0, 1])), "test 10"
         assert np.all(val["fpi"] == np.array([0, 0, 1, 0])), "test 11"
         assert val["nImgs"] == 1, "test 12"
+
+
+@pytest.mark.parametrize(
+    ("threshold", "expected"),
+    [(0.5, "0.50"), (0.05, "0.05"), (1e-5, "1e-05"), (1e-10, "1e-10")],
+)
+def test_iou_threshold_is_recorded_exactly(threshold, expected):
+    """Two decimals hide a threshold below 0.005; results_to_df parses it back."""
+    box = {"boxes": np.array([[10.0, 10.0, 20.0, 20.0]]), "labels": np.array([0])}
+    metric = PrecisionRecallF1Support(box_format="xywh", iou_thresholds=[threshold])
+    metric.update([{**box, "scores": np.array([0.9])}], [box])
+    recorded = metric.compute()["metrics"]["all"]["iouThr"]
+    assert recorded == expected
+    assert float(recorded) == pytest.approx(threshold, rel=1e-12)
 
 
 @pytest.mark.parametrize(

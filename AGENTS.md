@@ -37,7 +37,7 @@ CI (`.github/workflows/ci.yaml`) runs ruff (lint + format), pylint, pytest+cover
 
 Top-level package `seametrics/` is split by metric family. Each subpackage is independently importable and exposes its metric classes at the package root:
 
-- `detection/` — object detection metrics. `PrecisionRecallF1Support` is the public entry; the package selects a `tm/` (torchmetrics-backed) or `np/` (pure-numpy) implementation at import time via `detection/imports.py::_TORCHMETRICS_AVAILABLE`. `cocoeval.py` is a modified `pycocotools` core; touch it with extreme care — numerical changes ripple through every downstream report.
+- `detection/` — object detection metrics. `PrecisionRecallF1Support` is the public entry, implemented in `np/` (pure numpy). `cocoeval.py` is a modified `pycocotools` core; touch it with extreme care — numerical changes ripple through every downstream report.
 - `tracking/` — MOT metrics. `TrackingMetrics` wraps `motmetrics` (MOTA/MOTP/IDF1…); `HOTAMetrics` implements HOTA. Both share an interface so `compute_all_metrics_by_sequence` can evaluate them in one pass. Failed sequences are logged into `metric.failed_sequences` rather than raised — preserve that contract.
 - `panoptic/` — panoptic-quality metrics, also has a `tm/` variant guarded by an `imports.py` flag.
 - `payload/` — `processor.py` defines the `Sequence` / `Resolution` data carriers used across metrics. `Sequence` allows arbitrary dynamic attributes; do not lock it down without checking all call sites.
