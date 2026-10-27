@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import pathlib
+from itertools import compress
 
 import numpy as np
 import pandas as pd
@@ -38,6 +39,9 @@ def failed_sequence_reason(
         A short explanation string.
     """
     if len(gt) == 0 and len(pred) == 0:
+        # a caller that failed before building inputs passes the error with them
+        if exc is not None:
+            return f"{type(exc).__name__}: {exc}"
         return "No ground truth and no predictions"
     if len(gt) == 0:
         return "No ground truth"
@@ -57,7 +61,7 @@ except ImportError:
     _FIFTYONE_AVAILABLE = False
 
 
-def prepare_data_for_det_metrics(  # noqa: C901
+def prepare_data_for_det_metrics(  # ruff: ignore[complex-structure]
     gt_bboxes_per_frame: list,
     gt_track_ids_per_frame: list,
     dt_bboxes_per_frame: list,
@@ -286,9 +290,14 @@ def build_detection_inputs(
     Returns:
         Tuple of (target, preds) numpy arrays in MOT tracker format.
 
+    Only frames flagged as keyframes on *pred_field* are evaluated; ground truth
+    and predictions are dropped together for every other frame.
+
     Raises:
         ImportError: If ``fiftyone`` is not installed.
-        ValueError: If the view contains no samples after field selection.
+        ValueError: If the view contains no samples after field selection, if
+            *pred_field* carries no keyframe data or flags no frame, or if the
+            keyframe mask and a field differ in length.
     """
     if not _FIFTYONE_AVAILABLE:
         raise ImportError("fiftyone is required for this function")
@@ -300,53 +309,30 @@ def build_detection_inputs(
     img_w = sample["metadata"]["frame_width"]
     img_h = sample["metadata"]["frame_height"]
 
-    gt_bboxes_per_frame = get_values(view, f"{gt_field}.detections.bounding_box")
-    gt_track_ids_per_frame = get_values(view, f"{gt_field}.detections.index")
-    dt_bboxes_per_frame = get_values(view, f"{pred_field}.detections.bounding_box")
-    dt_scores_per_frame = get_values(view, f"{pred_field}.detections.confidence")
-    dt_track_ids_per_frame = get_values(view, f"{pred_field}.detections.index")
-
     keyframes = get_values(view, f"{pred_field}.keyframe")
-    gt_bboxes_per_frame = [
-        bboxes
-        for (kf, bboxes) in zip(keyframes, gt_bboxes_per_frame, strict=False)
-        if kf
-    ]
-    gt_track_ids_per_frame = [
-        track_ids
-        for (kf, track_ids) in zip(keyframes, gt_track_ids_per_frame, strict=False)
-        if kf
-    ]
-    dt_bboxes_per_frame = [
-        bboxes
-        for (kf, bboxes) in zip(keyframes, dt_bboxes_per_frame, strict=False)
-        if kf
-    ]
-    dt_scores_per_frame = [
-        scores
-        for (kf, scores) in zip(keyframes, dt_scores_per_frame, strict=False)
-        if kf
-    ]
-    dt_track_ids_per_frame = [
-        track_ids
-        for (kf, track_ids) in zip(keyframes, dt_track_ids_per_frame, strict=False)
-        if kf
-    ]
+    if not keyframes or not any(keyframes):
+        raise ValueError(
+            f"No keyframe data for {pred_field!r}; every frame would be dropped."
+        )
 
-    target, preds = prepare_data_for_det_metrics(
-        gt_bboxes_per_frame,
-        gt_track_ids_per_frame,
-        dt_bboxes_per_frame,
-        dt_track_ids_per_frame,
-        dt_scores_per_frame,
+    def on_keyframes(path: str) -> list:
+        values = get_values(view, path)
+        if len(values) != len(keyframes):
+            raise ValueError(
+                f"Keyframe mask from {pred_field!r} has {len(keyframes)} entries but"
+                f" {path!r} has {len(values)} frames."
+            )
+        return list(compress(values, keyframes))
+
+    return prepare_data_for_det_metrics(
+        on_keyframes(f"{gt_field}.detections.bounding_box"),
+        on_keyframes(f"{gt_field}.detections.index"),
+        on_keyframes(f"{pred_field}.detections.bounding_box"),
+        on_keyframes(f"{pred_field}.detections.index"),
+        on_keyframes(f"{pred_field}.detections.confidence"),
         img_w=img_w,
         img_h=img_h,
     )
-
-    del gt_bboxes_per_frame, gt_track_ids_per_frame
-    del dt_bboxes_per_frame, dt_scores_per_frame, dt_track_ids_per_frame
-
-    return target, preds
 
 
 def compute_metrics(
@@ -567,9 +553,12 @@ def compute_metrics_by_sequence(
     )
     for sequence_name in resolved_sequences:
         sequence_view = view.match(F("sequence") == sequence_name)
-        sequence_results[sequence_name] = build_detection_inputs(
-            view=sequence_view, gt_field=gt_field, pred_field=pred_field
-        )
+        try:
+            sequence_results[sequence_name] = build_detection_inputs(
+                view=sequence_view, gt_field=gt_field, pred_field=pred_field
+            )
+        except (ValueError, IndexError) as e:
+            metric.log_failed_sequence(sequence_name, [], [], exc=e)
     for sequence, (gt, pred) in sequence_results.items():
         try:
             metric.update(gt, pred, sequence)
@@ -669,14 +658,40 @@ def _run_metric_updates(
     for sequence_name in tqdm(valid_sequences, desc="Computing metrics"):
         sequence_view = view.match(F("sequence") == sequence_name)
         for pred_field in tqdm(pred_fields, desc="Models", leave=False):
-            gt, pred = build_detection_inputs(
-                view=sequence_view, gt_field=gt_field, pred_field=pred_field
+            _update_instances(
+                instances[pred_field],
+                sequence_view,
+                sequence_name,
+                gt_field,
+                pred_field,
             )
-            for instance in instances[pred_field].values():
-                try:
-                    instance.update(gt, pred, sequence_name)
-                except (ValueError, IndexError) as e:
-                    instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
+
+
+def _update_instances(  # pylint: disable=too-many-positional-arguments
+    metrics: dict,
+    sequence_view: fo.DatasetView,
+    sequence_name: str,
+    gt_field: str,
+    pred_field: str,
+) -> None:
+    """Update each ``{name: metric}`` in *metrics* with one sequence.
+
+    Inputs that cannot be built, or that a metric rejects, are logged to that
+    metric's ``failed_sequences`` instead of raised.
+    """
+    try:
+        gt, pred = build_detection_inputs(
+            view=sequence_view, gt_field=gt_field, pred_field=pred_field
+        )
+    except (ValueError, IndexError) as e:
+        for instance in metrics.values():
+            instance.log_failed_sequence(sequence_name, [], [], exc=e)
+        return
+    for instance in metrics.values():
+        try:
+            instance.update(gt, pred, sequence_name)
+        except (ValueError, IndexError) as e:
+            instance.log_failed_sequence(sequence_name, gt, pred, exc=e)
 
 
 def get_excluded_sequences(instances: dict) -> set[str]:
