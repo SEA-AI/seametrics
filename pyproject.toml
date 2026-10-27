@@ -115,6 +115,5 @@ testpaths = ["tests"]
 
 [tool.uv]
 constraint-dependencies = [
-  # certifi floor
   "certifi>=2026.10.23"
 ]
