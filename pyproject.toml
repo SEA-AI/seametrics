@@ -115,6 +115,6 @@ testpaths = ["tests"]
 
 [tool.uv]
 constraint-dependencies = [
-  # eMudhra CA incident: older certifi trusts the compromised CAs (SEA-1555)
+  # certifi floor
   "certifi>=2026.10.23"
 ]
