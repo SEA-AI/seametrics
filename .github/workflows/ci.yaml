@@ -70,10 +70,11 @@ jobs:
           key: repo-${{ github.sha }}
 
       - uses: astral-sh/ruff-action@v4.1.0
+        if: ${{ needs.changed-files.outputs.changed_files != '' }}
         name: ✨ Lint with Ruff (only changed files)
         with:
           version: "latest"
-          src: ${{ needs.changed-files.outputs.changed_files || 'seametrics' }}
+          src: ${{ needs.changed-files.outputs.changed_files }}
           args: check --output-format=github
 
   ruff-format:
@@ -91,10 +92,11 @@ jobs:
           key: repo-${{ github.sha }}
 
       - uses: astral-sh/ruff-action@v4.1.0
+        if: ${{ needs.changed-files.outputs.changed_files != '' }}
         name: 📝 Format with Ruff (only changed files)
         with:
           version: "latest"
-          src: ${{ needs.changed-files.outputs.changed_files || 'seametrics' }}
+          src: ${{ needs.changed-files.outputs.changed_files }}
           args: "format --diff"
 
   pylint:
@@ -124,7 +126,8 @@ jobs:
         run: uv pip install pylint
 
       - name: 🔍 Run Pylint
-        run: uv run pylint ${{ needs.changed-files.outputs.changed_files || 'seametrics' }}
+        if: ${{ needs.changed-files.outputs.changed_files != '' }}
+        run: uv run pylint ${{ needs.changed-files.outputs.changed_files }}
 
   sonarqube:
     needs:
