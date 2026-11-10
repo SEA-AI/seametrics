@@ -46,13 +46,14 @@ jobs:
             **/*.py
             **/*.pyi
 
-      - name: 🔍 Get changed dependency files
+      - name: 🔍 Get changed dependency / CI files
         id: changed-dep-files
         uses: tj-actions/changed-files@v47
         with:
           files: |
             uv.lock
             pyproject.toml
+            .github/workflows/**
 
   ruff-linter:
     needs: changed-files
