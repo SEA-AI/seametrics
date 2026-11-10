@@ -138,6 +138,11 @@ jobs:
       - pylint
     runs-on: ubuntu-latest
     if: ${{ needs.changed-files.outputs.changed_files != '' || needs.changed-files.outputs.deps_changed == 'true' }}
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
     steps:
       - name: 🔄 Restore repository from cache
         uses: actions/cache@v6
@@ -156,6 +161,7 @@ jobs:
 
       - name: 🧪 Run pytest with coverage
         env:
+          FIFTYONE_DATABASE_URI: mongodb://localhost:27017
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
         run: uv run pytest --cov-report=xml
