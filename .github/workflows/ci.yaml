@@ -29,8 +29,9 @@ jobs:
     needs: checkout
     runs-on: ubuntu-latest
     outputs:
-      changed_files: ${{ steps.changed-python-files.outputs.all_changed_files }}
-      deps_changed: ${{ steps.changed-dep-files.outputs.any_changed }}
+      python: ${{ steps.changes.outputs.python }}
+      python_files: ${{ steps.changes.outputs.python_files }}
+      deps: ${{ steps.changes.outputs.deps }}
     steps:
       - name: 🔄 Restore repository from cache
         uses: actions/cache@v6
@@ -38,27 +39,24 @@ jobs:
           path: .
           key: repo-${{ github.sha }}
 
-      - name: 🔍 Get changed files
-        id: changed-python-files
-        uses: tj-actions/changed-files@v47
+      - name: 🔍 Detect changed files
+        id: changes
+        uses: dorny/paths-filter@v4.0.3
         with:
-          files: |
-            **/*.py
-            **/*.pyi
-
-      - name: 🔍 Get changed dependency / CI files
-        id: changed-dep-files
-        uses: tj-actions/changed-files@v47
-        with:
-          files: |
-            uv.lock
-            pyproject.toml
-            .github/workflows/**
+          list-files: shell
+          filters: |
+            python:
+              - '**/*.py'
+              - '**/*.pyi'
+            deps:
+              - 'uv.lock'
+              - 'pyproject.toml'
+              - '.github/workflows/**'
 
   ruff-linter:
     needs: changed-files
     runs-on: ubuntu-latest
-    if: ${{ needs.changed-files.outputs.changed_files != '' || needs.changed-files.outputs.deps_changed == 'true' }}
+    if: ${{ needs.changed-files.outputs.python == 'true' || needs.changed-files.outputs.deps == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -70,17 +68,17 @@ jobs:
           key: repo-${{ github.sha }}
 
       - uses: astral-sh/ruff-action@v4.1.0
-        if: ${{ needs.changed-files.outputs.changed_files != '' }}
+        if: ${{ needs.changed-files.outputs.python == 'true' }}
         name: ✨ Lint with Ruff (only changed files)
         with:
           version: "latest"
-          src: ${{ needs.changed-files.outputs.changed_files }}
+          src: ${{ needs.changed-files.outputs.python_files }}
           args: check --output-format=github
 
   ruff-format:
     needs: changed-files
     runs-on: ubuntu-latest
-    if: ${{ needs.changed-files.outputs.changed_files != '' || needs.changed-files.outputs.deps_changed == 'true' }}
+    if: ${{ needs.changed-files.outputs.python == 'true' || needs.changed-files.outputs.deps == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -92,17 +90,17 @@ jobs:
           key: repo-${{ github.sha }}
 
       - uses: astral-sh/ruff-action@v4.1.0
-        if: ${{ needs.changed-files.outputs.changed_files != '' }}
+        if: ${{ needs.changed-files.outputs.python == 'true' }}
         name: 📝 Format with Ruff (only changed files)
         with:
           version: "latest"
-          src: ${{ needs.changed-files.outputs.changed_files }}
+          src: ${{ needs.changed-files.outputs.python_files }}
           args: "format --diff"
 
   pylint:
     needs: changed-files
     runs-on: ubuntu-latest
-    if: ${{ needs.changed-files.outputs.changed_files != '' || needs.changed-files.outputs.deps_changed == 'true' }}
+    if: ${{ needs.changed-files.outputs.python == 'true' || needs.changed-files.outputs.deps == 'true' }}
     permissions:
       contents: read
       pull-requests: write
@@ -126,8 +124,8 @@ jobs:
         run: uv pip install pylint
 
       - name: 🔍 Run Pylint
-        if: ${{ needs.changed-files.outputs.changed_files != '' }}
-        run: uv run pylint ${{ needs.changed-files.outputs.changed_files }}
+        if: ${{ needs.changed-files.outputs.python == 'true' }}
+        run: uv run pylint ${{ needs.changed-files.outputs.python_files }}
 
   sonarqube:
     needs:
@@ -137,7 +135,7 @@ jobs:
       - ruff-format
       - pylint
     runs-on: ubuntu-latest
-    if: ${{ needs.changed-files.outputs.changed_files != '' || needs.changed-files.outputs.deps_changed == 'true' }}
+    if: ${{ needs.changed-files.outputs.python == 'true' || needs.changed-files.outputs.deps == 'true' }}
     services:
       mongo:
         image: mongo:7
